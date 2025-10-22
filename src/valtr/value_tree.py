@@ -96,6 +96,41 @@ class ValueNode:
             result += self.right.to_string(indent + 1) + "\n"
 
         return result.rstrip()
+    
+    def to_latex(self) -> str:
+        """
+        Convert the node to a LaTeX representation.
+
+        Returns:
+            LaTeX string representation of the node
+        """
+        if self.operation == "leaf":
+            return f"\\:{self.value}\\left( s_t \\right)"
+
+        left_latex = self.left.to_latex() if self.left else ""
+        right_latex = self.right.to_latex() if self.right else ""
+
+        if self.operation == "min":
+            return f"\\:\\: \\min\\left({left_latex}, {right_latex}\\right)"
+        elif self.operation == "max":
+            return f"\\:\\: \\max\\left({left_latex}, {right_latex}\\right)"
+        elif self.operation == "negation":
+            return f"\\:-{left_latex}"
+        elif self.operation == "temporal_min":
+            tb = self.params.get("time_bounds", "")
+            tb = f"\\in [{tb[0]}, {tb[1]}]" if tb else ""
+            return f"\\:\\: \\min_{{t {tb}}} {left_latex}"
+        elif self.operation == "temporal_max":
+            tb = self.params.get("time_bounds", "")
+            tb = f"\\in [{tb[0]}, {tb[1]}]" if tb else ""
+            return f"\\:\\: \\max_{{t {tb}}} {left_latex}"
+        elif self.operation == "until":
+            tb = self.params.get("time_bounds", "")
+            tb = f"\\in [{tb[0]}, {tb[1]}]" if tb else ""
+            # return f"\\left({left_latex}\\right) \\; U \\; \\left({right_latex}\\right)"
+            return f"\\:\\: \\max \\left(\\min \\left({right_latex}, \\:\\: \\min_{{t {tb}}} {left_latex}\\right)\\right)"
+        else:
+            return f"{self.operation}\\left({left_latex}, {right_latex}\\right)"
 
     def __repr__(self) -> str:
         """Return a string representation of the node."""
@@ -263,6 +298,11 @@ class ValueTree:
         # Draw the tree
         self._draw_node(ax, self.root, positions)
 
+        # Annotate bottom with formula
+        formula = self.root.to_latex()
+        formula_rend = f"$V(s) \\:\\:\\: = \\:\\:\\: \\max_{{\\pi}} {formula}$"
+        ax.annotate(formula_rend, xy=(0.5, 0.05), xycoords="axes fraction", ha="center", fontsize=12)
+
         plt.title("Value Tree", fontsize=16, fontweight="bold")
         plt.tight_layout()
 
@@ -321,18 +361,18 @@ class ValueTree:
         # Draw edges to children
         if node.left:
             x_left, y_left = positions[id(node.left)]
-            ax.plot([x, x_left], [y, y_left], "k-", linewidth=2, alpha=0.6)
+            ax.plot([x, x_left], [y, y_left], "k-", linewidth=2, alpha=0.6, zorder=1)
             self._draw_node(ax, node.left, positions)
 
         if node.right:
             x_right, y_right = positions[id(node.right)]
-            ax.plot([x, x_right], [y, y_right], "k-", linewidth=2, alpha=0.6)
+            ax.plot([x, x_right], [y, y_right], "k-", linewidth=2, alpha=0.6, zorder=1)
             self._draw_node(ax, node.right, positions)
 
         # Draw node
         if node.operation == "leaf":
             color = "lightcoral"
-            label = f"leaf\n{node.value}"
+            label = f"{node.value}"
         else:
             color = "lightyellow"
             label = node.operation
@@ -349,6 +389,8 @@ class ValueTree:
             edgecolor="black",
             facecolor=color,
             linewidth=2,
+            alpha=0.9, # DOESNT HAVE AN EFFECT
+            zorder=2
         )
         ax.add_patch(bbox)
         ax.text(x, y, label, ha="center", va="center", fontsize=9, fontweight="bold")

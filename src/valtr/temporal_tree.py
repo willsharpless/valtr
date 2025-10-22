@@ -95,6 +95,51 @@ class TemporalLogicNode:
 
         return result.rstrip()
 
+    def to_latex(self) -> str:
+        """
+        Convert the node to a LaTeX representation.
+
+        Returns:
+            LaTeX string representation of the node
+        """
+
+        # Leaves / predicates
+        if self.operator == "PREDICATE":
+            # \: is fine in mathtext; ensures a small space before symbol
+            return rf"\:{self.value}"
+
+        # Mathtext-safe operator symbols (no usetex required)
+        operator_map = {
+            "AND": r"\wedge", # "\\land",
+            "OR": r"\vee", # "\\lor",
+            "NOT": r"\neg", # "\\lnot",
+            "ALWAYS": "□", # "\\Box",
+            "EVENTUALLY": "◇", # "\\Diamond",
+            "UNTIL": r"\, U \,",
+        }
+
+        op = operator_map.get(self.operator, self.operator)
+
+        sub = ""
+        if getattr(self, "time_bounds", None):
+            a, b = self.time_bounds
+            sub = rf"_{{[{a}, {b}]}}"
+
+        def P(expr: str) -> str:
+            return rf"\left(\:{expr}\right)"
+
+        if self.operator in {"NOT", "ALWAYS", "EVENTUALLY"}:
+            if self.left and not self.right:
+                return rf"{op}{sub}" + self.left.to_latex()
+            else:
+                return rf"{op}{sub}" + P(self.left.to_latex())
+
+        if self.operator in {"AND", "OR", "UNTIL"}:
+            return P(self.left.to_latex() + rf"\:\:{op}{sub}\:\:" + self.right.to_latex())
+
+        else:
+            raise ValueError("Unknown Operator")
+
     def __repr__(self) -> str:
         """Return a string representation of the node."""
         return self.to_string()
@@ -129,6 +174,15 @@ class TemporalLogicTree:
             String representation of the tree
         """
         return f"TemporalLogicTree:\n{self.root.to_string()}"
+    
+    def to_latex(self) -> str:
+        """
+        Convert the tree to a LaTeX representation.
+
+        Returns:
+            LaTeX string representation of the tree
+        """
+        return self.root.to_latex()
 
     def to_file(self, filepath: str, format: str = "json") -> None:
         """
@@ -168,6 +222,12 @@ class TemporalLogicTree:
 
         # Draw the tree
         self._draw_node(ax, self.root, positions)
+
+        # Annotate bottom with formula
+        formula = self.to_latex()
+        formula_rend = rf"$\varphi \, := \, {formula}$"   # raw string; thin spaces
+        ax.annotate(formula_rend, xy=(0.5, 0.05), xycoords="axes fraction",
+                    ha="center", fontsize=12)
 
         plt.title("Temporal Logic Tree", fontsize=16, fontweight="bold")
         plt.tight_layout()
@@ -227,12 +287,12 @@ class TemporalLogicTree:
         # Draw edges to children
         if node.left:
             x_left, y_left = positions[id(node.left)]
-            ax.plot([x, x_left], [y, y_left], "k-", linewidth=2, alpha=0.6)
+            ax.plot([x, x_left], [y, y_left], "k-", linewidth=2, alpha=0.6, zorder=1)
             self._draw_node(ax, node.left, positions)
 
         if node.right:
             x_right, y_right = positions[id(node.right)]
-            ax.plot([x, x_right], [y, y_right], "k-", linewidth=2, alpha=0.6)
+            ax.plot([x, x_right], [y, y_right], "k-", linewidth=2, alpha=0.6, zorder=1)
             self._draw_node(ax, node.right, positions)
 
         # Draw node
@@ -246,13 +306,14 @@ class TemporalLogicTree:
                 label += f"\n[{node.time_bounds[0]}, {node.time_bounds[1]}]"
 
         bbox = FancyBboxPatch(
-            (x - 0.3, y - 0.15),
-            0.6,
+            (x - 0.4, y - 0.15),
+            0.8,
             0.3,
             boxstyle="round,pad=0.05",
             edgecolor="black",
             facecolor=color,
             linewidth=2,
+            zorder=2,
         )
         ax.add_patch(bbox)
         ax.text(x, y, label, ha="center", va="center", fontsize=10, fontweight="bold")
