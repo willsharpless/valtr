@@ -4,10 +4,9 @@ import pytest
 import numpy as np
 from valtr.parser import STLParser
 from valtr.value_tree import ValueTree, ValueNode
-from valtr.utils import HJReachabilitySolver, evaluate_value_node
+from valtr.dp import DynamicProgrammingSolver, evaluate_value_node
 
-
-class TestHJReachabilitySolver:
+class TestDynamicProgrammingSolver:
     """Test cases for HJ reachability solver."""
 
     def test_create_solver(self):
@@ -15,7 +14,7 @@ class TestHJReachabilitySolver:
         parser = STLParser()
         temporal_tree = parser.parse("p")
         value_tree = ValueTree.from_temporal_tree(temporal_tree)
-        solver = HJReachabilitySolver(value_tree)
+        solver = DynamicProgrammingSolver(value_tree)
         
         assert solver.value_tree == value_tree
 
@@ -24,7 +23,7 @@ class TestHJReachabilitySolver:
         parser = STLParser()
         temporal_tree = parser.parse("p")
         value_tree = ValueTree.from_temporal_tree(temporal_tree)
-        solver = HJReachabilitySolver(value_tree)
+        solver = DynamicProgrammingSolver(value_tree)
         
         result = solver.solve()
         assert "status" in result
@@ -35,7 +34,7 @@ class TestHJReachabilitySolver:
         parser = STLParser()
         temporal_tree = parser.parse("p")
         value_tree = ValueTree.from_temporal_tree(temporal_tree)
-        solver = HJReachabilitySolver(value_tree)
+        solver = DynamicProgrammingSolver(value_tree)
         
         state = np.array([1.0, 2.0])
         result = solver.evaluate_at_state(state)
@@ -46,7 +45,7 @@ class TestHJReachabilitySolver:
         parser = STLParser()
         temporal_tree = parser.parse("p")
         value_tree = ValueTree.from_temporal_tree(temporal_tree)
-        solver = HJReachabilitySolver(value_tree)
+        solver = DynamicProgrammingSolver(value_tree)
         
         grid = np.array([[1.0, 2.0], [3.0, 4.0]])
         result = solver.compute_value_function(grid)

@@ -27,6 +27,8 @@ classifiers = [
 dependencies = [
     "matplotlib>=3.5.0",
     "numpy>=1.21.0",
+    "attrs>=21.0.0",
+    "ipdb>=0.13.0",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +38,9 @@ dev = [
     "black>=23.0.0",
     "flake8>=6.0.0",
     "mypy>=1.0.0",
+]
+dp = [
+    "hj-reachability>=0.1.0",
 ]
 
 [tool.setuptools.packages.find]

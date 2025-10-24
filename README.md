@@ -165,7 +165,7 @@ print(value_tree)
 
 ```python
 from valtr import STLParser, ValueTree
-from valtr.utils import HJReachabilitySolver
+from valtr.utils import DynamicProgrammingSolver
 import numpy as np
 
 # Create value tree
@@ -174,7 +174,7 @@ temporal_tree = parser.parse("[]p")
 value_tree = ValueTree.from_temporal_tree(temporal_tree)
 
 # Initialize solver (placeholder for actual HJ reachability)
-solver = HJReachabilitySolver(value_tree)
+solver = DynamicProgrammingSolver(value_tree)
 result = solver.solve()
 print(result)
 ```
@@ -224,13 +224,13 @@ value_tree.plot(filepath: Optional[str] = None, show: bool = True)
 ### Utilities
 
 ```python
-from valtr.utils import evaluate_value_node, HJReachabilitySolver
+from valtr.utils import evaluate_value_node, DynamicProgrammingSolver
 
 # Evaluate value node
 result = evaluate_value_node(node: ValueNode, state_values: Dict[str, float])
 
 # HJ Reachability solver (placeholder for integration)
-solver = HJReachabilitySolver(value_tree: ValueTree)
+solver = DynamicProgrammingSolver(value_tree: ValueTree)
 result = solver.solve()
 ```
 

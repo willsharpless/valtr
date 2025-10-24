@@ -84,7 +84,7 @@ print()
 print("=" * 60)
 print("Example 8: Evaluate value tree")
 print("=" * 60)
-from valtr.utils import evaluate_value_node
+from valtr.dp import evaluate_value_node
 
 temporal_tree = parser.parse("p&q|!r")
 value_tree = ValueTree.from_temporal_tree(temporal_tree)
