@@ -265,18 +265,18 @@ def solveplot(diffgame, init_values, post_processor, title="", tf=TF, ntimes=5,
 # %% 
 
 ## Ball - BAT
-def BAT_ball_pp(t,vlast,v): return BAT(t, v, avoid_values_ball)
+def BAT_ball_pp(t,v): return BAT(t, v, avoid_values_ball)
 BAT_values_lin_ball_full, BAT_ball_lin_fig_last = solveplot(diffgame, init_values_avoid_ball, BAT_ball_pp, title="Point BAT Final", plot_avoid_solid=False, plot_no_value=False, plot_aBC=True, avoid_game=True, one_shot=True, ntimes=ntimes)
 _, BAT_ball_lin_fig = solveplot(diffgame, init_values_avoid_ball, BAT_ball_pp, title="Point BAT", plot_avoid_solid=False, plot_no_value=False, plot_aBC=True, avoid_game=True)
 
 # %%
 
 ## Ball - BRAAT
-def BRAAT_ball_lin_l_pp_1(t,vlast,v): return BRAAT(t, v, BAT_values_lin_ball_full, times, target_values_1(t), avoid_values_ball(t))
+def BRAAT_ball_lin_l_pp_1(t,v): return BRAAT(t, v, BAT_values_lin_ball_full, times, target_values_1(t), avoid_values_ball(t))
 BRAAT_values_1, BRAAT_fig_1_last = solveplot(diffgame, init_values_reachavoid_ball_1, BRAAT_ball_lin_l_pp_1, title=f"Point BRAAT Final", plot_reach_solid=False, plot_avoid_solid=False, plot_bcs=True, plot_no_value=False, one_shot=True, ntimes=ntimes)
 _, BRAAT_fig_1 = solveplot(diffgame, init_values_reachavoid_ball_1, BRAAT_ball_lin_l_pp_1, title=f"Point BRAAT", plot_reach_solid=False, plot_avoid_solid=False, plot_bcs=True, plot_no_value=False)
 
-def BRAAT_ball_lin_l_pp_2(t,vlast,v): return BRAAT(t, v, BAT_values_lin_ball_full, times, target_values_2(t), avoid_values_ball(t))
+def BRAAT_ball_lin_l_pp_2(t,v): return BRAAT(t, v, BAT_values_lin_ball_full, times, target_values_2(t), avoid_values_ball(t))
 BRAAT_values_2, BRAAT_fig_2_last = solveplot(diffgame, init_values_reachavoid_ball_2, BRAAT_ball_lin_l_pp_2, title=f"Point BRAAT Final", plot_reach_solid=False, plot_avoid_solid=False, plot_bcs=True, plot_no_value=False, one_shot=True, ntimes=ntimes)
 _, BRAAT_fig_2 = solveplot(diffgame, init_values_reachavoid_ball_2, BRAAT_ball_lin_l_pp_2, title=f"Point BRAAT", plot_reach_solid=False, plot_avoid_solid=False, plot_bcs=True, plot_no_value=False)
 
@@ -292,8 +292,10 @@ def BRRAAT(t, v, vA, V1AA, V2AA, times, rBC1, rBC2, aBC):
                         )
 
 ## Two-Target - BRRAAT
-def BRRAAT_pp(t,vlast,v): return BRRAAT(t, v, BAT_values_lin_ball_full, BRAAT_values_1, BRAAT_values_2, times, target_values_1(t), target_values_2(t), avoid_values_ball(t))
+def BRRAAT_pp(t,v): return BRRAAT(t, v, BAT_values_lin_ball_full, BRAAT_values_1, BRAAT_values_2, times, target_values_1(t), target_values_2(t), avoid_values_ball(t))
 
 init_values_rraa = BRRAAT(0., init_values_RR, init_values_avoid_ball, init_values_reachavoid_ball_1, init_values_reachavoid_ball_2, times, target_values_1(0.), target_values_2(0.), avoid_values_ball(0.))
 reach_values_stat, BRRAAT_fig = solveplot(diffgame, init_values_rraa, BRRAAT_pp, title="Point BRRAAT", plot_reach_solid=False, plot_avoid_solid=False, plot_bcs=True, plot_no_value=False)
 
+
+# %%

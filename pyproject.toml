@@ -41,6 +41,7 @@ dev = [
 ]
 dp = [
     "hj-reachability>=0.1.0",
+    "tqdm>=4.64.0",
 ]
 
 [tool.setuptools.packages.find]
