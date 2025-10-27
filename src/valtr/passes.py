@@ -125,7 +125,7 @@ def combine_multi_finally(node: Node) -> Node:
         AND( F a, F_[1,2] b, c, F d )  ==>  AND( MultiFinally([a,b,d],[None,[1,2],None]), c )
     """
     # Recurse
-    if isinstance(node, Identifier) or isinstance(node, Interval):
+    if isinstance(node, Identifier):
         return node
 
     if isinstance(node, UnaryOp):

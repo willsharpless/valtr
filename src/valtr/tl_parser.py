@@ -1,7 +1,7 @@
 from enum import Enum, auto
 from typing import Iterable, List, Optional, Tuple
 
-from attrs import define
+from attrs import define, frozen
 
 from valtr.lexer import Position, Span, Token
 from valtr.tl_lexer import TokenType
@@ -18,9 +18,14 @@ class Node:
 
 
 @define(slots=True)
-class Interval(Node):
+class Interval:
     lo: int | None
     hi: int | None
+
+
+@define(slots=True)
+class ConstNode(Node):
+    value: bool
 
 
 @define(slots=True)
@@ -83,18 +88,27 @@ class BinaryOp(Node):
     interval: Interval | None  # For timed temporal ops
 
 
-@define(slots=True)
-class NaryBool(Node):
-    kind: BinaryOpKind  # either and or or.
-    children: List[Node]  # at least 2 terms expected
-
-
-@define(slots=True)
-class MultiFinally(Node):
-    """Represents a conjunction (AND) of multiple Finally operators."""
-
-    operands: List[Node]
-    intervals: List[Interval | None]
+# @define(slots=True)
+# class NaryBool(Node):
+#     kind: BinaryOpKind  # either and or or.
+#     children: List[Node]  # at least 2 terms expected
+#
+#
+# @define(slots=True)
+# class MultiFinally(Node):
+#     """Represents a conjunction (AND) of multiple Finally operators."""
+#
+#     operands: List[Node]
+#     intervals: List[Interval | None]
+#
+#
+# @define(slots=True)
+# class MultiUntil(Node):
+#     """Represents a conjunction (AND) of multiple Finally operators."""
+#
+#     lefts: List[Node]
+#     rights: List[Node]
+#     intervals: List[Interval | None]
 
 
 class ParseError(SyntaxError):
@@ -310,30 +324,30 @@ def _pp(node: Node, level: int, out: List[str]) -> None:
         _pp(node.right, level + 1, out)
         return
 
-    if isinstance(node, NaryBool):
-        # N-ary AND/OR
-        label = node.kind.name + "^{}".format(len(node.children))
-        out.append(f"{indent}{label}")
-        for c in node.children:
-            _pp(c, level + 1, out)
-        return
+    # if isinstance(node, NaryBool):
+    #     # N-ary AND/OR
+    #     label = node.kind.name + "^{}".format(len(node.children))
+    #     out.append(f"{indent}{label}")
+    #     for c in node.children:
+    #         _pp(c, level + 1, out)
+    #     return
 
     if isinstance(node, Interval):
         # Intervals are embedded on ops; printing standalone is unusual.
         out.append(f"{indent}[{node.lo},{node.hi}]")
         return
 
-    if isinstance(node, MultiFinally):
-        out.append(f"{indent}FINALLY^{len(node.operands)}")
-        # Render as a list of F operands (inline for identifiers)
-        for operand, iv in zip(node.operands, node.intervals):
-            suffix = "" if iv is None else f"_[{iv.lo},{iv.hi}]"
-            if isinstance(operand, Identifier):
-                out.append(f"{indent}{' ' * 4}F{suffix} {operand.name}")
-            else:
-                out.append(f"{indent}{' ' * 4}F{suffix}")
-                _pp(operand, level + 2, out)
-        return
+    # if isinstance(node, MultiFinally):
+    #     out.append(f"{indent}FINALLY^{len(node.operands)}")
+    #     # Render as a list of F operands (inline for identifiers)
+    #     for operand, iv in zip(node.operands, node.intervals):
+    #         suffix = "" if iv is None else f"_[{iv.lo},{iv.hi}]"
+    #         if isinstance(operand, Identifier):
+    #             out.append(f"{indent}{' ' * 4}F{suffix} {operand.name}")
+    #         else:
+    #             out.append(f"{indent}{' ' * 4}F{suffix}")
+    #             _pp(operand, level + 2, out)
+    #     return
 
     # Fallback for unexpected node kinds
     out.append(f"{indent}{type(node).__name__}")
