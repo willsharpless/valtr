@@ -25,7 +25,7 @@ class PassFinallyToUntil(IRRewriter):
     """
 
     def visit(self, rid: IRId) -> IRId:
-        i = int(rid)
+        i = rid
         if i in self.memo:
             return self.memo[i]
 
@@ -55,7 +55,7 @@ class PassFinallyToUntil(IRRewriter):
 
 class PassCombineGloballySegments(IRRewriter):
     def visit(self, rid: IRId) -> IRId:
-        i = int(rid)
+        i = rid
         if i in self.memo:
             return self.memo[i]
         n = self.src.nodes[i]
@@ -69,7 +69,7 @@ class PassCombineGloballySegments(IRRewriter):
                 g_indices: list[int] = []
                 g_nodes: list[TemporalUnary] = []
                 for idx, kid in enumerate(kids):
-                    kn = self.dst.nodes[int(kid)]
+                    kn = self.dst.nodes[kid]
                     if isinstance(kn, TemporalUnary) and kn.kind == UnaryIROpKind.GLOBALLY:
                         g_indices.append(idx)
                         g_nodes.append(kn)
@@ -98,7 +98,7 @@ class PassCombineGloballySegments(IRRewriter):
                     # Build AND of all operands of the untimed Gs
                     ops = [u.arg for u in untimed]  # IRIds in dst already
                     # Join spans of operands for a nice span on the synthesized nodes
-                    op_spans = [self.dst.nodes[int(o)].span for o in ops]
+                    op_spans = [self.dst.nodes[o].span for o in ops]
                     conj_span = join_spans(op_spans, fallback=and_span)
                     conj = self.dst.nary(NaryKind.AND, ops, span=conj_span)
 
@@ -114,7 +114,7 @@ class PassCombineGloballySegments(IRRewriter):
                             continue
                         rebuilt.append(kid)
 
-                    new_span = join_spans([self.dst.nodes[int(x)].span for x in rebuilt], fallback=and_span)
+                    new_span = join_spans([self.dst.nodes[x].span for x in rebuilt], fallback=and_span)
                     out = self.dst.nary(NaryKind.AND, rebuilt, span=new_span)
                     self.memo[i] = out
                     return out
@@ -133,7 +133,7 @@ class PassCombineGloballySegments(IRRewriter):
                 def emit(lo: Optional[int], hi: Optional[int], ops: list[IRId]) -> None:
                     if not ops:
                         return
-                    seg_span = join_spans([self.dst.nodes[int(o)].span for o in ops], fallback=and_span)
+                    seg_span = join_spans([self.dst.nodes[o].span for o in ops], fallback=and_span)
                     conj = self.dst.nary(NaryKind.AND, ops, span=seg_span)
                     iv = None if (lo is None and hi is None) else IntervalIR(lo=lo, hi=hi)
                     segments.append(self.dst.temporal_unary(UnaryIROpKind.GLOBALLY, conj, iv, span=seg_span))
@@ -169,7 +169,7 @@ class PassCombineGloballySegments(IRRewriter):
                         continue
                     rebuilt.append(kid)
 
-                new_span = join_spans([self.dst.nodes[int(x)].span for x in rebuilt], fallback=and_span)
+                new_span = join_spans([self.dst.nodes[x].span for x in rebuilt], fallback=and_span)
                 out = self.dst.nary(NaryKind.AND, rebuilt, span=new_span)
 
             case _:
