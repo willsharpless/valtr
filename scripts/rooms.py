@@ -7,11 +7,13 @@ import numpy as np
 from loguru import logger
 from matplotlib.colors import CenteredNorm, ListedColormap
 
+from valtr.dag_graphviz import visualize_dag
 from valtr.dag_passes import PassFoldConstBool
 from valtr.ir_builder import IRBuilder
 from valtr.ir_pass import PassCombineGloballySegments, PassFinallyToUntil
 from valtr.lowering import Lowerer
-from valtr.reachability import DAGAvoid, DAGMaxN, DAGMinN, DAGNegate, DAGReachAvoid, DAGVar, lower_ir_to_dag
+from valtr.reachability import DAGAvoid, DAGMaxN, DAGMinN, DAGNegate, DAGReachAvoid, DAGVar, dag_to_str, \
+    lower_ir_to_dag, DAGId
 from valtr.tl_lexer import TLLexer
 from valtr.tl_parser import TLParser
 from valtr.util.jax_util import rep_vmap
@@ -219,10 +221,10 @@ def main():
     ntimes = 5
     times = np.linspace(0.0, tf, ntimes)
 
-    def solve_avoid(bb_sdf_avoid: np.ndarray):
+    def solve_avoid(bb_sdf_avoid: np.ndarray, title: str, dag_id: int):
         def post_processor(t, v):
             assert v.shape == bb_sdf_avoid.shape
-            return jnp.maximum(v, bb_sdf_avoid)
+            return jnp.minimum(v, bb_sdf_avoid)
 
         solver_settings = hj.SolverSettings.with_accuracy("very_high", value_postprocessor=post_processor)
 
@@ -249,13 +251,13 @@ def main():
             cbar = fig_.colorbar(im, ax=ax_)
             cbar.add_lines(ln)
 
-        fig_.suptitle("solve_avoid")
-        fig_.savefig("avoid.pdf", bbox_inches="tight")
+        fig_.suptitle(title)
+        fig_.savefig("{:02}_avoid.pdf".format(dag_id), bbox_inches="tight")
         plt.close(fig_)
 
         return values
 
-    def solve_reach_avoid(bb_sdf_reach: np.ndarray, bb_sdf_avoid: np.ndarray):
+    def solve_reach_avoid(bb_sdf_reach: np.ndarray, bb_sdf_avoid: np.ndarray, title: str, dag_id: int):
         def post_processor(t, v):
             assert v.shape == bb_sdf_reach.shape == bb_sdf_avoid.shape
             return jnp.minimum(jnp.maximum(v, bb_sdf_reach), bb_sdf_avoid)
@@ -284,8 +286,8 @@ def main():
             cbar = fig_.colorbar(im, ax=ax_)
             cbar.add_lines(ln)
 
-        fig_.suptitle("solve_reach_avoid")
-        fig_.savefig("reach_avoid.pdf", bbox_inches="tight")
+        fig_.suptitle(title)
+        fig_.savefig("{:02}_reach_avoid.pdf".format(dag_id), bbox_inches="tight")
         plt.close(fig_)
 
         return values
@@ -317,6 +319,10 @@ def main():
     for p_cls in passes:
         p = p_cls(dag_builder)
         dag_root, dag_builder, changed = p.run(dag_root)
+
+    # Visualize the DAG.
+    dot_dag = visualize_dag(dag_builder, dag_root, filename="dag_graph", view=True)
+
     # -------------------------------------------------------------------------------------------
     # Interpret the DAG.
 
@@ -357,12 +363,20 @@ def main():
                 # Note: the avoid is a stay since we are maximizing the value.
                 arg_reach = dict_vars[reach]
                 arg_avoid = dict_vars[avoid]
-                val = solve_reach_avoid(arg_reach, arg_avoid)
+
+                # Get a string representation of the sub-DAG for logging.
+                title = "%{}: {}".format(dag_id ,dag_to_str(dag_builder, DAGId(dag_id)))
+
+                val = solve_reach_avoid(arg_reach, arg_avoid, title=title, dag_id=dag_id)
                 dict_vars[dag_id] = val
             case DAGAvoid(avoid=avoid):
                 # Note: the avoid is a stay since we are maximizing the value.
                 arg_avoid = dict_vars[avoid]
-                val = solve_avoid(arg_avoid)
+
+                # Get a string representation of the sub-DAG for logging.
+                title = "%{}: {}".format(dag_id ,dag_to_str(dag_builder, DAGId(dag_id)))
+
+                val = solve_avoid(arg_avoid, title=title, dag_id=dag_id)
                 dict_vars[dag_id] = val
 
     # Final result is at dag_root

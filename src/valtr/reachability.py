@@ -250,3 +250,62 @@ def lower_ir_to_dag(irb: IRBuilder, root: IRId) -> tuple[DagBuilder, DAGId]:
 
     root_dag = build_V_k(indices)
     return dag, root_dag
+
+
+SYM_MAX = "max"
+SYM_MIN = "min"
+SYM_RA = "ReachAvoid"
+SYM_A = "Avoid"
+
+
+def dag_to_str(builder: DagBuilder, rid: DAGId) -> str:
+    """
+    Convert a DAG node to a Unicode logical expression string.
+    Ensures parentheses so ambiguity is avoided.
+    Memoizes visited DAG nodes to avoid exponential recomputation.
+    """
+    cache: dict[int, str] = {}
+
+    def go(i: int, top_level: bool = False) -> str:
+        if i in cache:
+            return cache[i]
+
+        node = builder.nodes[i]
+        match node:
+
+            case DAGConst(value=v):
+                s = "⊤" if v else "⊥"  # Unicode True / False
+
+            case DAGVar(name=sym):
+                s = sym
+
+            case DAGMinN(args=args):
+                items = [go(a) for a in args]
+                s = SYM_MIN + "(" + ", ".join(items) + ")"
+
+            case DAGMaxN(args=args):
+                items = [go(a) for a in args]
+                s = SYM_MAX + "(" + ", ".join(items) + ")"
+
+            case DAGReachAvoid(reach=l, avoid=r):
+                if top_level:
+                    s = f"ReachAvoid({go(l)}, {go(r)})"
+                else:
+                    s = f"ReachAvoid%{i})"
+
+            case DAGAvoid(avoid=avoid):
+                if top_level:
+                    s = f"Avoid({go(avoid)})"
+                else:
+                    s = f"Avoid%{i})"
+
+            case DAGNegate(arg=a):
+                s = f"-{go(a)}"
+
+            case _:
+                s = f"{type(node).__name__}"
+
+        cache[i] = s
+        return s
+
+    return go(int(rid), top_level=True)
