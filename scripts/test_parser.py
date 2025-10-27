@@ -19,7 +19,8 @@ def main():
     # source = "F a && F b && F G c && G d  && G e && G f"
     # source = "F a && F b && F c && G d && G e && G f"
     # source = "F a && F b && G d && G e && G f"
-    source = "F r1 && G q1 && G q2 && G q3"
+    # source = "(!d1 U k1) && (!d2 U k2) && F k3 && G( !wB ) && G( !wT ) && G( !wL ) && G( !wR )"
+    source = "(!d1 U k1) && G( !wB ) && G( !wT ) && G( !wL ) && G( !wR )"
 
     lexer = TLLexer()
     tokens = list(lexer.tokenize(source))

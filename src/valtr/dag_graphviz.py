@@ -2,7 +2,8 @@ from typing import Iterable, List, Optional, Set
 
 import graphviz
 
-from valtr.reachability import DAGAvoid, DagBuilder, DAGConst, DAGId, DAGMaxN, DAGMinN, DAGNode, DAGReachAvoid, DAGVar
+from valtr.reachability import (DAGAvoid, DagBuilder, DAGConst, DAGId, DAGMaxN, DAGMinN, DAGNegate, DAGNode,
+                                DAGReachAvoid, DAGVar)
 
 
 def _reachable(builder: DagBuilder, roots: Iterable[int] | int) -> Set[int]:
@@ -28,6 +29,8 @@ def _label_for(i: int, node: DAGNode) -> str:
             op = f"Const {value}"
         case DAGVar(name=name):
             op = f"Var {name}"
+        case DAGNegate(arg=_):
+            op = f"NEGATIVE"
         case DAGMinN(args=_):
             op = f"MIN"
         case DAGMaxN(args=_):

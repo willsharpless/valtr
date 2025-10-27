@@ -32,6 +32,14 @@ class DAGVar(DAGNode):
 
 
 @frozen
+class DAGNegate(DAGNode):
+    arg: DAGId
+
+    def children(self) -> List[DAGId]:
+        return [self.arg]
+
+
+@frozen
 class DAGMinN(DAGNode):
     args: Tuple[DAGId, ...]
 
@@ -83,6 +91,10 @@ class DagBuilder:
     def var(self, name: str) -> DAGId:
         return self._get(("Var", name), DAGVar(name))
 
+    def negate(self, arg: DAGId) -> DAGId:
+        key = ("Negate", arg)
+        return self._get(key, DAGNegate(arg))
+
     def min_n(self, args: Iterable[DAGId]) -> DAGId:
         s = tuple(sorted(set(args)))
         if len(s) <= 1:
@@ -121,6 +133,9 @@ def lower_bool_leaf_expr_to_dag(irb: IRBuilder, dag: DagBuilder, rid: IRId) -> D
             return dag.const(v)
         case Var(name=s):
             return dag.var(s)
+        case Unary(kind=UnaryIROpKind.NOT, arg=arg, span=_):
+            kid = lower_bool_leaf_expr_to_dag(irb, dag, arg)
+            return dag.negate(kid)
         case Nary(kind=NaryKind.AND, args=args, span=_):
             kids = [lower_bool_leaf_expr_to_dag(irb, dag, a) for a in args]
             return dag.min_n(kids)

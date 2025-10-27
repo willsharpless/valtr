@@ -2,7 +2,8 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import graphviz
 
-from valtr.reachability import DAGAvoid, DagBuilder, DAGConst, DAGId, DAGMaxN, DAGMinN, DAGNode, DAGReachAvoid, DAGVar
+from valtr.reachability import (DAGAvoid, DagBuilder, DAGConst, DAGId, DAGMaxN, DAGMinN, DAGNegate, DAGNode,
+                                DAGReachAvoid, DAGVar)
 
 
 class DagRewriter:
@@ -36,6 +37,9 @@ class DagRewriter:
             case DAGVar(name=s):
                 out = self.dst.var(s)
 
+            case DAGNegate(arg=arg):
+                out = self.dst.negate(arg)
+
             case DAGMinN(args=args):
                 new_args = [self.visit(a) for a in args]
                 out = self.dst.min_n(new_args)
@@ -63,6 +67,9 @@ class DagRewriter:
 class PassFoldConstBool(DagRewriter):
     """
     Constant folds:
+      NEGATE:
+        - child is True (+infty) -> False (-infty)
+        - child is False (-infty) -> True (+infty)
       AND (Min):
         - short-circuit: if any child is False (-infty) -> False (-infty)
         - remove True (+infty) children
@@ -81,6 +88,19 @@ class PassFoldConstBool(DagRewriter):
         n = self.src.nodes[i]
 
         match n:
+            # ---------- NEGATE (-) ---------
+            case DAGNegate(arg=arg):
+                rebuilt_arg = self.visit(arg)
+                cn = self.dst.nodes[rebuilt_arg]
+                if isinstance(cn, DAGConst):
+                    # Fold
+                    self.changed = True
+                    out = self.dst.const(not cn.value)
+                    self.memo[i] = out
+                    return out
+                else:
+                    out = self.dst.negate(rebuilt_arg)
+
             # ---------- AND (Min) ----------
             case DAGMinN(args=args):
                 # Recurse first
