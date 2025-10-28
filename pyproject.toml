@@ -37,6 +37,11 @@ dev = [
     "flake8>=6.0.0",
     "mypy>=1.0.0",
 ]
+dp = [
+    "hj-reachability>=0.1.0",
+    "tqdm>=4.64.0",
+    "loguru>=0.6.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
