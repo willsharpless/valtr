@@ -17,14 +17,17 @@ from valtr.reachability import DAGAvoid, DAGMaxN, DAGMinN, DAGNegate, DAGReachAv
 from valtr.tl_lexer import TLLexer
 from valtr.tl_parser import TLParser
 from valtr.util.jax_util import rep_vmap
+from scipy import integrate as ode
 
 
 class Point(dynamics.ControlAndDisturbanceAffineDynamics):
     def __init__(self, u_bd=1.0, d_bd=0.0, N=1, control_mode="max", disturbance_mode="min"):
         self.N = N
         self.dim = 2 * N
-        control_space = hj.sets.Box(-u_bd * jnp.ones(2 * N), u_bd * jnp.ones(2 * N))
-        disturbance_space = hj.sets.Box(-d_bd * jnp.ones(2 * N), d_bd * jnp.ones(2 * N))
+        # control_space = hj.sets.Box(-u_bd * jnp.ones(2 * N), u_bd * jnp.ones(2 * N))
+        control_space = hj.sets.Ball(jnp.array([0, 0]), u_bd)
+        # disturbance_space = hj.sets.Box(-d_bd * jnp.ones(2 * N), d_bd * jnp.ones(2 * N))
+        disturbance_space = hj.sets.Ball(jnp.array([0, 0]), d_bd)
         super().__init__(control_mode, disturbance_mode, control_space, disturbance_space)
 
     def open_loop_dynamics(self, state, time):
@@ -190,29 +193,29 @@ def main():
     #     )
 
     logger.info("Plotting SDFs...")
-    fig, ax = plt.subplots(layout="constrained")
-    ax.set_aspect("equal")
+    fig_rooms, ax_rooms = plt.subplots(layout="constrained")
+    ax_rooms.set_aspect("equal")
 
     # Shade inside the rooms.
-    shade_supzero(ax, bb_sdf_room1, "C1", alpha=0.5)
-    shade_supzero(ax, bb_sdf_room2, "C2", alpha=0.5)
-    shade_supzero(ax, bb_sdf_room3, "C4", alpha=0.5)
+    shade_supzero(ax_rooms, bb_sdf_room1, "C1", alpha=0.5)
+    shade_supzero(ax_rooms, bb_sdf_room2, "C2", alpha=0.5)
+    shade_supzero(ax_rooms, bb_sdf_room3, "C4", alpha=0.5)
 
-    shade_supzero(ax, bb_sdf_door12, "C5", alpha=0.8)
-    shade_supzero(ax, bb_sdf_door13, "C5", alpha=0.8)
+    shade_supzero(ax_rooms, bb_sdf_door12, "C5", alpha=0.8)
+    shade_supzero(ax_rooms, bb_sdf_door13, "C5", alpha=0.8)
 
-    shade_supzero(ax, bb_sdf_wallB, "k", alpha=0.8)
-    shade_supzero(ax, bb_sdf_wallT, "k", alpha=0.8)
-    shade_supzero(ax, bb_sdf_wallL, "k", alpha=0.8)
-    shade_supzero(ax, bb_sdf_wallR, "k", alpha=0.8)
+    shade_supzero(ax_rooms, bb_sdf_wallB, "k", alpha=0.8)
+    shade_supzero(ax_rooms, bb_sdf_wallT, "k", alpha=0.8)
+    shade_supzero(ax_rooms, bb_sdf_wallL, "k", alpha=0.8)
+    shade_supzero(ax_rooms, bb_sdf_wallR, "k", alpha=0.8)
 
-    shade_supzero(ax, bb_sdf_key1, "C6", alpha=0.8)
-    shade_supzero(ax, bb_sdf_key2, "C6", alpha=0.8)
-    shade_supzero(ax, bb_sdf_key3, "C6", alpha=0.8)
+    shade_supzero(ax_rooms, bb_sdf_key1, "C6", alpha=0.8)
+    shade_supzero(ax_rooms, bb_sdf_key2, "C6", alpha=0.8)
+    shade_supzero(ax_rooms, bb_sdf_key3, "C6", alpha=0.8)
 
     fig_path = "rooms_sdf.pdf"
-    fig.savefig(fig_path, bbox_inches="tight")
-    plt.close(fig)
+    fig_rooms.savefig(fig_path, bbox_inches="tight")
+    # plt.close(fig_rooms)
     # -------------------------------------------------------------------------------------------
     # Build solve_reach_avoid and solve_avoid functions.
     dyn = Point()
@@ -220,11 +223,13 @@ def main():
     tf = 2.0
     ntimes = 5
     times = np.linspace(0.0, tf, ntimes)
+    gamma = 0.999
 
     def solve_avoid(bb_sdf_avoid: np.ndarray, title: str, dag_id: int):
         def post_processor(t, v):
             assert v.shape == bb_sdf_avoid.shape
-            return jnp.minimum(v, bb_sdf_avoid)
+            # return jnp.minimum(v, bb_sdf_avoid)
+            return jnp.exp((1 - gamma) * t) * jnp.minimum(v, bb_sdf_avoid)
 
         solver_settings = hj.SolverSettings.with_accuracy("very_high", value_postprocessor=post_processor)
 
@@ -260,7 +265,8 @@ def main():
     def solve_reach_avoid(bb_sdf_reach: np.ndarray, bb_sdf_avoid: np.ndarray, title: str, dag_id: int):
         def post_processor(t, v):
             assert v.shape == bb_sdf_reach.shape == bb_sdf_avoid.shape
-            return jnp.minimum(jnp.maximum(v, bb_sdf_reach), bb_sdf_avoid)
+            # return jnp.minimum(jnp.maximum(v, bb_sdf_reach), bb_sdf_avoid)
+            return jnp.exp((1 - gamma) * t) * jnp.minimum(jnp.maximum(v, bb_sdf_reach), bb_sdf_avoid)
 
         solver_settings = hj.SolverSettings.with_accuracy("very_high", value_postprocessor=post_processor)
         values = init_values = bb_sdf_reach
@@ -345,36 +351,42 @@ def main():
 
     for dag_id, n in enumerate(dag_builder.nodes):
         match n:
+
             case DAGVar(name=name):
                 assert name in dict_locals, "Unknown variable name {}".format(name)
                 dict_vars[dag_id] = dict_locals[name]
+
             case DAGNegate(arg=arg):
                 val = dict_vars[arg]
                 dict_vars[dag_id] = -val
+
             case DAGMinN(args=args):
                 args = np.stack([dict_vars[a] for a in args], axis=0)
                 val = np.min(args, axis=0)
                 dict_vars[dag_id] = val
+
             case DAGMaxN(args=args):
                 args = np.stack([dict_vars[a] for a in args], axis=0)
                 val = np.max(args, axis=0)
                 dict_vars[dag_id] = val
+
             case DAGReachAvoid(reach=reach, avoid=avoid):
                 # Note: the avoid is a stay since we are maximizing the value.
                 arg_reach = dict_vars[reach]
                 arg_avoid = dict_vars[avoid]
 
                 # Get a string representation of the sub-DAG for logging.
-                title = "%{}: {}".format(dag_id ,dag_to_str(dag_builder, DAGId(dag_id)))
+                title = "%{}: {}".format(dag_id, dag_to_str(dag_builder, DAGId(dag_id)))
 
                 val = solve_reach_avoid(arg_reach, arg_avoid, title=title, dag_id=dag_id)
                 dict_vars[dag_id] = val
+
             case DAGAvoid(avoid=avoid):
                 # Note: the avoid is a stay since we are maximizing the value.
                 arg_avoid = dict_vars[avoid]
 
                 # Get a string representation of the sub-DAG for logging.
-                title = "%{}: {}".format(dag_id ,dag_to_str(dag_builder, DAGId(dag_id)))
+                title = "%{}: {}".format(dag_id, dag_to_str(dag_builder, DAGId(dag_id)))
 
                 val = solve_avoid(arg_avoid, title=title, dag_id=dag_id)
                 dict_vars[dag_id] = val
@@ -395,7 +407,129 @@ def main():
     fig.savefig("sol.pdf", bbox_inches="tight")
     plt.close(fig)
 
+    # -------------------------------------------------------------------------------------------
+    # Optimal paths from solutions
+
+    # Make dict of value tree gradients, assuming time-invariant for now
+    value_tree_grads = {}
+    for key, val in dict_vars.items():
+        value_tree_grads[key] = grid.grad_values(val)
+        # value_tree_grads[key] = [grid.grad_values(val[i,...]) for i in range(len(times))]
+
+    def model(t, x, grad_values, grid, dynamics, times=None, tv=False):
+
+        # Time-varying
+        if tv:
+            assert times is not None
+            i = np.argmin(np.abs(times - t))
+            grad_value = grid.interpolate(grad_values[i], state=x)
+        else:
+            grad_value = grid.interpolate(grad_values, state=x)
+
+        u = dynamics.optimal_control(x, t, grad_value)
+        d = dynamics.optimal_disturbance(x, t, grad_value)
+        fx = dynamics.open_loop_dynamics(x, t)
+        Bu = dynamics.control_jacobian(x,t)
+        Bd = dynamics.disturbance_jacobian(x,t)
+        
+        dx = fx + Bu @ u + Bd @ d
+        dx = dx.tolist()
+        return dx
+
+    def characteristic(t0, x0, grad_values, grid, dynamics, times=None, tv=False):
+        sol = ode.solve_ivp(lambda t,x : model(t, x, grad_values, grid, dynamics, times=times, tv=tv), [t0, 0], x0, max_step = .1)
+        return sol
+
+    def construct_optimal_path(dag, dag_values, dag_grads, t_start, x_start, dag_id, tv=False, reaching_eps=0.):
+
+        print("Rolling out - NODE [{}:{}] at t = {:2.2f}, x = {}".format(
+            str(type(dag.nodes[dag_id])).split('.')[-1].split("'")[0],
+            dag_id, t_start, x_start))
+        dag_path, switch_times = [dag_id], []
+        grad_values = dag_grads[dag_id]
+        sol = characteristic(t_start, x_start, grad_values, grid, dyn, times=times, tv=tv)
+
+        # Recursively overwrite sol until at an Avoid node (terminal)
+        if type(dag.nodes[dag_id]) is DAGAvoid: #or type(dag_builder.nodes[dag_id]) is DAGReach:
+            dag_path = [dag_id]
+            switch_times = []
+        
+        # For each ReachAvoid node, find which child gives the earliest reaching value
+        else:
+            if type(dag.nodes[dag.nodes[dag_id].reach]) is DAGMaxN:
+                next_dag_ids = dag.nodes[dag.nodes[dag_id].reach].args
+            elif type(dag.nodes[dag.nodes[dag_id].reach]) is DAGMinN:
+                next_dag_ids = [dag.nodes[dag_id].reach]
+            else:
+                raise RuntimeError("Expected Min/Max node in DAGReachAvoid.reach but got: [{}:{}]".format(
+                    str(type(dag.nodes[dag_id])).split('.')[-1].split("'")[0], dag_id))
+            best_next_dag_id = None
+            best_reach_index = np.inf
+
+            for next_dag_id in next_dag_ids:
+                values_next = dag_values[next_dag_id]
+                sol_values = np.array([grid.interpolate(values_next, state = sol.y[:,i]) for i in range(len(sol.t))])
+                reach_index = np.argmax(sol_values > reaching_eps) if any(sol_values > reaching_eps) else np.inf
+
+                if reach_index < best_reach_index:
+                    best_reach_index = reach_index
+                    best_next_dag_id = next_dag_id
+
+            # If reaching child, recurse
+            if best_next_dag_id is not None:
+                dag_path.append(dag.nodes[dag_id].reach)
+
+                # Pick next RA/A problem #FIXME? more complex for (UNTIL) UNTIL (UNTIL) etc...
+                next_node = dag.nodes[best_next_dag_id]
+                if not (type(next_node) is DAGAvoid or type(next_node) is DAGReachAvoid):
+                    dag_path.append(best_next_dag_id) # will be overwritten
+                    children_types = [type(dag.nodes[child]) for child in next_node.args]
+                    if DAGReachAvoid in children_types:
+                        best_next_dag_id = next_node.args[children_types.index(DAGReachAvoid)]
+                    elif DAGAvoid in children_types:
+                        best_next_dag_id = next_node.args[children_types.index(DAGAvoid)]
+                    else:
+                        raise RuntimeError("Could not find next ReachAvoid or Avoid node in children of node [{}:{}]".format(
+                            str(type(next_node)).split('.')[-1].split("'")[0], best_next_dag_id))
+
+                t_reach = sol.t[best_reach_index]
+                x_reach = sol.y[:, best_reach_index]
+                next_sol, next_dag_path, next_switch_times = construct_optimal_path(dag, dag_values, dag_grads, t_reach, x_reach, best_next_dag_id, tv=tv, reaching_eps=reaching_eps)
+
+                # Combine solutions
+                t_combined = np.concatenate([sol.t[:best_reach_index+1], next_sol.t])
+                x_combined = np.concatenate([sol.y[:,:best_reach_index+1], next_sol.y], axis=1)
+                sol = ode._ivp.ivp.OdeResult(t = t_combined, y = x_combined)
+                dag_path = dag_path + next_dag_path
+                switch_times = [t_reach] + next_switch_times
+
+            # Else (eg. no more time, impossible reach), return the current RA solution
+
+        return sol, dag_path, switch_times
+        
+    # Example start point in room3
+    x_start = np.array([0.1, 0.1])
+    t_start = -5.0
+    sol, full_dag_path, switch_times = construct_optimal_path(dag_builder, dict_vars, value_tree_grads, t_start, x_start, dag_root, tv=False, reaching_eps=0.01)
+    dag_ra_path = [i for i in full_dag_path if type(dag_builder.nodes[i]) in [DAGReachAvoid, DAGAvoid]]
+
+    # Plot the optimal path on existing fig_rooms
+    ax_rooms.plot(sol.y[0,:], sol.y[1,:], 'k-', linewidth=2, label='Optimal Path')
+    ax_rooms.plot(x_start[0], x_start[1], 'o', markersize=6, label='', color='green')
+    ax_rooms.plot(x_start[0], x_start[1], 'x', markersize=5, label='Start', color='black')
+    dag_path_c = 1
+    for switch_time in switch_times:
+        switch_index = np.argmin(np.abs(sol.t - switch_time))
+        tab_color = plt.get_cmap('tab10')(dag_ra_path[dag_path_c-1] % 10)
+        ax_rooms.plot(sol.y[0,switch_index], sol.y[1,switch_index], 'o', markersize=6, label='switch: %d'%(dag_ra_path[dag_path_c-1]), color=tab_color, markeredgecolor='black', markeredgewidth=1)
+        ax_rooms.text(sol.y[0,switch_index] + 0.05, sol.y[1,switch_index] + 0.02, "{:d}→{:d}".format(dag_ra_path[dag_path_c-1], dag_ra_path[dag_path_c-1]), color='black', fontsize=8)
+        dag_path_c += 1
+
+    ax_rooms.legend()
+    fig_rooms.savefig("rooms_with_path.pdf", bbox_inches="tight")
+    plt.close(fig_rooms)
 
 if __name__ == "__main__":
-    with ipdb.launch_ipdb_on_exception():
-        main()
+    # with ipdb.launch_ipdb_on_exception():
+    #     main()
+    main()
