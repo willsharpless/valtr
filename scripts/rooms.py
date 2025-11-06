@@ -1,3 +1,4 @@
+import os
 import hj_reachability as hj
 import hj_reachability.dynamics as dynamics
 import ipdb
@@ -20,6 +21,9 @@ from valtr.util.jax_util import rep_vmap
 from scipy import integrate as ode
 from valtr.control import construct_optimal_path
 
+BASE_OUT_DIR = "results/rooms" # name for script
+DIR_TAG = "threekey" # name for specific run
+
 class Point(dynamics.ControlAndDisturbanceAffineDynamics):
     def __init__(self, u_bd=1.0, d_bd=0.0, N=1, control_mode="max", disturbance_mode="min"):
         self.N = N
@@ -40,6 +44,11 @@ class Point(dynamics.ControlAndDisturbanceAffineDynamics):
         return jnp.eye(self.dim)
 
 def main():
+
+    os.makedirs('results', exist_ok=True)
+    os.makedirs(BASE_OUT_DIR, exist_ok=True)
+    os.makedirs(os.path.join(BASE_OUT_DIR, DIR_TAG), exist_ok=True)
+    os.chdir(os.path.join(BASE_OUT_DIR, DIR_TAG))
 
     # -------------------------------------------------------------------------------------------
     # Initialize dynamics, environment and task
@@ -76,12 +85,12 @@ def main():
     ntimes = 5
     times = np.linspace(0.0, tf, ntimes)
     gamma = 0.99999
-    # gamma = 1 # No discounting; just to ensure reachable
+    # gamma = 1 # no discount -> bad control; just to check best satisfiability
 
     ## Define the task specification in TL
-    # task_source = "(!door1 U key1) && G( !walls )"
-    # task_source = "(!door1 U key1) && (!door2 U key2) && G( !walls )"
-    task_source = "(!door1 U key1) && (!door2 U key2) && F key3 && G( !walls )"
+    # task_source = "(!door1 U key1) && G( !walls )" # 'onekey'
+    # task_source = "(!door1 U key1) && (!door2 U key2) && G( !walls )" # 'twokey'
+    task_source = "(!door1 U key1) && (!door2 U key2) && F key3 && G( !walls )" # 'threekey'
 
     # -------------------------------------------------------------------------------------------
     # Parse and lower the task specification to a value tree DAG.
