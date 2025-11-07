@@ -91,7 +91,7 @@ def main():
     
     ## Define the system dynamics
     dyn = Car()
-    tf = 5.0
+    tf = 2.0
     ntimes = 5
     times = np.linspace(0.0, tf, ntimes)
     gamma = 0.99999
@@ -177,7 +177,7 @@ def main():
         
     # Example start point in room3
     x_start = np.array([0.1, 0.1, 0.0, 0.0])
-    t_start = -5.0
+    t_start = -2.0
     sol, full_dag_path, switch_times = construct_optimal_path(dag_builder, value_tree_solution, value_tree_grads, t_start, x_start, dag_root, grid, dyn, times=times, tv=False, reaching_eps=0.01)
     dag_ra_path = [i for i in full_dag_path if type(dag_builder.nodes[i]) in [DAGReachAvoid, DAGAvoid]]
     print("Optimal path constructed,")
