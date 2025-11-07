@@ -22,8 +22,8 @@ from scipy import integrate as ode
 from valtr.control import construct_optimal_path
 
 BASE_OUT_DIR = "results/rooms_dubins" # name for script
-DIR_TAG = "onekey_ingrid_a4c4_g999_thingrid" # name for specific run
-LOAD = False # whether to load existing results
+DIR_TAG = "twokey" # name for specific run
+LOAD = True # whether to load existing results
     
 class Car(hj.ControlAndDisturbanceAffineDynamics):
     def __init__(self,
@@ -67,8 +67,8 @@ def main():
     ubs = np.array([2.0, 1.0, 2.0, np.pi])
     grid_pad = np.array([0.2, 0.2, 0., 0.])
     # grid_nx, grid_ny, grid_nv, grid_nq = 201, 81, 11, 11
-    # grid_nx, grid_ny, grid_nv, grid_nq = 51, 21, 31, 31
-    grid_nx, grid_ny, grid_nv, grid_nq = 25, 11, 31, 31
+    grid_nx, grid_ny, grid_nv, grid_nq = 51, 21, 31, 31
+    # grid_nx, grid_ny, grid_nv, grid_nq = 25, 11, 31, 31
 
     grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
         hj.sets.Box(lbs - grid_pad, ubs + grid_pad), [grid_nx, grid_ny, grid_nv, grid_nq],
@@ -94,16 +94,21 @@ def main():
 
     ## Define the system dynamics
     dyn = Car()
-    tf = 2.0
+    tf = 5.0
     ntimes = 5
     times = np.linspace(0.0, tf, ntimes)
     gamma = 0.9999
     # gamma = 1 # no discount -> bad control; just to check best satisfiability
 
     ## Define the task specification in TL
-    task_source = "(!door1 U key1) && G( !walls ) && G( in_grid )" # 'onekey'
-    # task_source = "(!door1 U key1) && (!door2 U key2) && G( !walls )" # 'twokey'
-    # task_source = "(!door1 U key1) && (!door2 U key2) && F key3 && G( !walls )" # 'threekey'
+    if 'onekey' in DIR_TAG:
+        task_source = "(!door1 U key1) && G( !walls ) && G( in_grid )" # 'onekey'
+    elif 'twokey' in DIR_TAG:
+        task_source = "(!door1 U key1) && (!door2 U key2) && G( !walls )" # 'twokey'
+    elif 'threekey' in DIR_TAG:
+        task_source = "(!door1 U key1) && (!door2 U key2) && F key3 && G( !walls )" # 'threekey'
+    else:
+        task_source = "(!door1 U key1) && G( !walls ) && G( in_grid )" # 'onekey'
 
     # -------------------------------------------------------------------------------------------
     # Parse and lower the task specification to a value tree DAG.
@@ -188,9 +193,23 @@ def main():
         
     # Example start point in room3
     # x_start = np.array([0.1, 0.1, 0.5, np.pi/2])
-    x_start = np.array([0.1, 0.1, 0.5, np.pi/4])
-    t_start = -2.0
-    sol, full_dag_path, switch_times = construct_optimal_path(dag_builder, value_tree_solution, value_tree_grads, t_start, x_start, dag_root, grid, dyn, times=times, tv=False, reaching_eps=0.01)
+    # x_start = np.array([0.1, 0.1, 0.5, np.pi/4])
+    x_start = np.array([0.1, 0.6, 0.5, 0.])
+    t_start = -10.0
+    sol, full_dag_path, switch_times = construct_optimal_path(
+        dag_builder, 
+        value_tree_solution, 
+        value_tree_grads, 
+        t_start, 
+        x_start, 
+        dag_root, 
+        grid, 
+        dyn, 
+        times=times, 
+        tv=False, 
+        reaching_eps=0., 
+        integration_method='jax'
+    )
     dag_ra_path = [i for i in full_dag_path if type(dag_builder.nodes[i]) in [DAGReachAvoid, DAGAvoid]]
     print("Optimal path constructed,")
     print("  Full DAG path nodes: ", full_dag_path)

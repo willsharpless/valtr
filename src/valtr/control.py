@@ -1,3 +1,4 @@
+from turtle import mode
 import hj_reachability.dynamics as dynamics
 import numpy as np
 from hj_reachability import Grid
@@ -6,15 +7,87 @@ from scipy import integrate as ode
 from valtr.reachability import DAGAvoid, DagBuilder, DAGId, DAGMaxN, DAGMinN, DAGReachAvoid
 import faster_hj_grid_interpolation # patches on faster itp
 
+import jax
+import jax.numpy as jnp
+import numpy as np
+from typing import Callable, Optional, Tuple, Any
+import functools
+
+def rk4_step(model, t, y, h):
+    k1 = h * model(t, y)
+    k2 = h * model(t + h/2, y + k1/2)
+    k3 = h * model(t + h/2, y + k2/2)
+    k4 = h * model(t + h, y + k3)
+    
+    y_new = y + (k1 + 2*k2 + 2*k3 + k4) / 6
+    return y_new
+
+def jax_ivp(t0, x0, grad_values, grid, dynamics, times=None, tv=False, step_size=0.01, max_steps=10000):
+    def jax_model(t, x):
+        # t_np, x_np = np.array(t), np.array(x)
+        t_np, x_np = t, x
+
+        if tv:
+            i = np.argmin(np.abs(times - t_np))
+            grad_value = grid.interpolate_fast_jit(grad_values[i], state=x_np)
+        else:
+            grad_value = grid.interpolate_fast_jit(grad_values, state=x_np)
+        
+        u = dynamics.optimal_control(x_np, t_np, grad_value)
+        d = dynamics.optimal_disturbance(x_np, t_np, grad_value)
+        fx = dynamics.open_loop_dynamics(x_np, t_np)
+        Bu = dynamics.control_jacobian(x_np, t_np)
+        Bd = dynamics.disturbance_jacobian(x_np, t_np)
+        
+        dx = fx + Bu @ u + Bd @ d
+        # dx = dx.tolist()
+        # return jnp.array(dx)
+        return dx
+    
+    return jax_solve_ivp_no_jit(
+        jax_model, 
+        [t0, 0], 
+        x0, 
+        step_size=step_size,
+        max_steps=max_steps
+    )
+
+def jax_solve_ivp_no_jit(
+    model,
+    t_span: Tuple[float, float],
+    y0: jnp.ndarray,
+    step_size: float = 0.01,
+    max_steps: int = 10000
+):
+    t0, tf = t_span
+    dt = step_size
+    t_history = [t0]
+    y_history = [y0]
+    n_steps = min(int(np.ceil(abs(tf - t0) / abs(dt))), max_steps)
+
+    t, y = t0, y0
+    for _ in range(n_steps):
+        y = rk4_step(model, t, y, dt)
+        t = t + dt
+        t_history.append(t)
+        y_history.append(y)
+    
+    t_result = jnp.array(t_history)
+    y_result = jnp.stack(y_history, axis=0)
+    
+    return {
+        't': t_result,
+        'y': y_result.T,  # Match scipy format
+        'success': True,
+        'nfev': len(t_history) * 4  # RK4 uses 4 evaluations per step
+    }
+    
 def model(t, x, grad_values, grid, dynamics, times=None, tv=False):
-    # Time-varying
     if tv:
         assert times is not None
         i = np.argmin(np.abs(times - t))
-        # grad_value = grid.interpolate(grad_values[i], state=x)
         grad_value = grid.interpolate_fast_jit(grad_values[i], state=x)
     else:
-        # grad_value = grid.interpolate(grad_values, state=x)
         grad_value = grid.interpolate_fast_jit(grad_values, state=x)
 
     u = dynamics.optimal_control(x, t, grad_value)
@@ -27,13 +100,17 @@ def model(t, x, grad_values, grid, dynamics, times=None, tv=False):
     dx = dx.tolist()
     return dx
 
-
-def characteristic(t0, x0, grad_values, grid, dynamics, times=None, tv=False):
-    sol = ode.solve_ivp(
-        lambda t, x: model(t, x, grad_values, grid, dynamics, times=times, tv=tv), [t0, 0], x0, max_step=0.1
-    )
+def characteristic(t0, x0, grad_values, grid, dynamics, times=None, tv=False, method='jax'):
+    if method == 'jax':
+        sol = jax_ivp(t0, x0, grad_values, grid, dynamics, times=times, tv=tv, step_size=0.01, max_steps=10000)
+        sol = ode._ivp.ivp.OdeResult(t=sol['t'], y=sol['y'])
+    elif method == 'scipy':
+        sol = ode.solve_ivp(
+            lambda t, x: model(t, x, grad_values, grid, dynamics, times=times, tv=tv), [t0, 0], x0, max_step=0.01, atol=1., rtol=1.,  # (makes fixed step size)
+        )
+    else:
+        raise ValueError(f"Unknown method '{method}' for characteristic integration.")
     return sol
-
 
 def construct_optimal_path(
     dag: DagBuilder,
@@ -47,6 +124,7 @@ def construct_optimal_path(
     times=None,
     tv=False,
     reaching_eps: float = 0.0,
+    integration_method: str = 'jax',
 ):
     dag_nodes = dag.nodes
 
@@ -57,7 +135,9 @@ def construct_optimal_path(
     )
     dag_path, switch_times = [dag_id], []
     grad_values = dag_grads[dag_id]
-    sol = characteristic(t_start, x_start, grad_values, grid, dynamics, times=times, tv=tv)
+    
+    # Use JAX or scipy integration
+    sol = characteristic(t_start, x_start, grad_values, grid, dynamics, times=times, tv=tv, method=integration_method)
 
     # (n_times, )
     sol_t: np.ndarray = sol.t
@@ -96,10 +176,6 @@ def construct_optimal_path(
 
             for next_dag_id in next_dag_ids:
                 values_next = dag_values[next_dag_id]
-                # sol_values = np.array([grid.interpolate(values_next, state=sol_y[:, i]) for i in range(len(sol_t))])
-                # sol_values = np.array([grid.interpolate_fast_jit(values_next, state=sol_y[:, i]) for i in range(len(sol_t))])
-                
-                # FIXME should use batched:
                 sol_values = grid.interpolate_fast_batch_jit(values_next, states=sol_y.T)
 
                 # Find the first index where we satisfy the reach condition, if any.
@@ -147,6 +223,7 @@ def construct_optimal_path(
                     times=times,
                     tv=tv,
                     reaching_eps=reaching_eps,
+                    integration_method=integration_method,  # Pass the new parameter down
                 )
 
                 # Combine solutions
