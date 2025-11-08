@@ -30,7 +30,7 @@ def _label_for(i: int, node: DAGNode) -> str:
         case DAGVar(name=name):
             op = f"Var {name}"
         case DAGNegate(arg=_):
-            op = f"NEGATIVE"
+            op = f"NEG."
         case DAGMinN(args=_):
             op = f"MIN"
         case DAGMaxN(args=_):
@@ -42,7 +42,7 @@ def _label_for(i: int, node: DAGNode) -> str:
         case _:
             op = type(node).__name__
 
-    return f"%{i}\n{op}"
+    return f"n.{i}\n{op}"
 
 
 def visualize_dag(
@@ -69,11 +69,11 @@ def visualize_dag(
     # Styling
     color_map = {
         DAGConst: ("#95a5a6", "ellipse"),
-        DAGVar: ("#2E86AB", "ellipse"),
-        DAGMinN: ("#16A085", "box"),
-        DAGMaxN: ("#8E44AD", "box"),
-        DAGReachAvoid: ("#34495E", "diamond"),
-        DAGAvoid: ("#34495E", "hexagon"),
+        DAGVar: ("#FFFFFF", "ellipse"),
+        DAGMinN: ("#61655D", "box"),
+        DAGMaxN: ("#E9E0C4", "box"),
+        DAGReachAvoid: ("#1B5B93", "diamond"),
+        DAGAvoid: ("#CD3A3A", "hexagon"),
     }
 
     dot = graphviz.Digraph(name=graph_name, graph_attr={"rankdir": rankdir, "splines": "true"})
@@ -83,7 +83,7 @@ def visualize_dag(
     # Nodes
     for i in sorted(seen):
         node = builder.nodes[i]
-        color, shape = ("#7f8c8d", "box")
+        color, shape = ("#b98ec8", "box")
         for cls, (c, s) in color_map.items():
             if isinstance(node, cls):
                 color, shape = c, s
@@ -117,7 +117,7 @@ def visualize_dag(
         if r in seen:
             # Thicker border on roots
             node = builder.nodes[r]
-            dot.node(f"n{r}", label=_label_for(r, node), penwidth="2.5", color="#c0392b")
+            dot.node(f"n{r}", label=_label_for(r, node), penwidth="2.5", color="#000000")
 
     if filename:
         dot.render(filename, view=view, cleanup=True)  # default PDF; set dot.format for PNG
