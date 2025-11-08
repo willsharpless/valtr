@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from loguru import logger
 from matplotlib.colors import CenteredNorm, ListedColormap
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+import copy 
 
 from valtr.dag_graphviz import visualize_dag
 from valtr.dag_passes import PassFoldConstBool
@@ -20,7 +22,7 @@ from valtr.tl_parser import TLParser
 from valtr.util.jax_util import rep_vmap
 from scipy import integrate as ode
 from valtr.solver_utils import solve_dag_values
-from valtr.control import construct_optimal_path
+from valtr.control import construct_optimal_path, plot_optimal_path
 
 BASE_OUT_DIR = "results/rooms" # name for script
 DIR_TAG = "threekey" # name for specific run
@@ -30,9 +32,7 @@ class Point(dynamics.ControlAndDisturbanceAffineDynamics):
     def __init__(self, u_bd=1.0, d_bd=0.0, N=1, control_mode="max", disturbance_mode="min"):
         self.N = N
         self.dim = 2 * N
-        # control_space = hj.sets.Box(-u_bd * jnp.ones(2 * N), u_bd * jnp.ones(2 * N))
         control_space = hj.sets.Ball(jnp.array([0, 0]), u_bd)
-        # disturbance_space = hj.sets.Box(-d_bd * jnp.ones(2 * N), d_bd * jnp.ones(2 * N))
         disturbance_space = hj.sets.Ball(jnp.array([0, 0]), d_bd)
         super().__init__(control_mode, disturbance_mode, control_space, disturbance_space)
 
@@ -51,6 +51,7 @@ def main():
     os.makedirs(BASE_OUT_DIR, exist_ok=True)
     os.makedirs(os.path.join(BASE_OUT_DIR, DIR_TAG), exist_ok=True)
     os.chdir(os.path.join(BASE_OUT_DIR, DIR_TAG))
+    os.makedirs("node_values", exist_ok=True)
 
     # -------------------------------------------------------------------------------------------
     # Initialize dynamics, environment and task
@@ -90,9 +91,14 @@ def main():
     # gamma = 1 # no discount -> bad control; just to check best satisfiability
 
     ## Define the task specification in TL
-    # task_source = "(!door1 U key1) && G( !walls )" # 'onekey'
-    # task_source = "(!door1 U key1) && (!door2 U key2) && G( !walls )" # 'twokey'
-    task_source = "(!door1 U key1) && (!door2 U key2) && F key3 && G( !walls )" # 'threekey'
+    if 'onekey' in DIR_TAG:
+        task_source = "(!door1 U key1) && G( !walls )" # 'onekey'
+    elif 'twokey' in DIR_TAG:
+        task_source = "(!door1 U key1) && (!door2 U key2) && G( !walls )" # 'twokey'
+    elif 'threekey' in DIR_TAG:
+        task_source = "(!door1 U key1) && (!door2 U key2) && F key3 && G( !walls )" # 'threekey'
+    else:
+        task_source = "(!door1 U key1) && G( !walls )" # 'onekey'
 
     # -------------------------------------------------------------------------------------------
     # Parse and lower the task specification to a value tree DAG.
@@ -154,18 +160,18 @@ def main():
     # Final result is at dag_root
     bb_sdf_result = value_tree_solution[dag_root]
 
-    # Plot the final result.
-    fig, ax = plt.subplots(layout="constrained")
-    cmap = "RdBu"
-    norm = CenteredNorm()
-    im = ax.contourf(bb_X, bb_Y, bb_sdf_result, levels=25, cmap=cmap, norm=norm)
-    ln = ax.contour(bb_X, bb_Y, bb_sdf_result, levels=0, colors="black", linewidths=2)
-    cbar = fig.colorbar(im, ax=ax)
+    # Plot the final result on a copy of fig_rooms
+    fig_sol = copy.deepcopy(fig_rooms)
+    ax_sol = fig_sol.axes[0]
+    im = ax_sol.contourf(bb_X, bb_Y, bb_sdf_result, levels=25, cmap="RdBu", norm=CenteredNorm(), alpha=0.8)
+    ln = ax_sol.contour(bb_X, bb_Y, bb_sdf_result, levels=0, colors="black", linewidths=2, alpha=0.8)
+    divider = make_axes_locatable(ax_sol)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    cbar = fig_sol.colorbar(im, cax=cax)
     cbar.add_lines(ln)
-
-    fig.suptitle("{}".format(task_source))
-    fig.savefig("sol.pdf", bbox_inches="tight")
-    plt.close(fig)
+    ax_sol.set_title("Value for [{}]".format(task_source))
+    fig_sol.savefig("sol.pdf", bbox_inches="tight")
+    plt.close(fig_sol)
 
     # -------------------------------------------------------------------------------------------
     # Solve optimal path from the solved values
@@ -187,21 +193,13 @@ def main():
     print("  RA/A DAG path nodes: ", dag_ra_path)
     print("  Switch times: [{}]".format(", ".join([f"{st:2.2f}" for st in switch_times])))
 
-    # Plot the optimal path on existing fig_rooms
-    ax_rooms.plot(sol.y[0,:], sol.y[1,:], 'k-', linewidth=2, label='Optimal Path')
-    ax_rooms.plot(x_start[0], x_start[1], 'o', markersize=6, label='', color='white')
-    ax_rooms.plot(x_start[0], x_start[1], 'x', markersize=5, label='Start', color='black')
-    dag_path_c = 1
-    for st in switch_times:
-        switch_index = np.argmin(np.abs(sol.t - st))
-        tab_color = plt.get_cmap('tab10')(dag_path_c % 10)
-        ax_rooms.plot(sol.y[0,switch_index], sol.y[1,switch_index], 'o', markersize=6, label='switch: %d'%(dag_ra_path[dag_path_c]), color=tab_color, markeredgecolor='black', markeredgewidth=1)
-        ax_rooms.text(sol.y[0,switch_index] + 0.05, sol.y[1,switch_index] + 0.02, "{:d}→{:d}".format(dag_ra_path[dag_path_c-1], dag_ra_path[dag_path_c]), color='black', fontsize=8)
-        dag_path_c += 1
-
-    ax_rooms.legend()
-    fig_rooms.savefig("rooms_with_path.pdf", bbox_inches="tight")
+    fig_rooms_path = plot_optimal_path(sol, dag_ra_path, switch_times, fig_base=fig_rooms)
+    plt.close(fig_rooms_path)
     plt.close(fig_rooms)
+
+    # ----------------------------------------------------------------------------
+    logger.info("Complete.")
+    print(f"See ./{BASE_OUT_DIR}/{DIR_TAG}/ for results.")
 
 # -------------------------------------------------------------------------------------------
 # -------------------------------------------------------------------------------------------

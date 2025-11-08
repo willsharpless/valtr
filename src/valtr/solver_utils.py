@@ -130,7 +130,7 @@ def plot_values(values_over_time: list, times: np.ndarray, grid_params: dict, ti
         cbar.add_lines(ln)
 
     fig_.suptitle(title)
-    fig_.savefig("{:02}_values.pdf".format(dag_id), bbox_inches="tight")
+    fig_.savefig("node_values/node{:02}_values.pdf".format(dag_id), bbox_inches="tight")
     plt.close(fig_)
 
     return fig_

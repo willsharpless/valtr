@@ -3,10 +3,10 @@ import hj_reachability.dynamics as dynamics
 import numpy as np
 from hj_reachability import Grid
 from scipy import integrate as ode
-
+import matplotlib.pyplot as plt
 from valtr.reachability import DAGAvoid, DagBuilder, DAGId, DAGMaxN, DAGMinN, DAGReachAvoid
 import faster_hj_grid_interpolation # patches on faster itp
-
+import copy
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -237,3 +237,28 @@ def construct_optimal_path(
             raise NotImplementedError("Expected either DAGAvoid or DAGReachAvoid")
 
     return sol, dag_path, switch_times
+
+def plot_optimal_path(sol, dag_ra_path, switch_times, fig_base=None):
+    
+    if fig_base is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = copy.deepcopy(fig_base)
+        ax = fig.axes[0]
+
+    ax.plot(sol.y[0,:], sol.y[1,:], 'k-', linewidth=2, label='Optimal Path')
+    ax.plot(sol.y[0,0], sol.y[1,0], 'o', markersize=6, label='', color='white')
+    ax.plot(sol.y[0,0], sol.y[1,0], 'x', markersize=5, label='Start', color='black')
+    
+    dag_path_c = 1
+    for st in switch_times:
+        switch_index = np.argmin(np.abs(sol.t - st))
+        tab_color = plt.get_cmap('tab10')(dag_path_c % 10)
+        ax.plot(sol.y[0,switch_index], sol.y[1,switch_index], 'o', markersize=6, label='switch: %d'%(dag_ra_path[dag_path_c]), color=tab_color, markeredgecolor='black', markeredgewidth=1)
+        ax.text(sol.y[0,switch_index] + 0.05, sol.y[1,switch_index] + 0.02, "{:d}→{:d}".format(dag_ra_path[dag_path_c-1], dag_ra_path[dag_path_c]), color='black', fontsize=8)
+        dag_path_c += 1
+
+    ax.legend()
+    ax.set_title("Value Optimal Path")
+    fig.savefig("sol_path.pdf", bbox_inches="tight")
+    return fig
