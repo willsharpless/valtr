@@ -19,11 +19,12 @@ from valtr.tl_lexer import TLLexer
 from valtr.tl_parser import TLParser
 from valtr.util.jax_util import rep_vmap
 from scipy import integrate as ode
+from valtr.solver_utils import solve_dag_values
 from valtr.control import construct_optimal_path
 
 BASE_OUT_DIR = "results/rooms_dubins" # name for script
-DIR_TAG = "twokey" # name for specific run
-LOAD = True # whether to load existing results
+DIR_TAG = "onekey_test" # name for specific run
+LOAD = False # whether to load existing results
     
 class Car(hj.ControlAndDisturbanceAffineDynamics):
     def __init__(self,
@@ -68,7 +69,7 @@ def main():
     grid_pad = np.array([0.2, 0.2, 0., 0.])
     # grid_nx, grid_ny, grid_nv, grid_nq = 201, 81, 11, 11
     grid_nx, grid_ny, grid_nv, grid_nq = 51, 21, 31, 31
-    # grid_nx, grid_ny, grid_nv, grid_nq = 25, 11, 31, 31
+    # grid_nx, grid_ny, grid_nv, grid_nq = 25, 11, 31, 31 # quick test
 
     grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
         hj.sets.Box(lbs - grid_pad, ubs + grid_pad), [grid_nx, grid_ny, grid_nv, grid_nq],
@@ -82,7 +83,7 @@ def main():
     grid_dict={"lbs": lbs, "ubs": ubs, "grid_pad": grid_pad, 
                "grid_nx": grid_nx, "grid_ny": grid_ny,
                "grid_nv": grid_nv, "grid_nq": grid_nq,
-        "grid": grid, "bb_X": bb_X, "bb_Y": bb_Y}
+        "grid": grid, "bb_X": bb_X, "bb_Y": bb_Y, "grid_slice": np.s_[..., int(grid_nv/2), int(grid_nq/2)]}
 
     ## Define the rooms environment
     rooms_bc_dict = make_rooms(grid_dict)
@@ -95,8 +96,8 @@ def main():
     ## Define the system dynamics
     dyn = Car()
     tf = 5.0
-    ntimes = 5
-    times = np.linspace(0.0, tf, ntimes)
+    ntimes = 4
+    times = np.linspace(0.0, tf, ntimes+1)
     gamma = 0.9999
     # gamma = 1 # no discount -> bad control; just to check best satisfiability
 
@@ -112,6 +113,8 @@ def main():
 
     # -------------------------------------------------------------------------------------------
     # Parse and lower the task specification to a value tree DAG.
+    logger.info("Generating the value tree DAG from logic...")
+    print(f"Input task logic: {task_source}")
 
     lexer = TLLexer()
     tokens = list(lexer.tokenize(task_source))
@@ -156,9 +159,11 @@ def main():
     }
 
     if not LOAD:
+        logger.info("Solving the value tree ...")
         value_tree_solution = solve_dag_values(dag_builder, dict_predicates, grid_dict, dyn, times, gamma)
         np.savez_compressed("value_tree_solution.npz", **{str(k): v for k, v in value_tree_solution.items()})
     else:
+        logger.info("Loading presolved value tree ...")
         value_tree_solution_loaded = np.load("value_tree_solution.npz") 
         value_tree_solution = {}
         for k in value_tree_solution_loaded:
@@ -184,6 +189,7 @@ def main():
 
     # -------------------------------------------------------------------------------------------
     # Solve optimal path from the solved values
+    logger.info("Solving optimal path(s)...")
 
     # Make dict of value tree gradients, assuming time-invariant for now
     value_tree_grads = {}
@@ -408,117 +414,6 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], xmin: float = -1.2, xmax: f
     fig_path = "rooms_sdf.pdf"
     fig_rooms.savefig(fig_path, bbox_inches="tight")
     return fig_rooms, ax_rooms
-
-def plot_values(values_over_time: list, times: np.ndarray, grid_params: dict, title: str, dag_id: int):
-    figsize = (6 * len(times), 4)
-    fig_, axes_ = plt.subplots(nrows=1, ncols=len(times), figsize=figsize)
-
-    for ti, _ in enumerate(times):
-        ax_ = axes_[ti]
-        ax_.set_title(f"t = -{times[ti]:2.2f}")
-        ax_.set_aspect("equal")
-        ax_.set(xlim=(grid_params["lbs"][0] - grid_params["grid_pad"][0], grid_params["ubs"][0] + grid_params["grid_pad"][0]))
-
-        im = ax_.contourf(grid_params["bb_X"], grid_params["bb_Y"], 
-                          values_over_time[ti][:, :, int(grid_params["grid_nv"]/2), int(grid_params["grid_nq"]/2)], # middle slice
-                          levels=25, cmap="RdBu", norm=CenteredNorm())
-        ln = ax_.contour(grid_params["bb_X"], grid_params["bb_Y"], 
-                         values_over_time[ti][:, :, int(grid_params["grid_nv"]/2), int(grid_params["grid_nq"]/2)], # middle slice
-                         levels=0, colors="black", linewidths=2)
-        cbar = fig_.colorbar(im, ax=ax_)
-        cbar.add_lines(ln)
-
-    fig_.suptitle(title)
-    fig_.savefig("{:02}_values.pdf".format(dag_id), bbox_inches="tight")
-    plt.close(fig_)
-
-    return fig_
-
-def solve_avoid(bb_sdf_avoid: np.ndarray, times: np.ndarray, grid: hj.Grid, dyn: dynamics.Dynamics, gamma: float = 1):        
-    def a_post_processor(t, v):
-        return (1 - gamma) * bb_sdf_avoid + gamma * jnp.minimum(v, bb_sdf_avoid)
-
-    solver_settings = hj.SolverSettings.with_accuracy("very_high", value_postprocessor=a_post_processor)
-    values = init_values = bb_sdf_avoid
-
-    values_over_time = [None] * len(times)
-    for ti, _ in enumerate(times):
-        if ti == 0:
-            values = init_values
-        else:
-            values = hj.step(solver_settings, dyn, grid, -times[ti - 1], values, -times[ti], progress_bar=True)
-
-        values_over_time[ti] = values
-
-    return values_over_time
-
-def solve_reach_avoid(bb_sdf_reach: np.ndarray, bb_sdf_avoid: np.ndarray, times: np.ndarray, grid: hj.Grid, dyn: dynamics.Dynamics, gamma: float = 1):
-    assert bb_sdf_reach.shape == bb_sdf_avoid.shape
-
-    def ra_post_processor(t, v):
-        return (1 - gamma) * jnp.minimum(bb_sdf_reach, bb_sdf_avoid) + gamma * jnp.minimum(jnp.maximum(v, bb_sdf_reach), bb_sdf_avoid)
-
-    solver_settings = hj.SolverSettings.with_accuracy("very_high", value_postprocessor=ra_post_processor)
-    values = init_values = bb_sdf_reach
-
-    values_over_time = [None] * len(times)
-    for ti, _ in enumerate(times):
-        if ti == 0:
-            values = init_values
-        else:
-            values = hj.step(solver_settings, dyn, grid, -times[ti - 1], values, -times[ti], progress_bar=True)
-
-        values_over_time[ti] = values
-
-    return values_over_time
-
-def solve_dag_values(dag_builder, dict_locals, grid_dict, dyn, times, gamma):
-    
-    dict_vars = {}
-    for dag_id, n in enumerate(dag_builder.nodes):
-        match n:
-            case DAGVar(name=name):
-                assert name in dict_locals, "Unknown variable name {}".format(name)
-                dict_vars[dag_id] = dict_locals[name]
-
-            case DAGNegate(arg=arg):
-                val = dict_vars[arg]
-                dict_vars[dag_id] = -val
-
-            case DAGMinN(args=args):
-                args = np.stack([dict_vars[a] for a in args], axis=0)
-                val = np.min(args, axis=0)
-                dict_vars[dag_id] = val
-
-            case DAGMaxN(args=args):
-                args = np.stack([dict_vars[a] for a in args], axis=0)
-                val = np.max(args, axis=0)
-                dict_vars[dag_id] = val
-
-            case DAGReachAvoid(reach=reach, avoid=avoid):
-                # Note: the avoid is a stay since we are maximizing the value.
-                arg_reach = dict_vars[reach]
-                arg_avoid = dict_vars[avoid]
-
-                # Get a string representation of the sub-DAG for logging.
-                title = "%{}: {}".format(dag_id, dag_to_str(dag_builder, DAGId(dag_id)))
-
-                temporal_values = solve_reach_avoid(arg_reach, arg_avoid, times=times, grid=grid_dict["grid"], dyn=dyn, gamma=gamma)
-                dict_vars[dag_id] = temporal_values[-1]  # Inf time approx final time
-                fig_values = plot_values(temporal_values, times, grid_dict, title=title, dag_id=dag_id)
-
-            case DAGAvoid(avoid=avoid):
-                # Note: the avoid is a stay since we are maximizing the value.
-                arg_avoid = dict_vars[avoid]
-
-                # Get a string representation of the sub-DAG for logging.
-                title = "%{}: {}".format(dag_id, dag_to_str(dag_builder, DAGId(dag_id)))
-
-                temporal_values = solve_avoid(arg_avoid, times=times, grid=grid_dict["grid"], dyn=dyn, gamma=gamma)
-                dict_vars[dag_id] = temporal_values[-1]  # Inf time approx final time
-                fig_values = plot_values(temporal_values, times, grid_dict, title=title, dag_id=dag_id)
-
-    return dict_vars
 
 if __name__ == "__main__":
     # with ipdb.launch_ipdb_on_exception():
