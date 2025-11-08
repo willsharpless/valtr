@@ -260,5 +260,5 @@ def plot_optimal_path(sol, dag_ra_path, switch_times, fig_base=None):
 
     ax.legend()
     ax.set_title("Value Optimal Path")
-    fig.savefig("sol_path.pdf", bbox_inches="tight")
+    fig.savefig("solution_path.pdf", bbox_inches="tight")
     return fig

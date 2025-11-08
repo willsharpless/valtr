@@ -55,7 +55,7 @@ def main():
         p = p_cls(dag_builder)
         dag_root, dag_builder, changed = p.run(dag_root)
 
-    dot_dag = visualize_dag(dag_builder, dag_root, filename="dag_graph", view=True)
+    dot_dag = visualize_dag(dag_builder, dag_root, filename="value_tree_dag", view=True)
 
     # print("Normalized:")
     # ast = normalize_nary_bool(ast)

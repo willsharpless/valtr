@@ -25,9 +25,19 @@ from valtr.solver_utils import solve_dag_values
 from valtr.control import construct_optimal_path, plot_optimal_path
 
 BASE_OUT_DIR = "results/rooms_dubins" # name for script
-DIR_TAG = "onekey" # name for specific run
+DIR_TAG = "twokey" # name for specific run
 LOAD = False # whether to load existing results
-    
+
+## Define the task specification in TL
+# later, we map logic -> target/obstacle (doors, keys, walls, grid limits)
+if 'threekey' in DIR_TAG:
+    TASK_SOURCE = "(!d1 U k1) && (!d2 U k2) && F k3 && G( !w ) && G( g )" # 'threekey'
+elif 'twokey' in DIR_TAG:
+    TASK_SOURCE = "(!d1 U k1) && (!d2 U k2) && G( !w ) && G( g )" # 'twokey'
+else:
+    TASK_SOURCE = "(!d1 U k1) && G( !w ) && G( g )" # 'onekey'
+
+## Define environment dynamics
 class Car(hj.ControlAndDisturbanceAffineDynamics):
     def __init__(self,
                  max_acceleration=4.,
@@ -70,23 +80,23 @@ def main():
     lbs = np.array([-1.0, 0.0, -0.5, -np.pi])
     ubs = np.array([2.0, 1.0, 2.0, np.pi])
     grid_pad = np.array([0.2, 0.2, 0., 0.])
-    # grid_nx, grid_ny, grid_nv, grid_nq = 201, 81, 11, 11
-    grid_nx, grid_ny, grid_nv, grid_nq = 51, 21, 31, 31
-    # grid_nx, grid_ny, grid_nv, grid_nq = 25, 11, 31, 31 # quick test
+    # grid_nx, grid_ny, grid_nv, grid_nq = 51, 51, 31, 31
+    # grid_nx, grid_ny, grid_nv, grid_nq = 51, 21, 31, 31
+    grid_nx, grid_ny, grid_nv, grid_nq = 25, 11, 31, 31 # quick test (sol bleeds thru walls)
 
     grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
         hj.sets.Box(lbs - grid_pad, ubs + grid_pad), [grid_nx, grid_ny, grid_nv, grid_nq],
         periodic_dims=3
     )
 
-    bb_pos = np.array(grid.states)
-    bb_X = bb_pos[:, :, 0, 0, 0]
-    bb_Y = bb_pos[:, :, 0, 0, 1]
+    pos = np.array(grid.states)
+    grid_X = pos[:, :, 0, 0, 0]
+    grid_Y = pos[:, :, 0, 0, 1]
 
     grid_dict={"lbs": lbs, "ubs": ubs, "grid_pad": grid_pad, 
                "grid_nx": grid_nx, "grid_ny": grid_ny,
                "grid_nv": grid_nv, "grid_nq": grid_nq,
-                "grid": grid, "bb_X": bb_X, "bb_Y": bb_Y, 
+                "grid": grid, "grid_X": grid_X, "grid_Y": grid_Y, 
                 "grid_slice": np.s_[..., int(grid_nv/2), int(grid_nq/2)]}
 
     ## Define the rooms environment
@@ -105,46 +115,36 @@ def main():
     gamma = 0.9999
     # gamma = 1 # no discount -> bad control; just to check best satisfiability
 
-    ## Define the task specification in TL
-    if 'onekey' in DIR_TAG:
-        task_source = "(!door1 U key1) && G( !walls ) && G( in_grid )" # 'onekey'
-    elif 'twokey' in DIR_TAG:
-        task_source = "(!door1 U key1) && (!door2 U key2) && G( !walls ) && G( in_grid )" # 'twokey'
-    elif 'threekey' in DIR_TAG:
-        task_source = "(!door1 U key1) && (!door2 U key2) && F key3 && G( !walls ) && G( in_grid )" # 'threekey'
-    else:
-        task_source = "(!door1 U key1) && G( !walls ) && G( in_grid )" # 'onekey'
-
     # -------------------------------------------------------------------------------------------
     # Parse and lower the task specification to a value tree DAG.
     logger.info("Generating the value tree DAG from logic...")
-    print(f"Input task logic: {task_source}")
+    print(f"Input task logic: {TASK_SOURCE}")
 
     lexer = TLLexer()
-    tokens = list(lexer.tokenize(task_source))
+    tokens = list(lexer.tokenize(TASK_SOURCE))
     ast = TLParser(tokens).parse()
 
     # AST -> IR
-    ir_builder = IRBuilder()
-    lowerer = Lowerer(builder=ir_builder)
+    ir = IRBuilder()
+    lowerer = Lowerer(builder=ir)
     ir_root_id = lowerer.lower(ast)
 
     passes = [PassFinallyToUntil, PassCombineGloballySegments]
     for p_cls in passes:
-        p = p_cls(ir_builder)
-        ir_root_id, ir_builder = p.run(ir_root_id)
+        p = p_cls(ir)
+        ir_root_id, ir = p.run(ir_root_id)
 
     # IR -> DAG
-    dag_builder, dag_root = lower_ir_to_dag(ir_builder, ir_root_id)
+    value_tree_dag, dag_root = lower_ir_to_dag(ir, ir_root_id)
 
     # Perform constant folding.
     passes = [PassFoldConstBool]
     for p_cls in passes:
-        p = p_cls(dag_builder)
-        dag_root, dag_builder, changed = p.run(dag_root)
+        p = p_cls(value_tree_dag)
+        dag_root, value_tree_dag, changed = p.run(dag_root)
 
     # Visualize the DAG.
-    dot_dag = visualize_dag(dag_builder, dag_root, filename="dag_graph", view=True)
+    dot_dag = visualize_dag(value_tree_dag, dag_root, filename="value_tree_dag", view=True)
 
     # -------------------------------------------------------------------------------------------
     # Iterate through the DAG to solve all values.
@@ -153,18 +153,18 @@ def main():
     #     Positive sdf is truthy.
 
     dict_predicates = {
-        "key1": rooms_bc_dict["key1"],
-        "door1": rooms_bc_dict["door1"],
-        "key2": rooms_bc_dict["key2"],
-        "door2": rooms_bc_dict["door2"],
-        "key3": rooms_bc_dict["key3"],
-        "walls": rooms_bc_dict["walls"],
-        "in_grid": rooms_bc_dict["in_grid"],
+        "k1": rooms_bc_dict["key1"],
+        "d1": rooms_bc_dict["door1"],
+        "k2": rooms_bc_dict["key2"],
+        "d2": rooms_bc_dict["door2"],
+        "k3": rooms_bc_dict["key3"],
+        "w": rooms_bc_dict["walls"],
+        "g": rooms_bc_dict["in_grid"],
     }
 
     if not LOAD:
         logger.info("Solving the value tree ...")
-        value_tree_solution = solve_dag_values(dag_builder, dict_predicates, grid_dict, dyn, times, gamma)
+        value_tree_solution = solve_dag_values(value_tree_dag, dict_predicates, grid_dict, dyn, times, gamma)
         np.savez_compressed("value_tree_solution.npz", **{str(k): v for k, v in value_tree_solution.items()})
     else:
         logger.info("Loading presolved value tree ...")
@@ -173,22 +173,22 @@ def main():
         for k in value_tree_solution_loaded:
             value_tree_solution[int(k)] = value_tree_solution_loaded[k]
 
-    # Final result is at dag_root
-    bb_sdf_result = value_tree_solution[dag_root]
-
-    # Plot the final result.
+    # Plot the final result
     fig_sol = copy.deepcopy(fig_rooms)
     ax_sol = fig_sol.axes[0]
-    im = ax_sol.contourf(bb_X, bb_Y, bb_sdf_result[:, :, int(grid_dict["grid_nv"]/2), int(grid_dict["grid_nq"]/2)], # middle slice
-                     levels=25, cmap="RdBu", norm=CenteredNorm(), alpha=0.8)
-    ln = ax_sol.contour(bb_X, bb_Y, bb_sdf_result[:, :, int(grid_dict["grid_nv"]/2), int(grid_dict["grid_nq"]/2)], # middle slice
-                    levels=0, colors="black", linewidths=2, alpha=0.8)
+    im = ax_sol.contourf(grid_X, grid_Y, 
+                         value_tree_solution[dag_root][:, :, int(grid_dict["grid_nv"]/2), int(grid_dict["grid_nq"]/2)], # middle slice
+                        levels=25, cmap="RdBu", norm=CenteredNorm(), alpha=0.8)
+    ln = ax_sol.contour(grid_X, grid_Y, 
+                        value_tree_solution[dag_root][:, :, int(grid_dict["grid_nv"]/2), int(grid_dict["grid_nq"]/2)], # middle slice
+                        levels=0, colors="black", linewidths=2, alpha=0.8)
     divider = make_axes_locatable(ax_sol)
     cax = divider.append_axes("right", size="5%", pad=0.05)
     cbar = fig_sol.colorbar(im, cax=cax)
     cbar.add_lines(ln)
-    ax_sol.set_title("Value for [{}]".format(task_source))
-    fig_sol.savefig("sol.pdf", bbox_inches="tight")
+    ax_sol.set_title("Value")
+    ax_sol.get_legend().remove()
+    fig_sol.savefig("solution_values.pdf", bbox_inches="tight")
     plt.close(fig_sol)
 
     # -------------------------------------------------------------------------------------------
@@ -207,7 +207,7 @@ def main():
     x_start = np.array([0.1, 0.6, 0.5, 0.])
     t_start = -5.0
     sol, full_dag_path, switch_times = construct_optimal_path(
-        dag_builder, 
+        value_tree_dag, 
         value_tree_solution, 
         value_tree_grads, 
         t_start, 
@@ -220,7 +220,7 @@ def main():
         reaching_eps=0., 
         integration_method='jax'
     )
-    dag_ra_path = [i for i in full_dag_path if type(dag_builder.nodes[i]) in [DAGReachAvoid, DAGAvoid]]
+    dag_ra_path = [i for i in full_dag_path if type(value_tree_dag.nodes[i]) in [DAGReachAvoid, DAGAvoid]]
     print("Optimal path constructed,")
     print("  Full DAG path nodes: ", full_dag_path)
     print("  RA/A DAG path nodes: ", dag_ra_path)
@@ -339,18 +339,18 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
     def jit_rep_vmap(fn, rep: int, *args):
         return np.array(rep_vmap(fn, rep=rep)(*args))
     
-    bb_pos = np.array(grid.states)[:,:,0,0,:2] # only position affects value
-    bb_sdf_room1 = -jit_rep_vmap(sdf_room1, 2, bb_pos)
-    bb_sdf_room2 = -jit_rep_vmap(sdf_room2, 2, bb_pos)
-    bb_sdf_room3 = -jit_rep_vmap(sdf_room3, 2, bb_pos)
+    pos = np.array(grid.states)[:,:,0,0,:2] # only position affects value
+    bb_sdf_room1 = -jit_rep_vmap(sdf_room1, 2, pos)
+    bb_sdf_room2 = -jit_rep_vmap(sdf_room2, 2, pos)
+    bb_sdf_room3 = -jit_rep_vmap(sdf_room3, 2, pos)
 
-    bb_sdf_door12 = -jit_rep_vmap(sdf_door12, 2, bb_pos)
-    bb_sdf_door13 = -jit_rep_vmap(sdf_door13, 2, bb_pos)
-    bb_sdf_walls = -jit_rep_vmap(sdf_walls, 2, bb_pos)
+    bb_sdf_door12 = -jit_rep_vmap(sdf_door12, 2, pos)
+    bb_sdf_door13 = -jit_rep_vmap(sdf_door13, 2, pos)
+    bb_sdf_walls = -jit_rep_vmap(sdf_walls, 2, pos)
 
-    bb_sdf_key1 = -jit_rep_vmap(sdf_key1, 2, bb_pos)
-    bb_sdf_key2 = -jit_rep_vmap(sdf_key2, 2, bb_pos)
-    bb_sdf_key3 = -jit_rep_vmap(sdf_key3, 2, bb_pos)
+    bb_sdf_key1 = -jit_rep_vmap(sdf_key1, 2, pos)
+    bb_sdf_key2 = -jit_rep_vmap(sdf_key2, 2, pos)
+    bb_sdf_key3 = -jit_rep_vmap(sdf_key3, 2, pos)
 
     bb_sdf_grid_limits = jit_rep_vmap(sdf_grid_limits, 4, np.array(grid.states)) # all states affect grid limits
 
@@ -377,7 +377,7 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
 
 def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], xmin: float = -1.2, xmax: float = 2.2, ymin: float = -0.3, ymax: float = 1.2):
     
-    def shade_supzero(ax_: plt.Axes, bb_sdf, color, alpha: float = 0.5):
+    def shade_supzero(ax_: plt.Axes, bb_sdf, color, alpha: float = 0.5, label: str = ""):
         # Mask negative values
         masked = np.ma.array(bb_sdf, mask=bb_sdf < 0)
 
@@ -389,26 +389,35 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], xmin: float = -1.2, xmax: f
             alpha=alpha,
             interpolation="nearest",
         )
+        # add square marker legend entry if label:
+        if label:
+            ax_.scatter([], [], marker="s", color=color, alpha=alpha, label=label)
 
     logger.info("Plotting SDFs...")
     fig_rooms, ax_rooms = plt.subplots(layout="constrained")
     ax_rooms.set_aspect("equal")
 
     # Shade inside the rooms.
-    shade_supzero(ax_rooms, rooms_bc_dict["room1"][:,:,0,0], "C1", alpha=0.5)
-    shade_supzero(ax_rooms, rooms_bc_dict["room2"][:,:,0,0], "C2", alpha=0.5)
-    shade_supzero(ax_rooms, rooms_bc_dict["room3"][:,:,0,0], "C4", alpha=0.5)
+    shade_supzero(ax_rooms, rooms_bc_dict["room1"][:,:,0,0], "C1", alpha=0.3, label="Room 1")
+    shade_supzero(ax_rooms, rooms_bc_dict["room2"][:,:,0,0], "C2", alpha=0.3, label="Room 2")
+    shade_supzero(ax_rooms, rooms_bc_dict["room3"][:,:,0,0], "C4", alpha=0.3, label="Room 3")
 
-    shade_supzero(ax_rooms, rooms_bc_dict["door1"][:,:,0,0], "C5", alpha=0.8)
-    shade_supzero(ax_rooms, rooms_bc_dict["door2"][:,:,0,0], "C5", alpha=0.8)
-    shade_supzero(ax_rooms, rooms_bc_dict["walls"][:,:,0,0], "k", alpha=0.8)
+    shade_supzero(ax_rooms, rooms_bc_dict["key1"][:,:,0,0], "C1", alpha=0.9, label="Key 1")
+    shade_supzero(ax_rooms, rooms_bc_dict["key2"][:,:,0,0], "C2", alpha=0.9, label="Key 2")
+    shade_supzero(ax_rooms, rooms_bc_dict["key3"][:,:,0,0], "C4", alpha=0.9, label="Key 3")
 
-    shade_supzero(ax_rooms, rooms_bc_dict["key1"][:,:,0,0], "C6", alpha=0.8)
-    shade_supzero(ax_rooms, rooms_bc_dict["key2"][:,:,0,0], "C6", alpha=0.8)
-    shade_supzero(ax_rooms, rooms_bc_dict["key3"][:,:,0,0], "C6", alpha=0.8)
+    shade_supzero(ax_rooms, rooms_bc_dict["door1"][:,:,0,0], "C5", alpha=0.9, label="Door 1")
+    shade_supzero(ax_rooms, rooms_bc_dict["door2"][:,:,0,0], "C6", alpha=0.9, label="Door 2")
+    shade_supzero(ax_rooms, rooms_bc_dict["walls"][:,:,0,0], "k", alpha=0.9, label="Walls")
 
     fig_path = "rooms_sdf.pdf"
+    ax_rooms.set_title("Rooms SDFs, Task: {}".format(TASK_SOURCE))
+    ax_rooms.legend(ncol=3)
     fig_rooms.savefig(fig_path, bbox_inches="tight")
+    # remove dummy scatter objects
+    for artist in ax_rooms.get_children():
+        if hasattr(artist, 'get_offsets') and len(artist.get_offsets()) == 0:
+            artist.remove()
     return fig_rooms, ax_rooms
 
 if __name__ == "__main__":

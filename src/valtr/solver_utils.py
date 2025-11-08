@@ -120,10 +120,10 @@ def plot_values(values_over_time: list, times: np.ndarray, grid_params: dict, ti
         ax_.set_aspect("equal")
         ax_.set(xlim=(grid_params["lbs"][0] - grid_params["grid_pad"][0], grid_params["ubs"][0] + grid_params["grid_pad"][0]))
 
-        im = ax_.contourf(grid_params["bb_X"], grid_params["bb_Y"], 
+        im = ax_.contourf(grid_params["grid_X"], grid_params["grid_Y"], 
                           values_over_time[ti][grid_slice],
                           levels=25, cmap="RdBu", norm=CenteredNorm())
-        ln = ax_.contour(grid_params["bb_X"], grid_params["bb_Y"], 
+        ln = ax_.contour(grid_params["grid_X"], grid_params["grid_Y"], 
                          values_over_time[ti][grid_slice],
                          levels=0, colors="black", linewidths=2)
         cbar = fig_.colorbar(im, ax=ax_)
