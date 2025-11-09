@@ -24,8 +24,8 @@ from scipy import integrate as ode
 from valtr.solver_utils import solve_dag_values
 from valtr.control import construct_optimal_path, plot_optimal_path
 
-BASE_OUT_DIR = "results/rooms_dubins" # name for script
-DIR_TAG = "threekey" # name for specific run
+BASE_OUT_DIR = "results/rooms_car" # name for script
+DIR_TAG = "twokey_dense" # name for specific run
 LOAD = False # whether to load existing results
 
 ## Define the task specification in TL
@@ -38,32 +38,32 @@ else:
     TASK_SOURCE = "(!d1 U k1) && G( !w ) && G( g )" # 'onekey'
 
 ## Define environment dynamics
-class Dubins(hj.ControlAndDisturbanceAffineDynamics):
+class Car(hj.ControlAndDisturbanceAffineDynamics):
     def __init__(self,
-                 velocity=1.,
-                 max_curvature=8.,
+                 max_acceleration=4.,
+                 max_curvature=4.,
                  max_position_disturbance=0.,
                  control_mode="max",
                  disturbance_mode="min",
                  control_space=None,
                  disturbance_space=None):
-        self.velocity = velocity
         if control_space is None:
-            control_space = hj.sets.Box(jnp.array([-max_curvature]),
-                                        jnp.array([ max_curvature]))
+            control_space = hj.sets.Box(jnp.array([-max_acceleration, -max_curvature]),
+                                        jnp.array([max_acceleration, max_curvature]))
         if disturbance_space is None:
             disturbance_space = hj.sets.Ball(jnp.zeros(2), max_position_disturbance)
         super().__init__(control_mode, disturbance_mode, control_space, disturbance_space)
 
     def open_loop_dynamics(self, state, time):
-        _, _, theta = state
-        return jnp.array([self.velocity * jnp.cos(theta), self.velocity * jnp.sin(theta), 0.])
+        _, _, v, q = state
+        return jnp.array([v * jnp.cos(q), v * jnp.sin(q), 0., 0.])
 
     def control_jacobian(self, state, time):
-        return jnp.array([[0.], [0.], [1.],])
+        v = state[2]
+        return jnp.array([[0., 0.], [0., 0.], [1., 0.], [0., v],])
 
     def disturbance_jacobian(self, state, time):
-        return jnp.array([[1., 0.], [0., 1.], [0., 0.],])
+        return jnp.array([[1., 0.], [0., 1.], [0., 0.], [0., 0.],])
 
 def main():
 
@@ -77,26 +77,27 @@ def main():
     # Initialize dynamics, environment and task
 
     ## Define the grid
-    lbs = np.array([-1.0, 0.0, -np.pi])
-    ubs = np.array([2.0, 1.0, np.pi])
-    grid_pad = np.array([0.2, 0.2, 0.])
-    # grid_nx, grid_ny, grid_nq = 501, 201, 31
-    grid_nx, grid_ny, grid_nq = 201, 81, 61
-    # grid_nx, grid_ny, grid_nq = 101, 41, 31
+    lbs = np.array([-1.0, 0.0, -0.5, -np.pi])
+    ubs = np.array([2.0, 1.0, 2.0, np.pi])
+    grid_pad = np.array([0.2, 0.2, 0., 0.])
+    grid_nx, grid_ny, grid_nv, grid_nq = 101, 51, 31, 31
+    # grid_nx, grid_ny, grid_nv, grid_nq = 51, 21, 31, 31
+    # grid_nx, grid_ny, grid_nv, grid_nq = 25, 11, 31, 31 # quick test (sol bleeds thru walls)
 
     grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
-        hj.sets.Box(lbs - grid_pad, ubs + grid_pad), [grid_nx, grid_ny, grid_nq],
-        periodic_dims=2
+        hj.sets.Box(lbs - grid_pad, ubs + grid_pad), [grid_nx, grid_ny, grid_nv, grid_nq],
+        periodic_dims=3
     )
 
     pos = np.array(grid.states)
-    grid_X = pos[:, :, 0, 0]
-    grid_Y = pos[:, :, 0, 1]
+    grid_X = pos[:, :, 0, 0, 0]
+    grid_Y = pos[:, :, 0, 0, 1]
 
     grid_dict={"lbs": lbs, "ubs": ubs, "grid_pad": grid_pad, 
-               "grid_nx": grid_nx, "grid_ny": grid_ny, "grid_nq": grid_nq,
+               "grid_nx": grid_nx, "grid_ny": grid_ny,
+               "grid_nv": grid_nv, "grid_nq": grid_nq,
                 "grid": grid, "grid_X": grid_X, "grid_Y": grid_Y, 
-                "grid_slice": np.s_[..., int(grid_nq/2)]}
+                "grid_slice": np.s_[..., int(grid_nv/2), int(grid_nq/2)]}
 
     ## Define the rooms environment
     rooms_bc_dict = make_rooms(grid_dict)
@@ -107,7 +108,7 @@ def main():
                                      ymax=ubs[1]+grid_pad[1])
 
     ## Define the system dynamics
-    dyn = Dubins()
+    dyn = Car()
     tf = 5.0
     ntimes = 4
     times = np.linspace(0.0, tf, ntimes+1)
@@ -176,10 +177,10 @@ def main():
     fig_sol = copy.deepcopy(fig_rooms)
     ax_sol = fig_sol.axes[0]
     im = ax_sol.contourf(grid_X, grid_Y, 
-                         value_tree_solution[dag_root][:, :, int(grid_dict["grid_nq"]/2)], # middle slice
+                         value_tree_solution[dag_root][:, :, int(grid_dict["grid_nv"]/2), int(grid_dict["grid_nq"]/2)], # middle slice
                         levels=25, cmap="RdBu", norm=CenteredNorm(), alpha=0.8)
     ln = ax_sol.contour(grid_X, grid_Y, 
-                        value_tree_solution[dag_root][:, :, int(grid_dict["grid_nq"]/2)], # middle slice
+                        value_tree_solution[dag_root][:, :, int(grid_dict["grid_nv"]/2), int(grid_dict["grid_nq"]/2)], # middle slice
                         levels=0, colors="black", linewidths=2, alpha=0.8)
     divider = make_axes_locatable(ax_sol)
     cax = divider.append_axes("right", size="5%", pad=0.05)
@@ -201,8 +202,9 @@ def main():
         # value_tree_grads[key] = [grid.grad_values(val[i,...]) for i in range(len(times))]
         
     # Example start point in room3
-    x_start = np.array([0.1, 0.1, 0.])
-    # x_start = np.array([0.1, 0.6, 0.])
+    # x_start = np.array([0.1, 0.1, 0.5, np.pi/2])
+    # x_start = np.array([0.1, 0.1, 0.5, np.pi/4])
+    x_start = np.array([0.1, 0.6, 0.5, 0.])
     t_start = -5.0
     sol, full_dag_path, switch_times = construct_optimal_path(
         value_tree_dag, 
@@ -257,7 +259,7 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
 
     lbs, ubs = grid_dict["lbs"], grid_dict["ubs"]
     # grid_pad = grid_dict["grid_pad"]
-    grid_pad = [0,0,0] # no pad for sdf computation
+    grid_pad = [0,0,0,0] # no pad for sdf computation
     grid = grid_dict["grid"]
 
     # SDF for room 1: BL corner at (0, 0), width = height = 1
@@ -313,11 +315,14 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
         sdf_xmax = (ubs[0] - grid_pad[0]) - pt[0]
         sdf_ymin = pt[1] - (lbs[1] + grid_pad[1])
         sdf_ymax = (ubs[1] - grid_pad[1]) - pt[1]
-        sdf_qmin = pt[2] - (lbs[2] + grid_pad[2])
-        sdf_qmax = (ubs[2] - grid_pad[2]) - pt[2]
+        sdf_vmin = pt[2] - (lbs[2] + grid_pad[2])
+        sdf_vmax = (ubs[2] - grid_pad[2]) - pt[2]
+        sdf_qmin = pt[3] - (lbs[3] + grid_pad[3])
+        sdf_qmax = (ubs[3] - grid_pad[3]) - pt[3]
         return jnp.min(jnp.array([
             sdf_xmin, sdf_xmax,
             sdf_ymin, sdf_ymax,
+            sdf_vmin, sdf_vmax,
             sdf_qmin, sdf_qmax,
         ]))
         
@@ -334,7 +339,7 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
     def jit_rep_vmap(fn, rep: int, *args):
         return np.array(rep_vmap(fn, rep=rep)(*args))
     
-    pos = np.array(grid.states)[:,:,0,:2] # only position affects value
+    pos = np.array(grid.states)[:,:,0,0,:2] # only position affects value
     bb_sdf_room1 = -jit_rep_vmap(sdf_room1, 2, pos)
     bb_sdf_room2 = -jit_rep_vmap(sdf_room2, 2, pos)
     bb_sdf_room3 = -jit_rep_vmap(sdf_room3, 2, pos)
@@ -347,7 +352,7 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
     bb_sdf_key2 = -jit_rep_vmap(sdf_key2, 2, pos)
     bb_sdf_key3 = -jit_rep_vmap(sdf_key3, 2, pos)
 
-    bb_sdf_grid_limits = jit_rep_vmap(sdf_grid_limits, 3, np.array(grid.states)) # all states affect grid limits
+    bb_sdf_grid_limits = jit_rep_vmap(sdf_grid_limits, 4, np.array(grid.states)) # all states affect grid limits
 
     rooms_bc_dict = {
         "room1": bb_sdf_room1,
@@ -366,7 +371,7 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
     for k, v in rooms_bc_dict.items():
         if k == "in_grid":
             continue
-        rooms_bc_dict[k] = jnp.broadcast_to(v[:, :, None], grid.shape)
+        rooms_bc_dict[k] = jnp.broadcast_to(v[:, :, None, None], grid.shape)
 
     return rooms_bc_dict
 
@@ -393,17 +398,17 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], xmin: float = -1.2, xmax: f
     ax_rooms.set_aspect("equal")
 
     # Shade inside the rooms.
-    shade_supzero(ax_rooms, rooms_bc_dict["room1"][:,:,0], "C1", alpha=0.3, label="Room 1")
-    shade_supzero(ax_rooms, rooms_bc_dict["room2"][:,:,0], "C2", alpha=0.3, label="Room 2")
-    shade_supzero(ax_rooms, rooms_bc_dict["room3"][:,:,0], "C4", alpha=0.3, label="Room 3")
+    shade_supzero(ax_rooms, rooms_bc_dict["room1"][:,:,0,0], "C1", alpha=0.3, label="Room 1")
+    shade_supzero(ax_rooms, rooms_bc_dict["room2"][:,:,0,0], "C2", alpha=0.3, label="Room 2")
+    shade_supzero(ax_rooms, rooms_bc_dict["room3"][:,:,0,0], "C4", alpha=0.3, label="Room 3")
 
-    shade_supzero(ax_rooms, rooms_bc_dict["key1"][:,:,0], "C1", alpha=0.9, label="Key 1")
-    shade_supzero(ax_rooms, rooms_bc_dict["key2"][:,:,0], "C2", alpha=0.9, label="Key 2")
-    shade_supzero(ax_rooms, rooms_bc_dict["key3"][:,:,0], "C4", alpha=0.9, label="Key 3")
+    shade_supzero(ax_rooms, rooms_bc_dict["key1"][:,:,0,0], "C1", alpha=0.9, label="Key 1")
+    shade_supzero(ax_rooms, rooms_bc_dict["key2"][:,:,0,0], "C2", alpha=0.9, label="Key 2")
+    shade_supzero(ax_rooms, rooms_bc_dict["key3"][:,:,0,0], "C4", alpha=0.9, label="Key 3")
 
-    shade_supzero(ax_rooms, rooms_bc_dict["door1"][:,:,0], "C5", alpha=0.9, label="Door 1")
-    shade_supzero(ax_rooms, rooms_bc_dict["door2"][:,:,0], "C6", alpha=0.9, label="Door 2")
-    shade_supzero(ax_rooms, rooms_bc_dict["walls"][:,:,0], "k", alpha=0.9, label="Walls")
+    shade_supzero(ax_rooms, rooms_bc_dict["door1"][:,:,0,0], "C5", alpha=0.9, label="Door 1")
+    shade_supzero(ax_rooms, rooms_bc_dict["door2"][:,:,0,0], "C6", alpha=0.9, label="Door 2")
+    shade_supzero(ax_rooms, rooms_bc_dict["walls"][:,:,0,0], "k", alpha=0.9, label="Walls")
 
     fig_path = "rooms_sdf.pdf"
     ax_rooms.set_title("Rooms SDFs, Task: {}".format(TASK_SOURCE))

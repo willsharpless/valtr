@@ -38,7 +38,7 @@ else:
     TASK_SOURCE = "(!d1 U k1) && G( !w )" # 'onekey'
 
 ## Define environment dynamics
-class Point(dynamics.ControlAndDisturbanceAffineDynamics):
+class Point(hj.ControlAndDisturbanceAffineDynamics):
     def __init__(self, u_bd=1.0, d_bd=0.0, N=1, control_mode="max", disturbance_mode="min"):
         self.N = N
         self.dim = 2 * N
