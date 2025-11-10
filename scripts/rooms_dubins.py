@@ -80,8 +80,8 @@ def main():
     lbs = np.array([-1.0, 0.0, -np.pi])
     ubs = np.array([2.0, 1.0, np.pi])
     grid_pad = np.array([0.2, 0.2, 0.])
-    # grid_nx, grid_ny, grid_nq = 501, 201, 31
-    grid_nx, grid_ny, grid_nq = 201, 81, 61
+    grid_nx, grid_ny, grid_nq = 401, 161, 121
+    # grid_nx, grid_ny, grid_nq = 201, 81, 61
     # grid_nx, grid_ny, grid_nq = 101, 41, 31
 
     grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
@@ -108,10 +108,10 @@ def main():
 
     ## Define the system dynamics
     dyn = Dubins()
-    tf = 5.0
+    tf = 3.0
     ntimes = 4
     times = np.linspace(0.0, tf, ntimes+1)
-    gamma = 0.9999
+    gamma = 0.99999
     # gamma = 1 # no discount -> bad control; just to check best satisfiability
 
     # -------------------------------------------------------------------------------------------
@@ -203,7 +203,7 @@ def main():
     # Example start point in room3
     x_start = np.array([0.1, 0.1, 0.])
     # x_start = np.array([0.1, 0.6, 0.])
-    t_start = -5.0
+    t_start = -10.0
     sol, full_dag_path, switch_times = construct_optimal_path(
         value_tree_dag, 
         value_tree_solution, 
