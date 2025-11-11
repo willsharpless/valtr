@@ -246,7 +246,7 @@ def main():
             fig_rooms,
             filename=f"batch_trajectories.gif",
             fps=60,
-            skip_frames=1  # Show more frames for detailed view
+            skip_frames=2  # Show more frames for detailed view
         )
 
     # ----------------------------------------------------------------------------
@@ -388,7 +388,7 @@ def plot_batch_trajectories_gif(
     # Extract trajectory data
     fig = copy.deepcopy(base_figure)
     ax = fig.axes[0]
-    ax.set_title("Batch Trajectories Evolution", fontsize=12)
+    ax.set_title("Value - Optimal Flow", fontsize=12)
     ax.get_legend().remove()
     trajectory_history = batch_results['trajectory_history']
     states = trajectory_history['states']  # Shape: (batch_size, time_steps, state_dim)
@@ -498,17 +498,12 @@ def plot_batch_trajectories_gif(
     )
     
     # Save as GIF
-    print("Saving GIF...")
-    try:
-        anim.save(filename, writer='pillow', fps=fps, dpi=300)
-        print(f"GIF saved: {filename}")
-        
-        # Print file size
-        file_size = os.path.getsize(filename) / 1024 / 1024  # MB
-        print(f"   File size: {file_size:.1f} MB")
-    except Exception as e:
-        print(f"Error saving GIF: {e}")
-        print("Note: You may need to install Pillow: pip install Pillow")
+    anim.save(filename, writer='pillow', fps=fps, dpi=300)
+    print(f"GIF saved: {filename}")
+    
+    # Print file size
+    file_size = os.path.getsize(filename) / 1024 / 1024  # MB
+    print(f"   File size: {file_size:.1f} MB")
     
     plt.close(fig)
     return anim
@@ -549,23 +544,32 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], xmin: float = -1.2, xmax: f
     shade_supzero(ax_rooms, rooms_bc_dict["door2"], "C6", alpha=0.9, label="Door 2")
     shade_supzero(ax_rooms, rooms_bc_dict["walls"], "k", alpha=0.9, label="Walls")
 
-    ax_rooms.legend(facecolor="white", framealpha=0.8,)
+    ax_rooms.legend(frameon=True, facecolor="white", framealpha=0.8, ncol=2, loc="lower left")
+
+    from matplotlib import font_manager
 
     fig_path = "rooms_sdf.pdf"
-    ax_rooms.set_title("Rooms SDFs, Task: {}".format(TASK_SOURCE))
-    ax_rooms.legend(ncol=3)
+    ax_rooms.set_title("      ROOMS-POINT ", loc="left", fontsize=10, fontweight="bold")
+    ax_rooms.text(
+        0.275, 1.05, TASK_SOURCE,
+        fontfamily="monospace",
+        transform=ax_rooms.transAxes,
+        ha="left", va="center",
+        fontsize=9,
+    )
+
     fig_rooms.savefig(fig_path, bbox_inches="tight")
-    # remove dummy scatter objects
+    
+    # clear figure descriptors for reuse
     for artist in ax_rooms.get_children():
         if hasattr(artist, 'get_offsets') and len(artist.get_offsets()) == 0:
             artist.remove()
+    
+    ax_rooms.title.set_text("")
+    ax_rooms.set_title("")
 
-    # # remove axes
-    # ax_rooms.set_xticks([])
-    # ax_rooms.set_yticks([])
-    # # remove axes spines
-    # for spine in ax_rooms.spines.values():
-    #     spine.set_visible(False)
+    for txt in ax_rooms.texts[:]:  # Use slice copy to avoid modification during iteration
+        txt.remove()
 
     return fig_rooms, ax_rooms
 

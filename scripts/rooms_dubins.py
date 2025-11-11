@@ -4,9 +4,10 @@ import hj_reachability.dynamics as dynamics
 import ipdb
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+from matplotlib.colors import CenteredNorm, ListedColormap
 import numpy as np
 from loguru import logger
-from matplotlib.colors import CenteredNorm, ListedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import copy 
 
@@ -22,11 +23,15 @@ from valtr.tl_parser import TLParser
 from valtr.util.jax_util import rep_vmap
 from scipy import integrate as ode
 from valtr.solver_utils import solve_dag_values
-from valtr.control import construct_optimal_path, plot_optimal_path
+from valtr.control import construct_optimal_path, plot_optimal_path, \
+    construct_optimal_path_batch, construct_optimal_path_batch_fast, construct_optimal_path_batch_auto
+import time
+
+plt.style.use("seaborn-v0_8-darkgrid")
 
 BASE_OUT_DIR = "results/rooms_dubins" # name for script
-DIR_TAG = "threekey" # name for specific run
-LOAD = False # whether to load existing results
+DIR_TAG = "threekey" # name for specific run, 'threekey_dense_g99999_t3'
+LOAD = True # whether to load existing results
 
 ## Define the task specification in TL
 # later, we map logic -> target/obstacle (doors, keys, walls, grid limits)
@@ -228,6 +233,49 @@ def main():
     plt.close(fig_rooms_path)
     plt.close(fig_rooms)
 
+    # -------------------------------------------------------------------------------------------
+    # Batch solve for gif
+    print("Solving batch paths for gif...")
+
+    # grid of points in room 1
+    X_start = np.array(np.meshgrid(
+        np.linspace(0.1, 0.9, 5),
+        np.linspace(0.05, 0.9, 5),
+    )).reshape(2, -1).T  # shape (N, 2)
+    t_start = -10.0
+    # concatenate with orientations
+    X_start = np.concatenate([
+        X_start,
+        # np.zeros((X_start.shape[0], 1))  # all facing right
+        # all facing towards key1
+        np.arctan2(0.6 - X_start[:,1], 0.2 - X_start[:,0])[:, None]
+    ], axis=1)  # shape (N, 3)
+    
+    results_batch = construct_optimal_path_batch_auto(
+        value_tree_dag, 
+        value_tree_solution, 
+        value_tree_grads, 
+        t_start, 
+        X_start, 
+        dag_root, 
+        grid,
+        dyn, 
+        times=times, 
+        tv=False, 
+        reaching_eps=0.01, 
+        integration_method='jax',
+        use_fast_version=False  # Use the regular batch version
+    )
+
+    if 'trajectory_history' in results_batch:
+        plot_batch_trajectories_gif(
+            results_batch,
+            fig_rooms,
+            filename=f"batch_trajectories.gif",
+            fps=60,
+            skip_frames=1  # Show more frames for detailed view
+        )
+
     # ----------------------------------------------------------------------------
     logger.info("Complete.")
     print(f"See ./{BASE_OUT_DIR}/{DIR_TAG}/ for results.")
@@ -362,13 +410,159 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
         "in_grid": bb_sdf_grid_limits,
     }
 
-    # extend to 4d grid
+    # extend to 3d grid
     for k, v in rooms_bc_dict.items():
         if k == "in_grid":
             continue
         rooms_bc_dict[k] = jnp.broadcast_to(v[:, :, None], grid.shape)
 
     return rooms_bc_dict
+
+def plot_batch_trajectories_gif(
+    batch_results: dict,
+    base_figure: plt.Figure,
+    filename: str = "batch_trajectories.gif",
+    fps: int = 60,
+    skip_frames: int = 1,
+    max_frames: int = 300,
+    trail_length: int = 30,
+):
+    """
+    Create an animated GIF showing the evolution of batch trajectories through the rooms environment.
+    
+    Args:
+        batch_results: Results from construct_optimal_path_batch containing trajectory_history
+        base_figure: Mpl figure to use as background
+        filename: Output filename for the GIF
+        fps: Frames per second for the animation
+        skip_frames: Skip every N frames to reduce file size
+        xmin, xmax, ymin, ymax: Plot bounds
+    """
+    print(f"Creating trajectory evolution GIF: {filename}")
+    
+    # Extract trajectory data
+    fig = copy.deepcopy(base_figure)
+    ax = fig.axes[0]
+    ax.set_title("Value - Optimal Flow", fontsize=12)
+    ax.get_legend().remove()
+    trajectory_history = batch_results['trajectory_history']
+    states = trajectory_history['states']  # Shape: (batch_size, time_steps, state_dim)
+    times = trajectory_history['times']    # Shape: (batch_size, time_steps)
+    dag_ids = trajectory_history['dag_ids'] # Shape: (batch_size, time_steps)
+    
+    batch_size, total_steps, state_dim = states.shape
+    
+    # Define colors for different DAG nodes
+    dag_color_map = {
+        38: '#ff7f0e',  # Orange
+        19: '#2ca02c',  # Green
+        10:  '#9467bd',  # Purple
+        7:  '#34495e',  # Dark Gray
+        -1: '#95a5a6'   # Light Gray (terminal)
+    }
+    
+    def get_dag_color(dag_id):
+        return dag_color_map.get(dag_id, '#bdc3c7')  # Default light gray
+    
+    # Initialize scatter plots for trajectories
+    scatters = []
+    trails = []
+    
+    for i in range(batch_size):
+        # Current position scatter (larger, more visible)
+        scatter = ax.scatter([], [], s=35, alpha=0.9, zorder=10, edgecolors='black', linewidth=1, marker=(3, 0, 0))
+        scatters.append(scatter)
+        
+        # Trail line
+        trail, = ax.plot([], [], alpha=0.6, linewidth=1, zorder=5)
+        trails.append(trail)
+
+    # Text elements for main plot
+    time_text = ax.text(0.85, 0.9, "", transform=ax.transAxes, zorder=10,
+                            verticalalignment='top', fontsize=8,
+                            bbox=dict(boxstyle="round,pad=0.2", alpha=0.8, facecolor="white"))
+
+    def animate(frame):
+        """Animation function called for each frame"""
+        step = frame * skip_frames
+        if step >= total_steps:
+            step = total_steps - 1
+            
+        # Count trajectories in each DAG state
+        dag_counts = {}
+        
+        # Update each trajectory
+        for i in range(batch_size):
+            # Get current state and DAG ID
+            x, y = states[i, step, 0], states[i, step, 1]
+            theta = states[i, step, 2]
+            current_dag_id = dag_ids[i, step]
+            current_time = times[i, step]
+                
+            dag_counts[current_dag_id] = dag_counts.get(current_dag_id, 0) + 1
+            
+            # Get color for current DAG node
+            color = get_dag_color(current_dag_id)
+            
+            # Update current position
+            scatters[i].remove()
+            scatters[i] = ax.scatter([x], [y], s=35, alpha=0.9, zorder=10, edgecolors='black', linewidth=1, 
+                                     marker=(3, 0, np.degrees(theta)-90), color=color)
+
+            # Update trail (last N points)
+            trail_start = max(0, step - trail_length)
+            trail_x = states[i, trail_start:step+1, 0]
+            trail_y = states[i, trail_start:step+1, 1]
+            
+            # Remove NaN values from trail
+            valid_trail = ~(np.isnan(trail_x) | np.isnan(trail_y))
+            if np.any(valid_trail):
+                trail_x = trail_x[valid_trail]
+                trail_y = trail_y[valid_trail]
+                trails[i].set_data(trail_x, trail_y)
+                # trails[i].set_color(color)
+                trails[i].set_color('k')
+            else:
+                trails[i].set_data([], [])
+        
+        # Update text displays
+        current_time = times[0, step] if not np.isnan(times[0, step]) else 0.0
+        time_text.set_text(f"Time: {current_time:.2f}")
+
+        # remove axes
+        ax.tick_params(
+            bottom=False,  # hides tick marks
+            left=False,
+            labelbottom=False,  # hides tick labels
+            labelleft=False
+        )
+        ax.grid(True)
+
+        return scatters + trails + [time_text]
+
+    # Create animation
+    if total_steps // skip_frames > max_frames:
+        skip_frames = (total_steps + max_frames - 1) // max_frames
+        total_frames = total_steps // skip_frames
+    else:
+        total_frames = total_steps // skip_frames
+    print(f"Creating {total_frames} frames from {total_steps} simulation steps...")
+    
+    anim = animation.FuncAnimation(
+        fig, animate, frames=total_frames, interval=1000//fps, 
+        blit=False, repeat=True
+    )
+    
+    # Save as GIF
+    anim.save(filename, writer='pillow', fps=fps, dpi=300)
+    print(f"GIF saved: {filename}")
+    
+    # Print file size
+    file_size = os.path.getsize(filename) / 1024 / 1024  # MB
+    print(f"   File size: {file_size:.1f} MB")
+    
+    plt.close(fig)
+    return anim
 
 def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], xmin: float = -1.2, xmax: float = 2.2, ymin: float = -0.3, ymax: float = 1.2):
     
@@ -383,6 +577,7 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], xmin: float = -1.2, xmax: f
             cmap=ListedColormap([color]),
             alpha=alpha,
             interpolation="nearest",
+            zorder=4,
         )
         # add square marker legend entry if label:
         if label:
@@ -393,9 +588,9 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], xmin: float = -1.2, xmax: f
     ax_rooms.set_aspect("equal")
 
     # Shade inside the rooms.
-    shade_supzero(ax_rooms, rooms_bc_dict["room1"][:,:,0], "C1", alpha=0.3, label="Room 1")
-    shade_supzero(ax_rooms, rooms_bc_dict["room2"][:,:,0], "C2", alpha=0.3, label="Room 2")
-    shade_supzero(ax_rooms, rooms_bc_dict["room3"][:,:,0], "C4", alpha=0.3, label="Room 3")
+    # shade_supzero(ax_rooms, rooms_bc_dict["room1"][:,:,0], "C1", alpha=0.3, label="Room 1")
+    # shade_supzero(ax_rooms, rooms_bc_dict["room2"][:,:,0], "C2", alpha=0.3, label="Room 2")
+    # shade_supzero(ax_rooms, rooms_bc_dict["room3"][:,:,0], "C4", alpha=0.3, label="Room 3")
 
     shade_supzero(ax_rooms, rooms_bc_dict["key1"][:,:,0], "C1", alpha=0.9, label="Key 1")
     shade_supzero(ax_rooms, rooms_bc_dict["key2"][:,:,0], "C2", alpha=0.9, label="Key 2")
@@ -405,14 +600,33 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], xmin: float = -1.2, xmax: f
     shade_supzero(ax_rooms, rooms_bc_dict["door2"][:,:,0], "C6", alpha=0.9, label="Door 2")
     shade_supzero(ax_rooms, rooms_bc_dict["walls"][:,:,0], "k", alpha=0.9, label="Walls")
 
+    ax_rooms.legend(frameon=True, facecolor="white", framealpha=0.8, ncol=2, loc="lower left")
+
+    from matplotlib import font_manager
+
     fig_path = "rooms_sdf.pdf"
-    ax_rooms.set_title("Rooms SDFs, Task: {}".format(TASK_SOURCE))
-    ax_rooms.legend(ncol=3)
+    ax_rooms.set_title("      ROOMS-DUBINS ", loc="left", fontsize=10, fontweight="bold")
+    ax_rooms.text(
+        0.275, 1.05, TASK_SOURCE,
+        fontfamily="monospace",
+        transform=ax_rooms.transAxes,
+        ha="left", va="center",
+        fontsize=9,
+    )
+
     fig_rooms.savefig(fig_path, bbox_inches="tight")
-    # remove dummy scatter objects
+    
+    # clear figure descriptors for reuse
     for artist in ax_rooms.get_children():
         if hasattr(artist, 'get_offsets') and len(artist.get_offsets()) == 0:
             artist.remove()
+    
+    ax_rooms.title.set_text("")
+    ax_rooms.set_title("")
+
+    for txt in ax_rooms.texts[:]:  # Use slice copy to avoid modification during iteration
+        txt.remove()
+
     return fig_rooms, ax_rooms
 
 if __name__ == "__main__":

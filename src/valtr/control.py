@@ -258,8 +258,8 @@ def plot_optimal_path(sol, dag_ra_path, switch_times, fig_base=None):
         ax.text(sol.y[0,switch_index] + 0.05, sol.y[1,switch_index] + 0.02, "{:d}→{:d}".format(dag_ra_path[dag_path_c-1], dag_ra_path[dag_path_c]), color='black', fontsize=8)
         dag_path_c += 1
 
-    ax.legend(facecolor="white", framealpha=0.8,)
-    ax.set_title("Value Optimal Path")
+    ax.legend(frameon=True, facecolor="white", framealpha=0.8)
+    ax.set_title("Value - Optimal Path")
     fig.savefig("solution_path.pdf", bbox_inches="tight")
     return fig
 
