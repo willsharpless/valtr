@@ -29,7 +29,7 @@ import time
 
 plt.style.use("seaborn-v0_8-darkgrid")
 
-MODEL = "point" # "point" or "dubins"
+MODEL = "POINT" # "POINT" or "DUBINS"
 BASE_OUT_DIR = "results/battery_{}".format(MODEL) # name for script
 DIR_TAG = "r1" # name for specific run
 LOAD = False # whether to load existing results
@@ -48,14 +48,14 @@ else:
 ## Define environment dynamics
 class PointBattery(hj.ControlAndDisturbanceAffineDynamics):
     def __init__(self, 
-                 u_bd=1.0, 
-                 d_bd=0.0, 
-                 charge_loss_rate=0.01,
-                 recharge_rate=0.0,
+                 u_bd=3., 
+                 d_bd=0., 
+                 charge_loss_rate=0.,
+                 recharge_rate=0.,
                  port_center=jnp.array([0., 0.]),
                  port_radius=0.2,
-                 flow_x=0.0,
-                 flow_y=0.1,
+                 flow_x=0.,
+                 flow_y=0.,
                  control_mode="max", 
                  disturbance_mode="min"):
         # self.N = N
@@ -147,10 +147,14 @@ def main():
     PORT_RADIUS = 0.2
     FLOW_X = 0.0
     FLOW_Y = 0.0
+    CHARGE_LOSS_RATE = 1.
+    RECHARGE_RATE = 0.
 
     ## Define the grid
-    if MODEL == "point":
-        dyn = PointBattery()
+    if MODEL == "POINT":
+        dyn = PointBattery(charge_loss_rate=CHARGE_LOSS_RATE, recharge_rate=RECHARGE_RATE,
+                           port_center=PORT_CENTER, port_radius=PORT_RADIUS,
+                           flow_x=FLOW_X, flow_y=FLOW_Y)
         tf = 1.0
 
         lbs = np.array([X_LEFT, Y_BOTTOM, -0.0])
@@ -160,8 +164,10 @@ def main():
         # grid_nx, grid_ny, grid_nq = 201, 81, 61
         # grid_nx, grid_ny, grid_nq = 101, 41, 31 
         
-    elif MODEL == "dubins":
-        dyn = DubinsBattery()
+    elif MODEL == "DUBINS":
+        dyn = DubinsBattery(charge_loss_rate=CHARGE_LOSS_RATE, recharge_rate=RECHARGE_RATE,
+                           port_center=PORT_CENTER, port_radius=PORT_RADIUS,
+                           flow_x=FLOW_X, flow_y=FLOW_Y)
         tf = 3.0
 
         lbs = np.array([X_LEFT, Y_BOTTOM, -np.pi, 0.0])
@@ -177,13 +183,13 @@ def main():
 
     grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
         hj.sets.Box(lbs - grid_pad, ubs + grid_pad), grid_lens,
-        periodic_dims=2 if MODEL == "dubins" else None
+        periodic_dims=2 if MODEL == "DUBINS" else None
     )
 
     charge_slice_ix = -5
     pos = np.array(grid.states)
-    grid_X = pos[:, :, charge_slice_ix, 0] if MODEL == "point" else pos[:, :, int(grid_nq/2), charge_slice_ix, 0]
-    grid_Y = pos[:, :, charge_slice_ix, 1] if MODEL == "point" else pos[:, :, int(grid_nq/2), charge_slice_ix, 1]
+    grid_X = pos[:, :, charge_slice_ix, 0] if MODEL == "POINT" else pos[:, :, int(grid_nq/2), charge_slice_ix, 0]
+    grid_Y = pos[:, :, charge_slice_ix, 1] if MODEL == "POINT" else pos[:, :, int(grid_nq/2), charge_slice_ix, 1]
 
     grid_dict={
         "lbs": lbs, 
@@ -191,12 +197,12 @@ def main():
         "grid_pad": grid_pad, 
         "grid_nx": grid_nx, 
         "grid_ny": grid_ny, 
-        "grid_nq": grid_nq if MODEL == "dubins" else 1, 
+        "grid_nq": grid_nq if MODEL == "DUBINS" else 1, 
         "grid_nc": grid_nc,
         "grid": grid, 
         "grid_X": grid_X, 
         "grid_Y": grid_Y, 
-        "grid_slice": np.s_[..., charge_slice_ix] if MODEL == "point" \
+        "grid_slice": np.s_[..., charge_slice_ix] if MODEL == "POINT" \
                     else np.s_[..., int(grid_nq/2), charge_slice_ix],
         "target_center": TARGET_CENTER,           
         "target_radius": TARGET_RADIUS,
@@ -299,7 +305,7 @@ def main():
         # value_tree_grads[key] = [grid.grad_values(val[i,...]) for i in range(len(times))]
         
     # Example start point in room3
-    x_start = np.array([0.1, 0.1, 0.])
+    x_start = np.array([0., 0.1, 1.])
     # x_start = np.array([0.1, 0.6, 0.])
     t_start = -1.0
     sol, full_dag_path, switch_times = construct_optimal_path(
@@ -335,12 +341,12 @@ def main():
 
     # grid of points
     X_start = np.array(np.meshgrid(
-        np.linspace(-0.9, 0.1, 5),
-        np.linspace(0.9, 1.9, 5),
+        np.linspace(-0.9, 0.9, 5),
+        np.linspace(0.1, 1.9, 5),
     )).reshape(2, -1).T  # shape (N, 2)
     
     # concatenate with orientations
-    if MODEL == "dubins":
+    if MODEL == "DUBINS":
         X_start = np.concatenate([
             X_start,
             # all facing towards key1
@@ -353,7 +359,7 @@ def main():
         1. * jnp.ones((X_start.shape[0], 1))
     ], axis=1)  # shape (N, 3)
     
-    t_start = -1.0 if MODEL == "point" else -3.0
+    t_start = -1.0 if MODEL == "POINT" else -3.0
     results_batch = construct_optimal_path_batch_auto(
         value_tree_dag, 
         value_tree_solution, 
@@ -416,12 +422,12 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
         sdf_xmax = (ubs[0] - grid_pad[0]) - pt[0]
         sdf_ymin = pt[1] - (lbs[1] + grid_pad[1])
         sdf_ymax = (ubs[1] - grid_pad[1]) - pt[1]
-        if MODEL == "point":
+        if MODEL == "POINT":
             return jnp.min(jnp.array([
                 sdf_xmin, sdf_xmax,
                 sdf_ymin, sdf_ymax,
             ]))
-        elif MODEL == "dubins":
+        elif MODEL == "DUBINS":
             sdf_qmin = pt[2] - (lbs[2] + grid_pad[2])
             sdf_qmax = (ubs[2] - grid_pad[2]) - pt[2]
             return jnp.min(jnp.array([
@@ -440,15 +446,15 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
     def jit_rep_vmap(fn, rep: int, *args):
         return np.array(rep_vmap(fn, rep=rep)(*args))
 
-    pos = np.array(grid.states)[:,:,0,:2] if MODEL == "point" else np.array(grid.states)[:,:,0,0,:2]
+    pos = np.array(grid.states)[:,:,0,:2] if MODEL == "POINT" else np.array(grid.states)[:,:,0,0,:2]
     # only position affects value
 
     bb_sdf_target = -jit_rep_vmap(sdf_target, 2, pos)
     bb_sdf_port = -jit_rep_vmap(sdf_port, 2, pos)
 
-    if MODEL == "point":
+    if MODEL == "POINT":
         bb_sdf_grid_limits = jit_rep_vmap(sdf_grid_limits, 3, np.array(grid.states)) # all states affect grid limits
-    elif MODEL == "dubins":
+    elif MODEL == "DUBINS":
         bb_sdf_grid_limits = jit_rep_vmap(sdf_grid_limits, 4, np.array(grid.states)) # all states affect grid limits
     else:
         raise ValueError("Unknown MODEL {}".format(MODEL))
@@ -463,9 +469,9 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
     for k, v in rooms_bc_dict.items():
         if k == "in_grid":
             continue
-        if MODEL == "point":
+        if MODEL == "POINT":
             rooms_bc_dict[k] = jnp.broadcast_to(v[:, :, None], grid.shape)
-        elif MODEL == "dubins":
+        elif MODEL == "DUBINS":
             rooms_bc_dict[k] = jnp.broadcast_to(v[:, :, None, None], grid.shape)
         else:
             raise ValueError("Unknown MODEL {}".format(MODEL))
@@ -524,9 +530,10 @@ def plot_batch_trajectories_gif(
     scatters = []
     trails = []
     
+    marker = (3, 0, 0) if MODEL == "DUBINS" else 'o'
     for i in range(batch_size):
         # Current position scatter (larger, more visible)
-        scatter = ax.scatter([], [], s=35, alpha=0.9, zorder=10, edgecolors='black', linewidth=1, marker=(3, 0, 0))
+        scatter = ax.scatter([], [], s=35, alpha=0.9, zorder=10, edgecolors='black', linewidth=1, marker=marker)
         scatters.append(scatter)
         
         # Trail line
@@ -537,6 +544,23 @@ def plot_batch_trajectories_gif(
     time_text = ax.text(0.85, 0.9, "", transform=ax.transAxes, zorder=10,
                             verticalalignment='top', fontsize=8,
                             bbox=dict(boxstyle="round,pad=0.2", alpha=0.8, facecolor="white"))
+
+    # add colorbar for battery charge
+    sm = plt.cm.ScalarMappable(cmap=color_map, norm=norm)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label('Battery', fontsize=8)
+    # add tick for each agent
+    states_unique = np.unique(states[:,0,-1])
+    cbar.set_ticks(states_unique)
+    cbar.set_ticklabels([''] * len(states_unique))
+    cbar.ax.tick_params(
+        direction='in',
+        length=cbar.ax.get_window_extent().width,
+        width=2,
+        colors='black',
+        labelsize=8
+    )
 
     def animate(frame):
         """Animation function called for each frame"""
@@ -563,8 +587,9 @@ def plot_batch_trajectories_gif(
             
             # Update current position
             scatters[i].remove()
+            marker = (3, 0, np.degrees(theta)-90) if MODEL == "DUBINS" else 'o'
             scatters[i] = ax.scatter([x], [y], s=35, alpha=0.9, zorder=10, edgecolors='black', linewidth=1, 
-                                     marker=(3, 0, np.degrees(theta)-90), color=color)
+                                     marker=marker, color=color)
 
             # Update trail (last N points)
             trail_start = max(0, step - trail_length)
@@ -581,6 +606,11 @@ def plot_batch_trajectories_gif(
                 trails[i].set_color('k')
             else:
                 trails[i].set_data([], [])
+        
+        # Update ticks
+        states_unique = np.unique(states[:,step,-1])
+        cbar.set_ticks(states_unique)
+        cbar.set_ticklabels([''] * len(states_unique))
         
         # Update text displays
         current_time = times[0, step] if not np.isnan(times[0, step]) else 0.0
