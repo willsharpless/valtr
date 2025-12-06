@@ -31,7 +31,7 @@ plt.style.use("seaborn-v0_8-darkgrid")
 
 MODEL = "POINT" # "POINT" or "DUBINS"
 BASE_OUT_DIR = "results/battery_{}".format(MODEL) # name for script
-DIR_TAG = "r1" # name for specific run
+DIR_TAG = "r1_recharge" # name for specific run
 LOAD = False # whether to load existing results
 
 ## Define the task specification in TL
@@ -39,9 +39,9 @@ LOAD = False # whether to load existing results
 if 'r1' in DIR_TAG:
     TASK_SOURCE = "F tg && G in_grid"
 elif 'r2' in DIR_TAG:
-    TASK_SOURCE = "F (tg && F tg)"
+    TASK_SOURCE = "F (tg && F tg) && G in_grid"
 elif 'r3' in DIR_TAG:
-    TASK_SOURCE = "F (tg && F (tg && F tg))"
+    TASK_SOURCE = "F (tg && F (tg && F tg)) && G in_grid"
 else:
     TASK_SOURCE = "G F tg"
 
@@ -75,7 +75,7 @@ class PointBattery(hj.ControlAndDisturbanceAffineDynamics):
         return jnp.array([self.flow_x, 
                           self.flow_y, 
                           -self.charge_loss_rate * (charge > 0.) + \
-                            self.recharge_rate * (jnp.linalg.norm(state[:2] - self.port_center) < self.port_radius)
+                            self.recharge_rate * (jnp.linalg.norm(state[:2] - self.port_center) < self.port_radius) * (charge < 1.)
                           ])
 
     def control_jacobian(self, state, time):
@@ -148,7 +148,7 @@ def main():
     FLOW_X = 0.0
     FLOW_Y = 0.0
     CHARGE_LOSS_RATE = 1.
-    RECHARGE_RATE = 0.
+    RECHARGE_RATE = 2. if "recharge" in DIR_TAG else 0.
 
     ## Define the grid
     if MODEL == "POINT":
@@ -555,8 +555,8 @@ def plot_batch_trajectories_gif(
     cbar.set_ticks(states_unique)
     cbar.set_ticklabels([''] * len(states_unique))
     cbar.ax.tick_params(
-        direction='in',
-        length=cbar.ax.get_window_extent().width,
+        direction='out',
+        length=10,
         width=2,
         colors='black',
         labelsize=8
@@ -680,8 +680,8 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], grid_dict: dict = None) -> 
     ax_rooms.set_aspect("equal")
 
     # Shade inside the rooms.
-    shade_supzero(ax_rooms, rooms_bc_dict["target"][grid_dict["grid_slice"]], "C1", alpha=0.9, label="Target")
-    shade_supzero(ax_rooms, rooms_bc_dict["port"][grid_dict["grid_slice"]], "C9", alpha=0.9, label="Port")
+    shade_supzero(ax_rooms, rooms_bc_dict["target"][grid_dict["grid_slice"]], "C0", alpha=0.9, label="Target")
+    shade_supzero(ax_rooms, rooms_bc_dict["port"][grid_dict["grid_slice"]], "C8", alpha=0.9, label="Port")
 
     # shade_supzero(ax_rooms, rooms_bc_dict["room1"][:,:,0], "C1", alpha=0.3, label="Room 1")
     # shade_supzero(ax_rooms, rooms_bc_dict["room2"][:,:,0], "C2", alpha=0.3, label="Room 2")
