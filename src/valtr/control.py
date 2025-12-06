@@ -4,6 +4,7 @@ import numpy as np
 from hj_reachability import Grid
 from scipy import integrate as ode
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
 from valtr.reachability import DAGAvoid, DagBuilder, DAGId, DAGMaxN, DAGMinN, DAGReachAvoid
 import faster_hj_grid_interpolation # patches on faster itp
 import copy
@@ -256,20 +257,28 @@ def plot_optimal_path(sol, dag_ra_path, switch_times, fig_base=None,
         color_map = plt.get_cmap('RdYlGn')
         if color_path_type == 'state':
             color_traj = sol.y[color_path_state_ix,:]
-            if color_path_lb is None:
-                color_path_lb = jnp.min(color_traj)
-            if color_path_ub is None:
-                color_path_ub = jnp.max(color_traj)
+            color_path_lb = jnp.min(color_traj) if color_path_lb is None else color_path_lb
+            color_path_ub = jnp.max(color_traj) if color_path_ub is None else color_path_ub
             norm = plt.Normalize(vmin=color_path_lb, vmax=color_path_ub)
         else:
             color_traj = sol.t
-        ax.plot(sol.y[0,:], sol.y[1,:], 'k-', linewidth=2, label='Optimal Path', color=color_map(norm(color_traj)))
+        # ax.scatter(sol.y[0,:], sol.y[1,:], 'k-', linewidth=2, label='Optimal Path', color=color_map(norm(color_traj)))
+        
+        # Create line segments
+        points = np.array([sol.y[0,:], sol.y[1,:]]).T.reshape(-1, 1, 2)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+        
+        # Create LineCollection with color mapping
+        lc = LineCollection(segments, cmap=color_map, norm=norm, linewidth=2, label='Optimal Path')
+        lc.set_array(color_traj)
+        line = ax.add_collection(lc)        
+
         ax.plot(sol.y[0,0], sol.y[1,0], 'o', markersize=6, label='', color='white')
         ax.plot(sol.y[0,0], sol.y[1,0], 'x', markersize=5, label='Start', color='black')
-        # Add colorbar
-        sm = plt.cm.ScalarMappable(cmap=color_map, norm=norm)
-        sm.set_array([])
-        cbar = fig.colorbar(sm, ax=ax)
+        # # Add colorbar
+        # sm = plt.cm.ScalarMappable(cmap=color_map, norm=norm)
+        # sm.set_array([])
+        cbar = fig.colorbar(line, ax=ax)
         if color_path_type == 'state':
             cbar.set_label(color_path_state_label, fontsize=8)
 

@@ -80,10 +80,10 @@ class PointBattery(hj.ControlAndDisturbanceAffineDynamics):
 
     def control_jacobian(self, state, time):
         _, _, charge = state
-        return jnp.array([[jnp.abs(charge)], [jnp.abs(charge)], [0.]])
+        return jnp.array([[jnp.abs(charge), 0.], [0., jnp.abs(charge)], [0., 0.]])
 
     def disturbance_jacobian(self, state, time):
-        return jnp.eye(self.dim)
+        return jnp.zeros((3, 2))
     
 class DubinsBattery(hj.ControlAndDisturbanceAffineDynamics):
     def __init__(self,
@@ -151,14 +151,14 @@ def main():
     ## Define the grid
     if MODEL == "point":
         dyn = PointBattery()
-        tf = 3.0
+        tf = 1.0
 
         lbs = np.array([X_LEFT, Y_BOTTOM, -0.0])
         ubs = np.array([X_RIGHT, Y_TOP, 1.0])
         grid_pad = np.array([0.1, 0.1, 0.05])
-        grid_lens = [grid_nx, grid_ny, grid_nc] = 401, 161, 51
+        grid_lens = [grid_nx, grid_ny, grid_nc] = 101, 101, 51
         # grid_nx, grid_ny, grid_nq = 201, 81, 61
-        # grid_nx, grid_ny, grid_nq = 101, 41, 31
+        # grid_nx, grid_ny, grid_nq = 101, 41, 31 
         
     elif MODEL == "dubins":
         dyn = DubinsBattery()
@@ -180,9 +180,10 @@ def main():
         periodic_dims=2 if MODEL == "dubins" else None
     )
 
+    charge_slice_ix = -5
     pos = np.array(grid.states)
-    grid_X = pos[:, :, 0] if MODEL == "point" else pos[:, :, int(grid_nq/2), 0]
-    grid_Y = pos[:, :, 1] if MODEL == "point" else pos[:, :, int(grid_nq/2), 1]
+    grid_X = pos[:, :, charge_slice_ix, 0] if MODEL == "point" else pos[:, :, int(grid_nq/2), charge_slice_ix, 0]
+    grid_Y = pos[:, :, charge_slice_ix, 1] if MODEL == "point" else pos[:, :, int(grid_nq/2), charge_slice_ix, 1]
 
     grid_dict={
         "lbs": lbs, 
@@ -195,8 +196,8 @@ def main():
         "grid": grid, 
         "grid_X": grid_X, 
         "grid_Y": grid_Y, 
-        "grid_slice": np.s_[..., -1] if MODEL == "point" \
-                    else np.s_[..., int(grid_nq/2), -1],
+        "grid_slice": np.s_[..., charge_slice_ix] if MODEL == "point" \
+                    else np.s_[..., int(grid_nq/2), charge_slice_ix],
         "target_center": TARGET_CENTER,           
         "target_radius": TARGET_RADIUS,
         "port_center": PORT_CENTER,
@@ -300,7 +301,7 @@ def main():
     # Example start point in room3
     x_start = np.array([0.1, 0.1, 0.])
     # x_start = np.array([0.1, 0.6, 0.])
-    t_start = -10.0
+    t_start = -1.0
     sol, full_dag_path, switch_times = construct_optimal_path(
         value_tree_dag, 
         value_tree_solution, 
@@ -345,8 +346,14 @@ def main():
             # all facing towards key1
             np.arctan2(TARGET_CENTER[1] - X_start[:,1], TARGET_CENTER[0] - X_start[:,0])[:, None]
         ], axis=1)  # shape (N, 3)
+
+    # concatenate with battery charge
+    X_start = np.concatenate([
+        X_start,
+        1. * jnp.ones((X_start.shape[0], 1))
+    ], axis=1)  # shape (N, 3)
     
-    t_start = -3.0 if MODEL == "point" else -3.0
+    t_start = -1.0 if MODEL == "point" else -3.0
     results_batch = construct_optimal_path_batch_auto(
         value_tree_dag, 
         value_tree_solution, 
