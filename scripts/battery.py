@@ -31,7 +31,7 @@ plt.style.use("seaborn-v0_8-darkgrid")
 
 MODEL = "POINT" # "POINT" or "DUBINS"
 BASE_OUT_DIR = "results/battery_{}".format(MODEL) # name for script
-DIR_TAG = "r1_recharge" # name for specific run
+DIR_TAG = "r1_recharge_flow_2s" # name for specific run
 LOAD = False # whether to load existing results
 
 ## Define the task specification in TL
@@ -146,7 +146,7 @@ def main():
     PORT_CENTER = jnp.array([0.5, 0.5])
     PORT_RADIUS = 0.2
     FLOW_X = 0.0
-    FLOW_Y = 0.0
+    FLOW_Y = 0.0 if "flow" not in DIR_TAG else 0.25
     CHARGE_LOSS_RATE = 1.
     RECHARGE_RATE = 2. if "recharge" in DIR_TAG else 0.
 
@@ -155,7 +155,7 @@ def main():
         dyn = PointBattery(charge_loss_rate=CHARGE_LOSS_RATE, recharge_rate=RECHARGE_RATE,
                            port_center=PORT_CENTER, port_radius=PORT_RADIUS,
                            flow_x=FLOW_X, flow_y=FLOW_Y)
-        tf = 1.0
+        tf = 2.0
 
         lbs = np.array([X_LEFT, Y_BOTTOM, -0.0])
         ubs = np.array([X_RIGHT, Y_TOP, 1.0])
@@ -307,7 +307,7 @@ def main():
     # Example start point in room3
     x_start = np.array([0., 0.1, 1.])
     # x_start = np.array([0.1, 0.6, 0.])
-    t_start = -1.0
+    t_start = -2.0
     sol, full_dag_path, switch_times = construct_optimal_path(
         value_tree_dag, 
         value_tree_solution, 
@@ -359,7 +359,7 @@ def main():
         1. * jnp.ones((X_start.shape[0], 1))
     ], axis=1)  # shape (N, 3)
     
-    t_start = -1.0 if MODEL == "POINT" else -3.0
+    t_start = -2.0 if MODEL == "POINT" else -3.0
     results_batch = construct_optimal_path_batch_auto(
         value_tree_dag, 
         value_tree_solution, 
@@ -418,10 +418,14 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
     
     # sdf for grid limits for all dims (other than battery charge)
     def sdf_grid_limits(pt):
-        sdf_xmin = pt[0] - (lbs[0] + grid_pad[0])
-        sdf_xmax = (ubs[0] - grid_pad[0]) - pt[0]
-        sdf_ymin = pt[1] - (lbs[1] + grid_pad[1])
-        sdf_ymax = (ubs[1] - grid_pad[1]) - pt[1]
+        # sdf_xmin = pt[0] - (lbs[0] + grid_pad[0])
+        # sdf_xmax = (ubs[0] - grid_pad[0]) - pt[0]
+        # sdf_ymin = pt[1] - (lbs[1] + grid_pad[1])
+        # sdf_ymax = (ubs[1] - grid_pad[1]) - pt[1]
+        sdf_xmin = pt[0] - lbs[0]
+        sdf_xmax = ubs[0] - pt[0]
+        sdf_ymin = pt[1] - lbs[1]
+        sdf_ymax = ubs[1] - pt[1]
         if MODEL == "POINT":
             return jnp.min(jnp.array([
                 sdf_xmin, sdf_xmax,
@@ -680,7 +684,7 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], grid_dict: dict = None) -> 
     ax_rooms.set_aspect("equal")
 
     # Shade inside the rooms.
-    shade_supzero(ax_rooms, rooms_bc_dict["target"][grid_dict["grid_slice"]], "C0", alpha=0.9, label="Target")
+    shade_supzero(ax_rooms, rooms_bc_dict["target"][grid_dict["grid_slice"]], "C1", alpha=0.9, label="Target")
     shade_supzero(ax_rooms, rooms_bc_dict["port"][grid_dict["grid_slice"]], "C8", alpha=0.9, label="Port")
 
     # shade_supzero(ax_rooms, rooms_bc_dict["room1"][:,:,0], "C1", alpha=0.3, label="Room 1")
@@ -693,24 +697,32 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], grid_dict: dict = None) -> 
 
     # shade_supzero(ax_rooms, rooms_bc_dict["door1"][:,:,0], "C5", alpha=0.9, label="Door 1")
     # shade_supzero(ax_rooms, rooms_bc_dict["door2"][:,:,0], "C6", alpha=0.9, label="Door 2")
-    # shade_supzero(ax_rooms, rooms_bc_dict["walls"][:,:,0], "k", alpha=0.9, label="Walls")
+    shade_supzero(ax_rooms, -rooms_bc_dict["in_grid"][grid_dict["grid_slice"]], "C7", alpha=0.9, label="Bounds")
 
     # add quiver corresponding to flow field
     if grid_dict["flow_x"] != 0.0 or grid_dict["flow_y"] != 0.0:
-        X = grid_dict["grid_X"]
-        Y = grid_dict["grid_Y"]
+        sparsity = 32
+        buffer = 15
+        color="C0"
+        X = grid_dict["grid_X"][buffer:-buffer:sparsity, buffer:-buffer:sparsity]
+        Y = grid_dict["grid_Y"][buffer:-buffer:sparsity, buffer:-buffer:sparsity]
         U = np.zeros_like(X) + grid_dict["flow_x"]
         V = np.zeros_like(Y) + grid_dict["flow_y"]
-        ax_rooms.quiver(X, Y, U, V, color="gray", alpha=0.5, scale=20, width=0.002, zorder=3)
+        ax_rooms.quiver(X, Y, U, V, color=color, alpha=0.2, scale=5, zorder=3, label="Flow")
+        X = grid_dict["grid_X"][buffer+sparsity//2:-buffer:sparsity, buffer+sparsity//2:-buffer:sparsity]
+        Y = grid_dict["grid_Y"][buffer+sparsity//2:-buffer:sparsity, buffer+sparsity//2:-buffer:sparsity]
+        U = np.zeros_like(X) + grid_dict["flow_x"]
+        V = np.zeros_like(Y) + grid_dict["flow_y"]
+        ax_rooms.quiver(X, Y, U, V, color=color, alpha=0.2, scale=5, zorder=3)
 
     ax_rooms.legend(frameon=True, facecolor="white", framealpha=0.8, ncol=2, loc="lower left")
 
     from matplotlib import font_manager
 
     fig_path = "rooms_sdf.pdf"
-    ax_rooms.set_title("      BATTERY-{} ".format(MODEL), loc="left", fontsize=10, fontweight="bold")
+    ax_rooms.set_title("    BATTERY-{} ".format(MODEL), loc="left", fontsize=10, fontweight="bold")
     ax_rooms.text(
-        0.275, 1.05, TASK_SOURCE,
+        0.35, 1.025, TASK_SOURCE,
         fontfamily="monospace",
         transform=ax_rooms.transAxes,
         ha="left", va="center",
