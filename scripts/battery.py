@@ -10,6 +10,7 @@ import numpy as np
 from loguru import logger
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import copy 
+import datetime
 
 from valtr.dag_graphviz import visualize_dag
 from valtr.dag_passes import PassFoldConstBool
@@ -31,7 +32,7 @@ plt.style.use("seaborn-v0_8-darkgrid")
 
 MODEL = "POINT" # "POINT" or "DUBINS"
 BASE_OUT_DIR = "results/battery_{}".format(MODEL) # name for script
-DIR_TAG = "r1_recharge_flow_2s" # name for specific run
+DIR_TAG = "r1_recharge_flow_faster_longtime_slowcharge" # name for specific run
 LOAD = False # whether to load existing results
 
 ## Define the task specification in TL
@@ -48,7 +49,7 @@ else:
 ## Define environment dynamics
 class PointBattery(hj.ControlAndDisturbanceAffineDynamics):
     def __init__(self, 
-                 u_bd=3., 
+                 u_bd=5., 
                  d_bd=0., 
                  charge_loss_rate=0.,
                  recharge_rate=0.,
@@ -145,17 +146,22 @@ def main():
     TARGET_RADIUS = 0.2
     PORT_CENTER = jnp.array([0.5, 0.5])
     PORT_RADIUS = 0.2
+
+    U_MAX = 2.5
     FLOW_X = 0.0
-    FLOW_Y = 0.0 if "flow" not in DIR_TAG else 0.25
-    CHARGE_LOSS_RATE = 1.
+    FLOW_Y = 0.0 if "flow" not in DIR_TAG else 0.6 
+    # ^must > (BOX HEIGHT)/TIME to capture inf-time worst-case
+    CHARGE_LOSS_RATE = 0.4
+    # ^want >= 1/TIME to observe dead battery trajectories
     RECHARGE_RATE = 2. if "recharge" in DIR_TAG else 0.
+    # ^determines time between goal recurrence
 
     ## Define the grid
     if MODEL == "POINT":
-        dyn = PointBattery(charge_loss_rate=CHARGE_LOSS_RATE, recharge_rate=RECHARGE_RATE,
+        dyn = PointBattery(u_bd=U_MAX, charge_loss_rate=CHARGE_LOSS_RATE, recharge_rate=RECHARGE_RATE,
                            port_center=PORT_CENTER, port_radius=PORT_RADIUS,
                            flow_x=FLOW_X, flow_y=FLOW_Y)
-        tf = 2.0
+        TF = 4.0
 
         lbs = np.array([X_LEFT, Y_BOTTOM, -0.0])
         ubs = np.array([X_RIGHT, Y_TOP, 1.0])
@@ -165,10 +171,10 @@ def main():
         # grid_nx, grid_ny, grid_nq = 101, 41, 31 
         
     elif MODEL == "DUBINS":
-        dyn = DubinsBattery(charge_loss_rate=CHARGE_LOSS_RATE, recharge_rate=RECHARGE_RATE,
+        dyn = DubinsBattery(u_bd=U_MAX, charge_loss_rate=CHARGE_LOSS_RATE, recharge_rate=RECHARGE_RATE,
                            port_center=PORT_CENTER, port_radius=PORT_RADIUS,
                            flow_x=FLOW_X, flow_y=FLOW_Y)
-        tf = 3.0
+        TF = 3.0
 
         lbs = np.array([X_LEFT, Y_BOTTOM, -np.pi, 0.0])
         ubs = np.array([X_RIGHT, Y_TOP, np.pi, 1.0])
@@ -218,8 +224,8 @@ def main():
 
     ## Define the system dynamics
     ntimes = 4
-    times = np.linspace(0.0, tf, ntimes+1)
-    gamma = 0.99999
+    times = np.linspace(0.0, TF, ntimes+1)
+    GAMMA = 0.99999
     # gamma = 1 # no discount -> bad control (just for satisfiability)
 
     # -------------------------------------------------------------------------------------------
@@ -267,7 +273,7 @@ def main():
 
     if not LOAD:
         logger.info("Solving the value tree ...")
-        value_tree_solution = solve_dag_values(value_tree_dag, dict_predicates, grid_dict, dyn, times, gamma)
+        value_tree_solution = solve_dag_values(value_tree_dag, dict_predicates, grid_dict, dyn, times, GAMMA)
         np.savez_compressed("value_tree_solution.npz", **{str(k): v for k, v in value_tree_solution.items()})
     else:
         logger.info("Loading presolved value tree ...")
@@ -280,10 +286,10 @@ def main():
     fig_sol = copy.deepcopy(fig_rooms)
     ax_sol = fig_sol.axes[0]
     im = ax_sol.contourf(grid_X, grid_Y, 
-                         value_tree_solution[dag_root][:, :, int(grid_dict["grid_nq"]/2)], # middle slice
+                         value_tree_solution[dag_root][grid_dict["grid_slice"]],
                         levels=25, cmap="RdBu", norm=CenteredNorm(), alpha=0.8)
     ln = ax_sol.contour(grid_X, grid_Y, 
-                        value_tree_solution[dag_root][:, :, int(grid_dict["grid_nq"]/2)], # middle slice
+                        value_tree_solution[dag_root][grid_dict["grid_slice"]],
                         levels=0, colors="black", linewidths=2, alpha=0.8)
     divider = make_axes_locatable(ax_sol)
     cax = divider.append_axes("right", size="5%", pad=0.05)
@@ -307,7 +313,7 @@ def main():
     # Example start point in room3
     x_start = np.array([0., 0.1, 1.])
     # x_start = np.array([0.1, 0.6, 0.])
-    t_start = -2.0
+    t_start = -TF
     sol, full_dag_path, switch_times = construct_optimal_path(
         value_tree_dag, 
         value_tree_solution, 
@@ -359,7 +365,8 @@ def main():
         1. * jnp.ones((X_start.shape[0], 1))
     ], axis=1)  # shape (N, 3)
     
-    t_start = -2.0 if MODEL == "POINT" else -3.0
+    # t_start = -2.0 if MODEL == "POINT" else -3.0
+    t_start = -TF
     results_batch = construct_optimal_path_batch_auto(
         value_tree_dag, 
         value_tree_solution, 
@@ -385,8 +392,23 @@ def main():
             skip_frames=1  # Show more frames for detailed view
         )
 
-    # ----------------------------------------------------------------------------
+    # ----------------------------------------------------------------------------        
     logger.info("Complete.")
+    write_config(TF,
+            GAMMA,
+            U_MAX,
+            FLOW_X,
+            FLOW_Y,
+            CHARGE_LOSS_RATE,
+            RECHARGE_RATE,
+            X_LEFT,
+            X_RIGHT,
+            Y_BOTTOM,
+            Y_TOP,
+            TARGET_CENTER,
+            TARGET_RADIUS,
+            PORT_CENTER,
+            PORT_RADIUS)
     print(f"See ./{BASE_OUT_DIR}/{DIR_TAG}/ for results.")
 
 # -------------------------------------------------------------------------------------------
@@ -743,6 +765,46 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], grid_dict: dict = None) -> 
         txt.remove()
 
     return fig_rooms, ax_rooms
+
+def write_config(TF,
+                 GAMMA,
+                 U_MAX,
+                 FLOW_X,
+                 FLOW_Y,
+                 CHARGE_LOSS_RATE,
+                 RECHARGE_RATE,
+                 X_LEFT,
+                 X_RIGHT,
+                 Y_BOTTOM,
+                 Y_TOP,
+                 TARGET_CENTER,
+                 TARGET_RADIUS,
+                 PORT_CENTER,
+                 PORT_RADIUS,
+                 config_filename: str = "config.txt"):
+        
+    # write config of all constants
+    with open(config_filename, "w") as f:
+        f.write(f"DATE: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"BASE_OUT_DIR: {BASE_OUT_DIR}\n")
+        f.write(f"DIR_TAG: {DIR_TAG}\n")
+        f.write(f"MODEL: {MODEL}\n")
+        f.write(f"TASK_SOURCE: {TASK_SOURCE}\n")
+        f.write(f"TF: {TF}\n")
+        f.write(f"GAMMA: {GAMMA}\n")
+        f.write(f"U_MAX: {U_MAX}\n")
+        f.write(f"FLOW_X: {FLOW_X}\n")
+        f.write(f"FLOW_Y: {FLOW_Y}\n")
+        f.write(f"CHARGE_LOSS_RATE: {CHARGE_LOSS_RATE}\n")
+        f.write(f"RECHARGE_RATE: {RECHARGE_RATE}\n")
+        f.write(f"X_LEFT: {X_LEFT}\n")
+        f.write(f"X_RIGHT: {X_RIGHT}\n")
+        f.write(f"Y_BOTTOM: {Y_BOTTOM}\n")
+        f.write(f"Y_TOP: {Y_TOP}\n")
+        f.write(f"TARGET_CENTER: {TARGET_CENTER}\n")
+        f.write(f"TARGET_RADIUS: {TARGET_RADIUS}\n")
+        f.write(f"PORT_CENTER: {PORT_CENTER}\n")
+        f.write(f"PORT_RADIUS: {PORT_RADIUS}\n")
 
 if __name__ == "__main__":
     # with ipdb.launch_ipdb_on_exception():
