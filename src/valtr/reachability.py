@@ -201,6 +201,9 @@ def lower_ir_to_dag(irb: IRBuilder, root: IRId) -> tuple[DagBuilder, DAGId]:
         case (0, 1):
             # Only 1 G, lower to avoid(r)
             return dag, dag.avoid(G_dag)
+        case (1, 0):
+            # Only 1 U, lower to reachavoid(r)
+            return dag, dag.reachavoid(reach=U_rights[0], stay=U_lefts[0])
         case (m, 1) if m >= 1:
             # Lower to reach-avoid
             # Handled below.

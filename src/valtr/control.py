@@ -5,7 +5,7 @@ from hj_reachability import Grid
 from scipy import integrate as ode
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
-from valtr.reachability import DAGAvoid, DagBuilder, DAGId, DAGMaxN, DAGMinN, DAGReachAvoid
+from valtr.reachability import DAGAvoid, DAGConst, DAGVar, DagBuilder, DAGId, DAGMaxN, DAGMinN, DAGReachAvoid
 import faster_hj_grid_interpolation # patches on faster itp
 import copy
 import jax
@@ -145,7 +145,7 @@ def construct_optimal_path(
     # (nx, n_times)
     sol_y: np.ndarray = sol.y
 
-    # Recursively overwrite sol until at an Avoid node (terminal)
+    # Recursively overwrite sol until at an Avoid node (terminal) or a terminal ReachAvoid node (reach=var/const)
     node = dag_nodes[dag_id]
 
     match node:
@@ -163,6 +163,20 @@ def construct_optimal_path(
                 case DAGMinN(args=_):
                     # Reach multiple OR
                     next_dag_ids = [reach_id]
+                case DAGVar() | DAGConst():
+                    # terminal reachavoid
+                    dag_path = [dag_id]
+                    switch_times = []
+                    # shorten reach-avoid path to first reach satisfaction
+                    reach_point = grid.interpolate_fast_batch_jit(dag_values[reach_id], states=sol_y.T)
+                    reach_indices = np.where(reach_point > reaching_eps)[0]
+                    if len(reach_indices) > 0:
+                        first_reach_index = reach_indices[0]
+                        sol_t = sol_t[: first_reach_index + 1]
+                        sol_y = sol_y[:, : first_reach_index + 1]
+                        sol = ode._ivp.ivp.OdeResult(t=sol_t, y=sol_y)
+                        print("  Terminal reach-avoid satisfied at t = {:2.2f}, ending early".format(sol_t[first_reach_index]))
+                    return sol, dag_path, switch_times
                 case _:
                     raise RuntimeError(
                         "Expected Min/Max node in DAGReachAvoid.reach but got: [{}:{}]".format(
@@ -438,6 +452,21 @@ def construct_optimal_path_batch(
                 should_switch[i] = False
                 next_dag_ids[i] = dag_id  # Stay on the same terminal node
                 intermediate_nodes.append([])
+            
+            elif isinstance(node, DAGReachAvoid) and \
+               (isinstance(dag.nodes[node.reach], (DAGVar, DAGConst))):
+                # Terminal node - don't switch, just stay on this DAG node
+                should_switch[i] = False
+                next_dag_ids[i] = dag_id  # Stay on the same terminal node
+                intermediate_nodes.append([])
+
+                # check if reached and deactivate
+                reach_id = node.reach
+                values_reach = dag_values[reach_id]
+                state_value = grid.interpolate_fast_jit(values_reach, state=state)
+                if state_value > reaching_eps:
+                    active[i] = False
+
             elif isinstance(node, DAGReachAvoid):
                 reach_id = node.reach
                 reach_node = dag.nodes[reach_id]
@@ -493,7 +522,7 @@ def construct_optimal_path_batch(
             else:
                 intermediate_nodes.append([])
         
-        return should_switch, next_dag_ids, intermediate_nodes
+        return should_switch, next_dag_ids, intermediate_nodes, active
     
     # Main integration loop - each trajectory evolves independently
     target_time = 0.0  # Integration target time
@@ -511,7 +540,7 @@ def construct_optimal_path_batch(
         # Note: Don't check for trajectory completion - continue until full time horizon
             
         # Check reach conditions for all active trajectories
-        should_switch, next_dag_ids, intermediate_nodes = check_reach_conditions(
+        should_switch, next_dag_ids, intermediate_nodes, active_mask = check_reach_conditions(
             current_states, current_dag_ids, active_mask
         )
         
@@ -539,7 +568,7 @@ def construct_optimal_path_batch(
                     # Update DAG ID
                     current_dag_ids[i] = next_dag_ids[i]
                     
-                    # Note: Don't deactivate on terminal nodes - keep integrating
+                    # Note: Don't deactivate on terminal Avoid nodes - keep integrating
                     # Trajectories continue until time horizon is reached
         
         # Integrate all active trajectories grouped by DAG ID

@@ -32,13 +32,14 @@ plt.style.use("seaborn-v0_8-darkgrid")
 
 MODEL = "POINT" # "POINT" or "DUBINS"
 BASE_OUT_DIR = "results/battery_{}".format(MODEL) # name for script
-DIR_TAG = "r1_recharge_flow_v1_smooth" # name for specific run
+DIR_TAG = "r1_recharge_flow_v1_until" # name for specific run
 LOAD = False # whether to load existing results
 
 ## Define the task specification in TL
 # later, we map logic -> target/obstacle (doors, keys, walls, grid limits)
 if 'r1' in DIR_TAG:
-    TASK_SOURCE = "F tg && G in_grid"
+    # TASK_SOURCE = "F tg && G in_grid"
+    TASK_SOURCE = "in_grid U tg"
 elif 'r2' in DIR_TAG:
     TASK_SOURCE = "F (tg && F tg) && G in_grid"
 elif 'r3' in DIR_TAG:
@@ -548,6 +549,11 @@ def plot_batch_trajectories_gif(
     times = trajectory_history['times']    # Shape: (batch_size, time_steps)
     dag_ids = trajectory_history['dag_ids'] # Shape: (batch_size, time_steps)
     
+    # trajectory with longest time duration
+    traj_durations = np.nanmax(times, axis=1) - np.nanmin(times, axis=1)
+    traj_longest_ix = np.argmax(traj_durations)
+    print(f"  Longest trajectory index: {traj_longest_ix}, duration: {traj_durations[traj_longest_ix]:.2f}s")
+
     batch_size, total_steps, state_dim = states.shape
     
     # Define colors for different DAG nodes
@@ -656,7 +662,7 @@ def plot_batch_trajectories_gif(
         cbar.set_ticklabels([''] * len(states_unique))
         
         # Update text displays
-        current_time = times[0, step] if not np.isnan(times[0, step]) else 0.0
+        current_time = times[traj_longest_ix, step] if not np.isnan(times[traj_longest_ix, step]) else 0.0
         time_text.set_text(f"Time: {current_time:.2f}")
 
         # remove axes
