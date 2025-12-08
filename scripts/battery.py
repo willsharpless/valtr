@@ -32,7 +32,7 @@ plt.style.use("seaborn-v0_8-darkgrid")
 
 MODEL = "POINT" # "POINT" or "DUBINS"
 BASE_OUT_DIR = "results/battery_{}".format(MODEL) # name for script
-DIR_TAG = "r1_recharge_flow_faster_longtime_slowcharge" # name for specific run
+DIR_TAG = "r1_recharge_flow_v1_smooth" # name for specific run
 LOAD = False # whether to load existing results
 
 ## Define the task specification in TL
@@ -71,12 +71,20 @@ class PointBattery(hj.ControlAndDisturbanceAffineDynamics):
         disturbance_space = hj.sets.Ball(jnp.array([0, 0]), d_bd)
         super().__init__(control_mode, disturbance_mode, control_space, disturbance_space)
 
-    def open_loop_dynamics(self, state, time):
+    # def open_loop_dynamics(self, state, time):
+    #     _, _, charge = state
+    #     return jnp.array([self.flow_x, 
+    #                       self.flow_y, 
+    #                       -self.charge_loss_rate * (charge > 0.) + \
+    #                         self.recharge_rate * (jnp.linalg.norm(state[:2] - self.port_center) < self.port_radius) * (charge < 1.)
+    #                       ])
+    
+    def open_loop_dynamics(self, state, time): # smooth approx
         _, _, charge = state
         return jnp.array([self.flow_x, 
                           self.flow_y, 
-                          -self.charge_loss_rate * (charge > 0.) + \
-                            self.recharge_rate * (jnp.linalg.norm(state[:2] - self.port_center) < self.port_radius) * (charge < 1.)
+                          -self.charge_loss_rate * (1/(1 + jnp.exp(5 - 50 * charge))) + \
+                            self.recharge_rate * jnp.exp((jnp.log(0.1/2)/(self.port_radius**2)) * jnp.linalg.norm(state[:2] - self.port_center) ** 2) * (1/(1 + jnp.exp(5 + 50 * (charge - 1.))))
                           ])
 
     def control_jacobian(self, state, time):
@@ -147,11 +155,11 @@ def main():
     PORT_CENTER = jnp.array([0.5, 0.5])
     PORT_RADIUS = 0.2
 
-    U_MAX = 2.5
+    U_MAX = 1.5
     FLOW_X = 0.0
-    FLOW_Y = 0.0 if "flow" not in DIR_TAG else 0.6 
+    FLOW_Y = 0.0 if "flow" not in DIR_TAG else 0.5 
     # ^must > (BOX HEIGHT)/TIME to capture inf-time worst-case
-    CHARGE_LOSS_RATE = 0.4
+    CHARGE_LOSS_RATE = 0.35
     # ^want >= 1/TIME to observe dead battery trajectories
     RECHARGE_RATE = 2. if "recharge" in DIR_TAG else 0.
     # ^determines time between goal recurrence
@@ -161,7 +169,7 @@ def main():
         dyn = PointBattery(u_bd=U_MAX, charge_loss_rate=CHARGE_LOSS_RATE, recharge_rate=RECHARGE_RATE,
                            port_center=PORT_CENTER, port_radius=PORT_RADIUS,
                            flow_x=FLOW_X, flow_y=FLOW_Y)
-        TF = 4.0
+        TF = 1.0
 
         lbs = np.array([X_LEFT, Y_BOTTOM, -0.0])
         ubs = np.array([X_RIGHT, Y_TOP, 1.0])
@@ -215,7 +223,9 @@ def main():
         "port_center": PORT_CENTER,
         "port_radius": PORT_RADIUS,
         "flow_x": FLOW_X,
-        "flow_y": FLOW_Y
+        "flow_y": FLOW_Y,
+        "charge_loss_rate": CHARGE_LOSS_RATE,
+        "recharge_rate": RECHARGE_RATE,
     }
 
     ## Define the rooms environment
@@ -389,7 +399,8 @@ def main():
             fig_rooms,
             filename=f"batch_trajectories.gif",
             fps=60,
-            skip_frames=1  # Show more frames for detailed view
+            skip_frames=1,  # Show more frames for detailed view
+            grid_dict=grid_dict,
         )
 
     # ----------------------------------------------------------------------------        
@@ -512,6 +523,7 @@ def plot_batch_trajectories_gif(
     skip_frames: int = 1,
     max_frames: int = 300,
     trail_length: int = 30,
+    grid_dict: dict = None,
 ):
     """
     Create an animated GIF showing the evolution of batch trajectories through the rooms environment.
@@ -610,12 +622,17 @@ def plot_batch_trajectories_gif(
             # Get color for current DAG node
             # color = get_dag_color(current_dag_id)
             color = color_map(norm(np.clip(states[i, step, -1], 0.0, 1.0)))  # battery charge
-            
-            # Update current position
-            scatters[i].remove()
-            marker = (3, 0, np.degrees(theta)-90) if MODEL == "DUBINS" else 'o'
-            scatters[i] = ax.scatter([x], [y], s=35, alpha=0.9, zorder=10, edgecolors='black', linewidth=1, 
-                                     marker=marker, color=color)
+
+            # Update current position (if in bounds)
+            if (x > grid_dict["lbs"][0] and x < grid_dict["ubs"][0] and y > grid_dict["lbs"][1] and y < grid_dict["ubs"][1]):
+                scatters[i].remove()
+                marker = (3, 0, np.degrees(theta)-90) if MODEL == "DUBINS" else 'o'
+                scatters[i] = ax.scatter([x], [y], s=35, alpha=0.9, zorder=10, edgecolors='black', linewidth=1, 
+                                        marker=marker, color=color)
+            else:
+                scatters[i].set_color("black")
+                scatters[i].set_alpha(0.)
+                trails[i].set_alpha(0.)
 
             # Update trail (last N points)
             trail_start = max(0, step - trail_length)
@@ -708,6 +725,20 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], grid_dict: dict = None) -> 
     # Shade inside the rooms.
     shade_supzero(ax_rooms, rooms_bc_dict["target"][grid_dict["grid_slice"]], "C1", alpha=0.9, label="Target")
     shade_supzero(ax_rooms, rooms_bc_dict["port"][grid_dict["grid_slice"]], "C8", alpha=0.9, label="Port")
+
+    # Plot contour for recharge function
+    recharge_function = lambda state: grid_dict["recharge_rate"] * jnp.exp((jnp.log(0.1/2)/(grid_dict["port_radius"]**2)) * jnp.linalg.norm(state - grid_dict["port_center"]) ** 2)
+    X, Y = grid_dict["grid_X"], grid_dict["grid_Y"]
+    # recharge_value = recharge_function(jnp.stack([X, Y], axis=-1)) # this yields zero-dim array (wrong, should be two-dim)
+    # recharge_value = np.array(recharge_function(jnp.stack([X, Y], axis=-1))) # still wrong (0D array)
+    recharge_value = np.array(jnp.vectorize(recharge_function, signature='(n)->()')(jnp.stack([X, Y], axis=-1)))
+
+    # make custom colormap with alpha channel
+    from matplotlib.colors import LinearSegmentedColormap
+    colors = ListedColormap(["C0"])(np.linspace(0, 1, 256))
+    colors[:, -1] = np.linspace(0, 1., 256)  # vary alpha
+    custom_alpha_cmap = LinearSegmentedColormap.from_list("custom_alpha", colors)
+    ax_rooms.contourf(X, Y, recharge_value, levels=50, cmap=custom_alpha_cmap)
 
     # shade_supzero(ax_rooms, rooms_bc_dict["room1"][:,:,0], "C1", alpha=0.3, label="Room 1")
     # shade_supzero(ax_rooms, rooms_bc_dict["room2"][:,:,0], "C2", alpha=0.3, label="Room 2")
