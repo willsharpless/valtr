@@ -449,6 +449,11 @@ def plot_batch_trajectories_gif(
     states = trajectory_history['states']  # Shape: (batch_size, time_steps, state_dim)
     times = trajectory_history['times']    # Shape: (batch_size, time_steps)
     dag_ids = trajectory_history['dag_ids'] # Shape: (batch_size, time_steps)
+
+    # trajectory with longest time duration
+    traj_durations = np.nanmax(times, axis=1) - np.nanmin(times, axis=1)
+    traj_longest_ix = np.argmax(traj_durations)
+    print(f"  Longest trajectory index: {traj_longest_ix}, duration: {traj_durations[traj_longest_ix]:.2f}s")
     
     batch_size, total_steps, state_dim = states.shape
     
@@ -526,7 +531,7 @@ def plot_batch_trajectories_gif(
                 trails[i].set_data([], [])
         
         # Update text displays
-        current_time = times[0, step] if not np.isnan(times[0, step]) else 0.0
+        current_time = times[traj_longest_ix, step] if not np.isnan(times[traj_longest_ix, step]) else 0.0
         time_text.set_text(f"Time: {current_time:.2f}")
 
         # remove axes
