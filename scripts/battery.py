@@ -32,7 +32,7 @@ plt.style.use("seaborn-v0_8-darkgrid")
 
 MODEL = "POINT" # "POINT" or "DUBINS"
 BASE_OUT_DIR = "results/battery_{}".format(MODEL) # name for script
-DIR_TAG = "r1_recharge_flow_v1_until" # name for specific run
+DIR_TAG = "rinf_flow_recharge" # name for specific run
 LOAD = False # whether to load existing results
 
 ## Define the task specification in TL
@@ -41,11 +41,18 @@ if 'r1' in DIR_TAG:
     # TASK_SOURCE = "F tg && G in_grid"
     TASK_SOURCE = "in_grid U tg"
 elif 'r2' in DIR_TAG:
-    TASK_SOURCE = "F (tg && F tg) && G in_grid"
+    # TASK_SOURCE = "F (tg && F tg) && G in_grid"
+    TASK_SOURCE = "in_grid U (tg && (in_grid U tg))"
 elif 'r3' in DIR_TAG:
-    TASK_SOURCE = "F (tg && F (tg && F tg)) && G in_grid"
+    # TASK_SOURCE = "F (tg && F (tg && F tg)) && G in_grid"
+    TASK_SOURCE = "in_grid U (tg && (in_grid U (tg && (in_grid U tg))))"
+elif 'rinf' in DIR_TAG:
+    # TASK_SOURCE = "F tg && G in_grid"
+    # TASK_SOURCE = "in_grid U tg" # deubgging
+    # TASK_SOURCE = "G F tg"
+    TASK_SOURCE = "G (in_grid U tg)"
 else:
-    TASK_SOURCE = "G F tg"
+    TASK_SOURCE = "in_grid U tg"
 
 ## Define environment dynamics
 class PointBattery(hj.ControlAndDisturbanceAffineDynamics):
@@ -170,7 +177,7 @@ def main():
         dyn = PointBattery(u_bd=U_MAX, charge_loss_rate=CHARGE_LOSS_RATE, recharge_rate=RECHARGE_RATE,
                            port_center=PORT_CENTER, port_radius=PORT_RADIUS,
                            flow_x=FLOW_X, flow_y=FLOW_Y)
-        TF = 1.0
+        TF = 4.0
 
         lbs = np.array([X_LEFT, Y_BOTTOM, -0.0])
         ubs = np.array([X_RIGHT, Y_TOP, 1.0])
@@ -257,6 +264,10 @@ def main():
     for p_cls in passes:
         p = p_cls(ir)
         ir_root_id, ir = p.run(ir_root_id)
+
+    print("IR NODES: ")
+    for node in range(len(ir.nodes)):
+        print("\n", node, "  ----  ", ir.nodes[node])
 
     # IR -> DAG
     value_tree_dag, dag_root = lower_ir_to_dag(ir, ir_root_id)

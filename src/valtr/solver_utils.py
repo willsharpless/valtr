@@ -6,7 +6,7 @@ import numpy as np
 from matplotlib.colors import CenteredNorm
 from tqdm import tqdm
 
-from valtr.reachability import DAGAvoid, DAGMaxN, DAGMinN, DAGNegate, DAGReachAvoid, DAGVar, dag_to_str, \
+from valtr.reachability import DAGAvoid, DAGMaxN, DAGMinN, DAGNegate, DAGReachAvoid, DAGReachAvoidLoop, DAGVar, DAGConst, dag_to_str, \
     lower_ir_to_dag, DAGId
 
 def solve_avoid(bb_sdf_avoid: np.ndarray, times: np.ndarray, grid: hj.Grid, dyn: dynamics.Dynamics, gamma: float = 1, pbar=None):        
@@ -57,14 +57,44 @@ def solve_reach_avoid(bb_sdf_reach: np.ndarray, bb_sdf_avoid: np.ndarray, times:
 
     return values_over_time
 
+def solve_reach_avoid_loop(bb_sdf_reach: np.ndarray, bb_sdf_avoid: np.ndarray, times: np.ndarray, grid: hj.Grid, dyn: dynamics.Dynamics, gamma: float = 1, pbar=None):
+    assert bb_sdf_reach.shape == bb_sdf_avoid.shape
+
+    def ra_loop_post_processor(t, next_values, values):
+        return (1 - gamma) * jnp.minimum(jnp.minimum(bb_sdf_reach, values), bb_sdf_avoid) + gamma * jnp.minimum(jnp.maximum(next_values, jnp.minimum(bb_sdf_reach, values)), bb_sdf_avoid)
+
+    solver_settings = hj.SolverSettings.with_accuracy("very_high_passval", value_postprocessor=ra_loop_post_processor)
+    values = init_values = bb_sdf_reach
+
+    values_over_time = [None] * len(times)
+    for ti, _ in enumerate(times):
+        if ti == 0:
+            values = init_values
+        else:
+            values = hj.step(solver_settings, dyn, grid, -times[ti - 1], values, -times[ti], progress_bar=True)
+            # clear last progress bar from terminal
+            print("\033[2K\r", end="")  # Clear current line
+            print("\033[1A\033[2K\r", end="")  # Move up one line and clear it
+            if pbar is not None:
+                pbar.update(1)
+
+        values_over_time[ti] = values
+    # time here now corresponds to maximum time between recurrences
+
+    return values_over_time
+
 def solve_dag_values(dag_builder, dict_locals, grid_dict, dyn, times, gamma):
     
     dict_vars = {}
-    number_of_solves = np.sum([1 for n in dag_builder.nodes if type(n) in [DAGReachAvoid, DAGAvoid]])
+    number_of_solves = np.sum([1 for n in dag_builder.nodes if type(n) in [DAGReachAvoid, DAGAvoid, DAGReachAvoidLoop]])
     print("Solving {} values at {} times...".format(number_of_solves, len(times)-1))
     with tqdm(total=number_of_solves * (len(times)-1)) as pbar:
         for dag_id, n in enumerate(dag_builder.nodes):
             match n:
+                case DAGConst(value=value):
+                    first_local_var = next(iter(dict_locals.values()))
+                    dict_vars[dag_id] = np.inf * np.ones_like(first_local_var) # dummy array with correct shape
+
                 case DAGVar(name=name):
                     assert name in dict_locals, "Unknown variable name {}".format(name)
                     dict_vars[dag_id] = dict_locals[name]
@@ -92,6 +122,18 @@ def solve_dag_values(dag_builder, dict_locals, grid_dict, dyn, times, gamma):
                     title = "%{}: {}".format(dag_id, dag_to_str(dag_builder, DAGId(dag_id)))
 
                     temporal_values = solve_reach_avoid(arg_reach, arg_avoid, times=times, grid=grid_dict["grid"], dyn=dyn, gamma=gamma, pbar=pbar)
+                    dict_vars[dag_id] = temporal_values[-1]  # Inf time approx final time
+                    fig_values = plot_values(temporal_values, times, grid_dict, title=title, dag_id=dag_id)
+
+                case DAGReachAvoidLoop(reach=reach, avoid=avoid):
+                    # Note: the avoid is a stay since we are maximizing the value.
+                    arg_reach = dict_vars[reach]
+                    arg_avoid = dict_vars[avoid]
+
+                    # Get a string representation of the sub-DAG for logging.
+                    title = "%{}: {}".format(dag_id, dag_to_str(dag_builder, DAGId(dag_id)))
+
+                    temporal_values = solve_reach_avoid_loop(arg_reach, arg_avoid, times=times, grid=grid_dict["grid"], dyn=dyn, gamma=gamma, pbar=pbar)
                     dict_vars[dag_id] = temporal_values[-1]  # Inf time approx final time
                     fig_values = plot_values(temporal_values, times, grid_dict, title=title, dag_id=dag_id)
 

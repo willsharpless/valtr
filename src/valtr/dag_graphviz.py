@@ -3,7 +3,7 @@ from typing import Iterable, List, Optional, Set
 import graphviz
 
 from valtr.reachability import (DAGAvoid, DagBuilder, DAGConst, DAGId, DAGMaxN, DAGMinN, DAGNegate, DAGNode,
-                                DAGReachAvoid, DAGVar)
+                                DAGReachAvoid, DAGReachAvoidLoop, DAGVar)
 
 
 def _reachable(builder: DagBuilder, roots: Iterable[int] | int) -> Set[int]:
@@ -37,6 +37,8 @@ def _label_for(i: int, node: DAGNode) -> str:
             op = f"MAX"
         case DAGReachAvoid(reach=_, avoid=_):
             op = "ReachAvoid"
+        case DAGReachAvoidLoop(reach=_, avoid=_):
+            op = "ReachAvoidLoop"
         case DAGAvoid(avoid=_):
             op = "Avoid"
         case _:
@@ -72,7 +74,8 @@ def visualize_dag(
         DAGVar: ("#FFFFFF", "ellipse"),
         DAGMinN: ("#61655D", "box"),
         DAGMaxN: ("#E9E0C4", "box"),
-        DAGReachAvoid: ("#1B5B93", "diamond"),
+        DAGReachAvoid: ("#1B7FD6", "diamond"),
+        DAGReachAvoidLoop: ("#49329A", "diamond"),
         DAGAvoid: ("#CD3A3A", "hexagon"),
     }
 
@@ -96,7 +99,7 @@ def visualize_dag(
     for i in sorted(seen):
         node = builder.nodes[i]
 
-        if isinstance(node, DAGReachAvoid):
+        if isinstance(node, DAGReachAvoid) or isinstance(node, DAGReachAvoidLoop):
             l, r = node.reach, node.avoid
             if l in seen:
                 dot.edge(f"n{i}", f"n{l}", label="Reach")

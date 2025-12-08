@@ -5,7 +5,7 @@ from hj_reachability import Grid
 from scipy import integrate as ode
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
-from valtr.reachability import DAGAvoid, DAGConst, DAGVar, DagBuilder, DAGId, DAGMaxN, DAGMinN, DAGReachAvoid
+from valtr.reachability import DAGAvoid, DAGConst, DAGVar, DagBuilder, DAGId, DAGMaxN, DAGMinN, DAGReachAvoid, DAGReachAvoidLoop
 import faster_hj_grid_interpolation # patches on faster itp
 import copy
 import jax
@@ -152,6 +152,9 @@ def construct_optimal_path(
         case DAGAvoid(avoid=_):
             dag_path = [dag_id]
             switch_times = []
+        case DAGReachAvoidLoop(reach=_, avoid=_):
+            dag_path = [dag_id]
+            switch_times = []
         case DAGReachAvoid(reach=reach_id, avoid=_):
             reach = dag.nodes[reach_id]
 
@@ -208,13 +211,15 @@ def construct_optimal_path(
                 # Pick next RA/A problem #FIXME? more complex for (UNTIL) UNTIL (UNTIL) etc...
                 next_node = dag.nodes[best_next_dag_id]
                 match next_node:
-                    case DAGAvoid() | DAGReachAvoid():
+                    case DAGAvoid() | DAGReachAvoid() | DAGReachAvoidLoop():
                         pass
                     case _:
                         dag_path.append(best_next_dag_id)  # will be overwritten
                         children_types = [type(dag.nodes[child]) for child in next_node.args]
                         if DAGReachAvoid in children_types:
                             best_next_dag_id = next_node.args[children_types.index(DAGReachAvoid)]
+                        elif DAGReachAvoidLoop in children_types:
+                            best_next_dag_id = next_node.args[children_types.index(DAGReachAvoidLoop)]
                         elif DAGAvoid in children_types:
                             best_next_dag_id = next_node.args[children_types.index(DAGAvoid)]
                         else:
@@ -452,6 +457,12 @@ def construct_optimal_path_batch(
                 should_switch[i] = False
                 next_dag_ids[i] = dag_id  # Stay on the same terminal node
                 intermediate_nodes.append([])
+
+            elif isinstance(node, DAGReachAvoidLoop):
+                # Terminal node - don't switch, just stay on this DAG node
+                should_switch[i] = False
+                next_dag_ids[i] = dag_id  # Stay on the same terminal node
+                intermediate_nodes.append([])
             
             elif isinstance(node, DAGReachAvoid) and \
                (isinstance(dag.nodes[node.reach], (DAGVar, DAGConst))):
@@ -497,7 +508,7 @@ def construct_optimal_path_batch(
                     
                     # Handle composite nodes
                     next_node = dag.nodes[best_next_id]
-                    if not isinstance(next_node, (DAGAvoid, DAGReachAvoid)):
+                    if not isinstance(next_node, (DAGAvoid, DAGReachAvoid, DAGReachAvoidLoop)):
                         # Composite node - add it to path and find actual child
                         path_intermediates.append(best_next_id)
                         
@@ -505,6 +516,8 @@ def construct_optimal_path_batch(
                         children_types = [type(dag.nodes[child]) for child in next_node.args]
                         if DAGReachAvoid in children_types:
                             best_next_dag_id = next_node.args[children_types.index(DAGReachAvoid)]
+                        elif DAGReachAvoidLoop in children_types:
+                            best_next_dag_id = next_node.args[children_types.index(DAGReachAvoidLoop)]
                         elif DAGAvoid in children_types:
                             best_next_dag_id = next_node.args[children_types.index(DAGAvoid)]
                         else:
@@ -900,7 +913,7 @@ def preprocess_dag_for_batch(
         # Encode node type
         if isinstance(node, DAGAvoid):
             node_types[node_id] = 0
-        elif isinstance(node, DAGReachAvoid):
+        elif isinstance(node, DAGReachAvoid): #FIXME add DAGReachAvoidLoop
             node_types[node_id] = 1
             
             # Get children from reach node

@@ -62,6 +62,14 @@ class DAGReachAvoid(DAGNode):
 
     def children(self) -> List[DAGId]:
         return [self.reach, self.avoid]
+    
+@frozen
+class DAGReachAvoidLoop(DAGNode):
+    reach: DAGId
+    avoid: DAGId
+
+    def children(self) -> List[DAGId]:
+        return [self.reach, self.avoid]
 
 
 @frozen
@@ -110,6 +118,10 @@ class DagBuilder:
     def reachavoid(self, reach: DAGId, stay: DAGId) -> DAGId:
         key = ("ReachAvoid", reach, stay)
         return self._get(key, DAGReachAvoid(reach, stay))
+    
+    def reachavoidloop(self, reach: DAGId, stay: DAGId) -> DAGId:
+        key = ("ReachAvoidLoop", reach, stay)
+        return self._get(key, DAGReachAvoidLoop(reach, stay))
 
     def avoid(self, arg: DAGId) -> DAGId:
         key = ("Avoid", arg)
@@ -180,8 +192,22 @@ def lower_ir_to_dag(irb: IRBuilder, root: IRId) -> tuple[DagBuilder, DAGId]:
     # Build r_dag: if multiple G, r := AND(r_i)
     if len(G_args) == 0:
         G_dag = dag.const(True)  # if you want to require a G, raise instead
-    elif len(G_args) == 1:
+    elif len(G_args) == 1 and irb.nodes[G_args[0]].__class__ in {ConstBool, Var, Unary}:
         G_dag = lower_bool_leaf_expr_to_dag(irb, dag, G_args[0])
+        # # should only be done if args are leaf boolean expressions
+        # if irb.nodes[G_args[0]].__class__ in {ConstBool, Var, Unary}:
+        #     G_dag = lower_bool_leaf_expr_to_dag(irb, dag, G_args[0])
+        # else:
+        #     # recursively lower non-leaf boolean expressions
+        #     sub_dag, sub_root_dag = lower_ir_to_dag(irb, G_args[0])
+        #     # FIXME correct indices
+        #     G_dag = sub_dag
+    
+    # FIXME hardcoding GF for now
+    elif len(G_args) == 1:
+        sub_dag, sub_root_dag = lower_ir_to_dag(irb, G_args[0])
+        # TODO: reassociate sub_dag nodes to main dag
+        dag = sub_dag
     else:
         raise LoweringError("IR should have been preprocessed to combine multiple G into one")
         # r_dag = dag.and_n(lower_bool_leaf_expr_to_dag(irb, dag, r) for r in G_args)
@@ -190,6 +216,10 @@ def lower_ir_to_dag(irb: IRBuilder, root: IRId) -> tuple[DagBuilder, DAGId]:
     U_lefts: list[DAGId] = []
     U_rights: list[DAGId] = []
     for ir_left, ir_right in U_args:
+
+        # should only be done if args are leaf boolean expressions
+        # eg. if irb.nodes[ir_left].__class__ in {ConstBool, Var, Unary}
+
         U_lefts.append(lower_bool_leaf_expr_to_dag(irb, dag, ir_left))
         U_rights.append(lower_bool_leaf_expr_to_dag(irb, dag, ir_right))
 
@@ -199,8 +229,18 @@ def lower_ir_to_dag(irb: IRBuilder, root: IRId) -> tuple[DagBuilder, DAGId]:
         case (_, n) if n > 1:
             raise LoweringError("IR should have been preprocessed to combine multiple G into one")
         case (0, 1):
-            # Only 1 G, lower to avoid(r)
-            return dag, dag.avoid(G_dag)
+            if irb.nodes[G_args[0]].__class__ in {ConstBool, Var, Unary}:
+                # Only 1 G, lower to avoid(r)
+                return dag, dag.avoid(G_dag)
+            else:
+                # FIXME hardcoding GF for now
+                # TODO: need to reassociate sub_dag nodes to main dag
+                # GF_dag.nodes[0] is True const
+                # GF_dag.nodes[1] is reach fn
+                loop_reach = sub_dag.nodes[-1].reach
+                loop_stay = sub_dag.nodes[-1].avoid
+                dag.nodes.pop() # remove last node
+                return dag, dag.reachavoidloop(reach=loop_reach, stay=loop_stay)
         case (1, 0):
             # Only 1 U, lower to reachavoid(r)
             return dag, dag.reachavoid(reach=U_rights[0], stay=U_lefts[0])
@@ -295,6 +335,12 @@ def dag_to_str(builder: DagBuilder, rid: DAGId) -> str:
                     s = f"ReachAvoid({go(l)}, {go(r)})"
                 else:
                     s = f"ReachAvoid%{i})"
+
+            case DAGReachAvoidLoop(reach=l, stay=r):
+                if top_level:
+                    s = f"ReachAvoidLoop({go(l)}, {go(r)})"
+                else:
+                    s = f"ReachAvoidLoop%{i})"
 
             case DAGAvoid(avoid=avoid):
                 if top_level:
