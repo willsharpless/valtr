@@ -83,7 +83,8 @@ def solve_reach_avoid_loop(bb_sdf_reach: np.ndarray, bb_sdf_avoid: np.ndarray, t
 
     return values_over_time
 
-def solve_dag_values(dag_builder, dict_locals, grid_dict, dyn, times, gamma):
+def solve_dag_values(dag_builder, dict_locals, grid_dict, dyn, times, gamma, 
+                     multi_last_slice: bool = False, multi_slices: int = 5, multi_label: str = "Last Dim"):
     
     dict_vars = {}
     number_of_solves = np.sum([1 for n in dag_builder.nodes if type(n) in [DAGReachAvoid, DAGAvoid, DAGReachAvoidLoop]])
@@ -123,7 +124,6 @@ def solve_dag_values(dag_builder, dict_locals, grid_dict, dyn, times, gamma):
 
                     temporal_values = solve_reach_avoid(arg_reach, arg_avoid, times=times, grid=grid_dict["grid"], dyn=dyn, gamma=gamma, pbar=pbar)
                     dict_vars[dag_id] = temporal_values[-1]  # Inf time approx final time
-                    fig_values = plot_values(temporal_values, times, grid_dict, title=title, dag_id=dag_id)
 
                 case DAGReachAvoidLoop(reach=reach, avoid=avoid):
                     # Note: the avoid is a stay since we are maximizing the value.
@@ -135,7 +135,6 @@ def solve_dag_values(dag_builder, dict_locals, grid_dict, dyn, times, gamma):
 
                     temporal_values = solve_reach_avoid_loop(arg_reach, arg_avoid, times=times, grid=grid_dict["grid"], dyn=dyn, gamma=gamma, pbar=pbar)
                     dict_vars[dag_id] = temporal_values[-1]  # Inf time approx final time
-                    fig_values = plot_values(temporal_values, times, grid_dict, title=title, dag_id=dag_id)
 
                 case DAGAvoid(avoid=avoid):
                     # Note: the avoid is a stay since we are maximizing the value.
@@ -146,30 +145,59 @@ def solve_dag_values(dag_builder, dict_locals, grid_dict, dyn, times, gamma):
 
                     temporal_values = solve_avoid(arg_avoid, times=times, grid=grid_dict["grid"], dyn=dyn, gamma=gamma, pbar=pbar)
                     dict_vars[dag_id] = temporal_values[-1]  # Inf time approx final time
-                    fig_values = plot_values(temporal_values, times, grid_dict, title=title, dag_id=dag_id)
+            
+            if type(n) in [DAGReachAvoid, DAGAvoid, DAGReachAvoidLoop]:
+                fig_values = plot_values(temporal_values, times, grid_dict, title=title, dag_id=dag_id, 
+                                          multi_last_slice=multi_last_slice, multi_slices=multi_slices, multi_label=multi_label)
 
     return dict_vars
 
 
-def plot_values(values_over_time: list, times: np.ndarray, grid_params: dict, title: str, dag_id: int):
-    figsize = (6 * len(times), 4)
-    fig_, axes_ = plt.subplots(nrows=1, ncols=len(times), figsize=figsize)
+def plot_values(values_over_time: list, times: np.ndarray, grid_params: dict, title: str, dag_id: int, 
+                multi_last_slice: bool = False, multi_slices: int = 5, multi_label: str = "Last Dim") -> plt.Figure:
+
     grid_slice = grid_params["grid_slice"]
 
-    for ti, _ in enumerate(times):
-        ax_ = axes_[ti]
-        ax_.set_title(f"t = -{times[ti]:2.2f}")
-        ax_.set_aspect("equal")
-        ax_.set(xlim=(grid_params["lbs"][0] - grid_params["grid_pad"][0], grid_params["ubs"][0] + grid_params["grid_pad"][0]))
+    if not multi_last_slice:
+        figsize = (6 * len(times), 4)
+        fig_, axes_ = plt.subplots(nrows=1, ncols=len(times), figsize=figsize, constrained_layout=True)
+        for ti, _ in enumerate(times):
+            ax_ = axes_[ti]
+            ax_.set_title(f"t = -{times[ti]:2.2f}")
+            ax_.set_aspect("equal")
+            ax_.set(xlim=(grid_params["lbs"][0] - grid_params["grid_pad"][0], grid_params["ubs"][0] + grid_params["grid_pad"][0]))
 
-        im = ax_.contourf(grid_params["grid_X"], grid_params["grid_Y"], 
-                          values_over_time[ti][grid_slice],
-                          levels=25, cmap="RdBu", norm=CenteredNorm())
-        ln = ax_.contour(grid_params["grid_X"], grid_params["grid_Y"], 
-                         values_over_time[ti][grid_slice],
-                         levels=0, colors="black", linewidths=2)
-        cbar = fig_.colorbar(im, ax=ax_)
-        cbar.add_lines(ln)
+            im = ax_.contourf(grid_params["grid_X"], grid_params["grid_Y"], 
+                            values_over_time[ti][grid_slice],
+                            levels=25, cmap="RdBu", norm=CenteredNorm())
+            ln = ax_.contour(grid_params["grid_X"], grid_params["grid_Y"], 
+                            values_over_time[ti][grid_slice],
+                            levels=0, colors="black", linewidths=2)
+            cbar = fig_.colorbar(im, ax=ax_)
+            cbar.add_lines(ln)
+
+    else:
+        figsize = (6 * len(times), 4 * multi_slices)
+        fig_, axes_ = plt.subplots(nrows=multi_slices, ncols=len(times), figsize=figsize, constrained_layout=True)
+        for ti, _ in enumerate(times):
+            for si in range(multi_slices):
+                ax_ = axes_[si, ti]
+                ax_.set_aspect("equal")
+                ax_.set(xlim=(grid_params["lbs"][0] - grid_params["grid_pad"][0], grid_params["ubs"][0] + grid_params["grid_pad"][0]))
+
+                last_dim_len = grid_params["grid"].shape[-1] - 1
+                slice_index = int(last_dim_len / multi_slices * (si + 0.5))
+                grid_slice_multi = tuple(list(grid_slice[:-1]) + [slice_index])
+                im = ax_.contourf(grid_params["grid_X"], grid_params["grid_Y"], 
+                                values_over_time[ti][grid_slice_multi],
+                                levels=25, cmap="RdBu", norm=CenteredNorm())
+                ln = ax_.contour(grid_params["grid_X"], grid_params["grid_Y"], 
+                                values_over_time[ti][grid_slice_multi],
+                                levels=0, colors="black", linewidths=2)
+                ax_.set_title(f"t = -{times[ti]:2.2f}, {multi_label} = {grid_params['grid'].coordinate_vectors[-1][slice_index]:.2f}")
+                
+                cbar = fig_.colorbar(im, ax=ax_)
+                cbar.add_lines(ln)
 
     fig_.suptitle(title)
     fig_.savefig("node_values/node{:02}_values.pdf".format(dag_id), bbox_inches="tight")
