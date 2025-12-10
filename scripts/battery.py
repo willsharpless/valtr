@@ -32,7 +32,7 @@ plt.style.use("seaborn-v0_8-darkgrid")
 
 MODEL = "POINT" # "POINT" or "DUBINS"
 BASE_OUT_DIR = "results/battery_{}".format(MODEL) # name for script
-DIR_TAG = "rinf_flow_recharge" # name for specific run
+DIR_TAG = "rr_flow_recharge_loss0p6_newvalplots2_justRAA" # name for specific run
 LOAD = False # whether to load existing results
 
 ## Define the task specification in TL
@@ -49,10 +49,12 @@ elif 'r3' in DIR_TAG:
 elif 'rinf' in DIR_TAG:
     # TASK_SOURCE = "F tg && G in_grid"
     # TASK_SOURCE = "in_grid U tg" # deubgging
-    # TASK_SOURCE = "G F tg"
-    TASK_SOURCE = "G (in_grid U tg)"
+    TASK_SOURCE = "G F tg"
+    # TASK_SOURCE = "G (in_grid U tg)"
 else:
-    TASK_SOURCE = "in_grid U tg"
+    # TASK_SOURCE = "in_grid U tg"
+    TASK_SOURCE = "F tg && G in_grid"
+    # TASK_SOURCE = "F tg && F port && G in_grid"
 
 ## Define environment dynamics
 class PointBattery(hj.ControlAndDisturbanceAffineDynamics):
@@ -158,30 +160,34 @@ def main():
     X_RIGHT = 1.0
     Y_BOTTOM = 0.0
     Y_TOP = 2.0
-    TARGET_CENTER = jnp.array([-0.5, 1.5])
-    TARGET_RADIUS = 0.2
-    PORT_CENTER = jnp.array([0.5, 0.5])
-    PORT_RADIUS = 0.2
+    TARGET_CENTER = jnp.array([-0.25, 1.25])
+    TARGET_RADIUS = 0.25
+    PORT_CENTER = jnp.array([0.25, 0.75])
+    PORT_RADIUS = 0.25
 
     U_MAX = 1.5
     FLOW_X = 0.0
     FLOW_Y = 0.0 if "flow" not in DIR_TAG else 0.5 
     # ^must > (BOX HEIGHT)/TIME to capture inf-time worst-case
-    CHARGE_LOSS_RATE = 0.35
+    CHARGE_LOSS_RATE = 0.6
     # ^want >= 1/TIME to observe dead battery trajectories
-    RECHARGE_RATE = 2. if "recharge" in DIR_TAG else 0.
+    RECHARGE_RATE = 10. if "recharge" in DIR_TAG else 0.
     # ^determines time between goal recurrence
+
+    GAMMA = 0.99999
+    # GAMMA = 1 # no discount -> bad control (just for satisfiability)
 
     ## Define the grid
     if MODEL == "POINT":
         dyn = PointBattery(u_bd=U_MAX, charge_loss_rate=CHARGE_LOSS_RATE, recharge_rate=RECHARGE_RATE,
                            port_center=PORT_CENTER, port_radius=PORT_RADIUS,
                            flow_x=FLOW_X, flow_y=FLOW_Y)
-        TF = 4.0
+        TF = 6.0
 
         lbs = np.array([X_LEFT, Y_BOTTOM, -0.0])
         ubs = np.array([X_RIGHT, Y_TOP, 1.0])
         grid_pad = np.array([0.1, 0.1, 0.05])
+        # grid_lens = [grid_nx, grid_ny, grid_nc] = 201, 201, 101
         grid_lens = [grid_nx, grid_ny, grid_nc] = 101, 101, 51
         # grid_nx, grid_ny, grid_nq = 201, 81, 61
         # grid_nx, grid_ny, grid_nq = 101, 41, 31 
@@ -241,10 +247,8 @@ def main():
     fig_rooms, ax_rooms = plot_rooms(rooms_bc_dict, grid_dict)
 
     ## Define the system dynamics
-    ntimes = 4
+    ntimes = 8
     times = np.linspace(0.0, TF, ntimes+1)
-    GAMMA = 0.99999
-    # gamma = 1 # no discount -> bad control (just for satisfiability)
 
     # -------------------------------------------------------------------------------------------
     # Parse and lower the task specification to a value tree DAG.
@@ -295,7 +299,8 @@ def main():
 
     if not LOAD:
         logger.info("Solving the value tree ...")
-        value_tree_solution = solve_dag_values(value_tree_dag, dict_predicates, grid_dict, dyn, times, GAMMA)
+        value_tree_solution = solve_dag_values(value_tree_dag, dict_predicates, grid_dict, dyn, times, GAMMA, 
+                                               multi_last_slice=True, multi_slices=5, multi_label="Charge")
         np.savez_compressed("value_tree_solution.npz", **{str(k): v for k, v in value_tree_solution.items()})
     else:
         logger.info("Loading presolved value tree ...")
@@ -320,7 +325,7 @@ def main():
     ax_sol.set_title("Value")
     ax_sol.get_legend().remove()
     fig_sol.savefig("solution_values.pdf", bbox_inches="tight")
-    plt.close(fig_sol)
+    # plt.close(fig_sol)
 
     # -------------------------------------------------------------------------------------------
     # Solve optimal path from the solved values
@@ -333,35 +338,52 @@ def main():
         # value_tree_grads[key] = [grid.grad_values(val[i,...]) for i in range(len(times))]
         
     # Example start point in room3
-    x_start = np.array([0., 0.1, 1.])
+    # x_start = np.array([-0.75, 0.25, 1.])
+    # x_start = np.array([-0.25, 0.8, 1.])
+    # x_start = np.array([0.5, 0.5, 1.])
+    x_start = np.array([0.3, 1.1, 1.])
     # x_start = np.array([0.1, 0.6, 0.])
-    t_start = -TF
-    sol, full_dag_path, switch_times = construct_optimal_path(
-        value_tree_dag, 
-        value_tree_solution, 
-        value_tree_grads, 
-        t_start, 
-        x_start, 
-        dag_root, 
-        grid, 
-        dyn, 
-        times=times, 
-        tv=False, 
-        reaching_eps=0., 
-        integration_method='jax'
-    )
-    dag_ra_path = [i for i in full_dag_path if type(value_tree_dag.nodes[i]) in [DAGReachAvoid, DAGAvoid]]
-    print("Optimal path constructed,")
-    print("  Full DAG path nodes: ", full_dag_path)
-    print("  RA/A DAG path nodes: ", dag_ra_path)
-    print("  Switch times: [{}]".format(", ".join([f"{st:2.2f}" for st in switch_times])))
+    inits = [
+        np.array([-0.75, 0.25, 1.]),
+        # np.array([-0.25, 0.8, 1.]),
+        # np.array([0.5, 0.5, 1.]),
+        # np.array([0.3, 1.1, 1.]),
+        # np.array([0.1, 0.6, 0.]),
+    ]
 
-    fig_rooms_path = plot_optimal_path(sol, dag_ra_path, switch_times, fig_base=fig_rooms,
-                                       color_path=True, color_path_type='state', color_path_state_ix=-1,
-                                       color_path_lb=0, color_path_ub=1, color_path_state_label='Battery',
-                                       )
+    for ici, ic in enumerate(inits):
+        x_start = ic
+        t_start = -TF
+        sol, full_dag_path, switch_times = construct_optimal_path(
+            value_tree_dag, 
+            value_tree_solution, 
+            value_tree_grads, 
+            t_start, 
+            x_start, 
+            dag_root, 
+            grid, 
+            dyn, 
+            times=times, 
+            tv=False, 
+            reaching_eps=0., 
+            integration_method='jax',
+        )
+        dag_ra_path = [i for i in full_dag_path if type(value_tree_dag.nodes[i]) in [DAGReachAvoid, DAGAvoid]]
+        print("Optimal path constructed,")
+        print("  Full DAG path nodes: ", full_dag_path)
+        print("  RA/A DAG path nodes: ", dag_ra_path)
+        print("  Switch times: [{}]".format(", ".join([f"{st:2.2f}" for st in switch_times])))
+
+        if ici == 0:
+            fig_rooms_path = copy.deepcopy(fig_sol)
+        fig_rooms_path = plot_optimal_path(sol, dag_ra_path, switch_times, fig_base=fig_rooms_path,
+                                        color_path=True, color_path_type='state', color_path_state_ix=-1,
+                                        color_path_lb=0, color_path_ub=1, color_path_state_label='Battery',
+                                        legend=(ici==0)
+                                        )
     plt.close(fig_rooms_path)
     plt.close(fig_rooms)
+    plt.close(fig_sol)
 
     # -------------------------------------------------------------------------------------------
     # Batch solve for gif
@@ -369,8 +391,8 @@ def main():
 
     # grid of points
     X_start = np.array(np.meshgrid(
-        np.linspace(-0.9, 0.9, 5),
-        np.linspace(0.1, 1.9, 5),
+        np.linspace(-0.5, 0.5, 5),
+        np.linspace(0.5, 1.5, 5),
     )).reshape(2, -1).T  # shape (N, 2)
     
     # concatenate with orientations
@@ -413,6 +435,38 @@ def main():
             fps=60,
             skip_frames=1,  # Show more frames for detailed view
             grid_dict=grid_dict,
+            bc_dict=rooms_bc_dict,
+        )
+
+    # Roll out all nodes for debugging
+    value_node_ids = sorted([dag_id for dag_id, node in enumerate(value_tree_dag.nodes) if type(node) in [DAGReachAvoid, DAGAvoid]])[:-1][::-1]
+    for dag_id_init in value_node_ids:
+        print(f"Rolling out a batch for node {dag_id_init} ...")
+        results_batch = construct_optimal_path_batch_auto(
+            value_tree_dag, 
+            value_tree_solution, 
+            value_tree_grads, 
+            t_start, 
+            X_start, 
+            dag_id_init, 
+            grid,
+            dyn, 
+            times=times, 
+            tv=False, 
+            reaching_eps=0.01, 
+            integration_method='jax',
+            use_fast_version=False  # Use the regular batch version
+        )
+
+        plot_batch_trajectories_gif(
+            results_batch,
+            fig_rooms,
+            filename=f"node{dag_id_init:02}_batch_trajectories.gif",
+            fps=60,
+            skip_frames=1,
+            grid_dict=grid_dict,
+            bc_dict=rooms_bc_dict,
+            highlight_reached=False,
         )
 
     # ----------------------------------------------------------------------------        
@@ -536,6 +590,8 @@ def plot_batch_trajectories_gif(
     max_frames: int = 300,
     trail_length: int = 30,
     grid_dict: dict = None,
+    bc_dict: dict = None,
+    highlight_reached: bool = True,
 ):
     """
     Create an animated GIF showing the evolution of batch trajectories through the rooms environment.
@@ -625,7 +681,10 @@ def plot_batch_trajectories_gif(
             
         # Count trajectories in each DAG state
         dag_counts = {}
-        
+
+        # reach_values = np.min(bc_dict["target"](states[:, step, :2]), axis=1) if bc_dict is not None else None
+        # print(f"reach_values shape: {reach_values.shape}")
+
         # Update each trajectory
         for i in range(batch_size):
             # Get current state and DAG ID
@@ -642,10 +701,27 @@ def plot_batch_trajectories_gif(
 
             # Update current position (if in bounds)
             if (x > grid_dict["lbs"][0] and x < grid_dict["ubs"][0] and y > grid_dict["lbs"][1] and y < grid_dict["ubs"][1]):
+                
+                edgecolor = 'black'
+                if highlight_reached:
+                    max_reach_value_1 = np.max(-(np.linalg.norm(states[i, :(step+1), :2] - grid_dict["target_center"], axis=1) - grid_dict["target_radius"]))
+                    max_reach_value_2 = np.max(-(np.linalg.norm(states[i, :(step+1), :2] - grid_dict["port_center"], axis=1) - grid_dict["port_radius"]))
+                    
+                    # edgecolor_reached = 'magenta' if max_reach_value_1 >= 0.0 else 'black'
+                    if min(max_reach_value_1, max_reach_value_2) >= 0.0:
+                        edgecolor = 'magenta'  # reached target and port
+                    elif max_reach_value_1 >= 0.0:
+                        edgecolor = 'orange'     # reached target
+                    elif max_reach_value_2 >= 0.0:
+                        edgecolor = 'yellow'   # reached port
+                    else:
+                        edgecolor = 'black'    # not reached either
+                
+                # print(f"reach_values[i]: {reach_values[i]}")
                 scatters[i].remove()
                 marker = (3, 0, np.degrees(theta)-90) if MODEL == "DUBINS" else 'o'
-                scatters[i] = ax.scatter([x], [y], s=35, alpha=0.9, zorder=10, edgecolors='black', linewidth=1, 
-                                        marker=marker, color=color)
+                scatters[i] = ax.scatter([x], [y], s=35, alpha=0.9, zorder=10, linewidth=1, 
+                                        marker=marker, color=color, edgecolor=edgecolor)
             else:
                 scatters[i].set_color("black")
                 scatters[i].set_alpha(0.)
