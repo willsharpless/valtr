@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import CenteredNorm
 from tqdm import tqdm
+import jax
 
 from valtr.reachability import DAGAvoid, DAGMaxN, DAGMinN, DAGNegate, DAGReachAvoid, DAGReachAvoidLoop, DAGVar, DAGConst, dag_to_str, \
     lower_ir_to_dag, DAGId
@@ -82,6 +83,36 @@ def solve_reach_avoid_loop(bb_sdf_reach: np.ndarray, bb_sdf_avoid: np.ndarray, t
     # time here now corresponds to maximum time between recurrences
 
     return values_over_time
+
+def solve_next_values(values: np.ndarray, next_time: float, grid: hj.Grid, dyn: dynamics.Dynamics, gamma: float = 1, tv:bool=False):
+
+    # roll out one step, using dynamics optimal control
+    init_x = grid.states
+    grad_values = grid.grad_values(values)
+        
+    @jax.jit
+    def dynamics_for_dag_id(states, times, grad_values):
+        def single_dynamics(state, time, grad_values):
+            if tv and times is not None:
+                time_idx = jnp.argmin(jnp.abs(times - time))
+                grad_value = grid.interpolate_fast_jit(grad_values[time_idx], state=state)
+            else:
+                grad_value = grid.interpolate_fast_jit(grad_values, state=state)
+            
+            u = dyn.optimal_control(state, time, grad_value)
+            d = dyn.optimal_disturbance(state, time, grad_value)
+            fx = dyn.open_loop_dynamics(state, time)
+            Bu = dyn.control_jacobian(state, time)
+            Bd = dyn.disturbance_jacobian(state, time)
+
+            return fx + Bu @ u + Bd @ d
+
+        return jax.vmap(single_dynamics)(states, times, grad_values)
+
+    next_states = dynamics_for_dag_id(init_x, next_time, grad_values)
+    next_values = grid.interpolate_fast_jit(values, state=next_states)
+
+    return gamma * next_values
 
 def solve_dag_values(dag_builder, dict_locals, grid_dict, dyn, times, gamma, 
                      multi_last_slice: bool = False, multi_slices: int = 5, multi_label: str = "Last Dim"):
