@@ -32,18 +32,20 @@ plt.style.use("seaborn-v0_8-darkgrid")
 
 MODEL = "POINT" # artifact from 2d
 BASE_OUT_DIR = "results/battery_1d" # name for script
-DIR_TAG = "raa_flow_recharge_nonsmooth" # name for specific run
+DIR_TAG = "ra3_flow_recharge_nonsmooth" # name for specific run
 LOAD = False # whether to load existing results
 
 ## Define the task specification in TL
 # later, we map logic -> target/obstacle (doors, keys, walls, grid limits)
 if 'r1' in DIR_TAG:
-    # TASK_SOURCE = "F tg && G in_grid"
-    TASK_SOURCE = "tg"
-elif 'r2' in DIR_TAG:
+    TASK_SOURCE = "F tg && G in_grid"
+    # TASK_SOURCE = "tg"
+
+elif 'ra2' in DIR_TAG:
     # TASK_SOURCE = "F (tg && F tg) && G in_grid"
     TASK_SOURCE = "in_grid U (tg && (in_grid U tg))"
-elif 'r3' in DIR_TAG:
+
+elif 'ra3' in DIR_TAG:
     # TASK_SOURCE = "F (tg && F (tg && F tg)) && G in_grid"
     TASK_SOURCE = "in_grid U (tg && (in_grid U (tg && (in_grid U tg))))"
 
@@ -91,8 +93,8 @@ class PointBatterySimple(hj.ControlAndDisturbanceAffineDynamics):
     def open_loop_dynamics(self, state, time):
         _, charge = state
         return jnp.array([self.flow_x, 
-                          -self.charge_loss_rate * (charge > 0.) + \
-                            self.recharge_rate * (jnp.linalg.norm(state[0] - self.port_center) < self.port_radius) * (charge < 1.)
+                          -self.charge_loss_rate * (charge > 0.0) + \
+                            self.recharge_rate * (jnp.linalg.norm(state[0] - self.port_center) < self.port_radius) * (charge < 1.0)
                           ])
     
     # def open_loop_dynamics(self, state, time): # smooth approx
@@ -155,7 +157,7 @@ def main():
         lbs = np.array([X_LEFT, -0.0])
         ubs = np.array([X_RIGHT, 1.0])
         grid_pad = np.array([0.1, 0.05])
-        grid_lens = [grid_nx, grid_nc] = 201, 201
+        grid_lens = [grid_nx, grid_nc] = 501, 501
         # grid_lens = [grid_nx, grid_ny, grid_nc] = 201, 201, 101
         # grid_nx, grid_ny, grid_nq = 201, 81, 61
         # grid_nx, grid_ny, grid_nq = 101, 41, 31 
@@ -341,8 +343,8 @@ def main():
 
     # grid of points
     X_start = np.array(np.meshgrid(
-        np.linspace(-1., 1., 5),
-        np.linspace(0., 1., 5),
+        np.linspace(-0.95, 0.95, 5),
+        np.linspace(0.05, 0.95, 5),
     )).reshape(2, -1).T  # shape (N, 2)
     
     # # concatenate with orientations
@@ -647,8 +649,11 @@ def plot_batch_trajectories_gif(
             color = color_map(norm(np.clip(states[i, step, -1], 0.0, 1.0)))  # battery charge
 
             # Update current position (if in bounds)
-            if (x > grid_dict["lbs"][0] and x < grid_dict["ubs"][0] and y > grid_dict["lbs"][1] and y < grid_dict["ubs"][1]):
-                
+            if (x >= grid_dict["lbs"][0] - grid_dict["grid_pad"][0]
+                and x <= grid_dict["ubs"][0] + grid_dict["grid_pad"][0]
+                and y >= grid_dict["lbs"][1] - grid_dict["grid_pad"][1]
+                and y <= grid_dict["ubs"][1] + grid_dict["grid_pad"][1]):
+
                 edgecolor = 'black'
                 if highlight_reached:
                     max_reach_value_1 = np.max(-(np.linalg.norm(states[i, :(step+1), 0] - grid_dict["target_center"]) - grid_dict["target_radius"]))
@@ -799,14 +804,18 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], grid_dict: dict = None) -> 
     X = grid_dict["grid_X"][buffer:-buffer:sparsity, buffer:-buffer:sparsity]
     Y = grid_dict["grid_Y"][buffer:-buffer:sparsity, buffer:-buffer:sparsity]
     U = np.zeros_like(X) + grid_dict["flow_x"]
-    V = -grid_dict["charge_loss_rate"] * (1/(1 + jnp.exp(5 - 50 * Y))) + \
-        grid_dict["recharge_rate"] * np.exp((np.log(0.1/2)/(grid_dict["port_radius"]**2)) * np.linalg.norm(X - grid_dict["port_center"][0], axis=-1, keepdims=True) ** 2) * (1/(1 + np.exp(5 + 50 * (Y - 1.))))
+    # V = -grid_dict["charge_loss_rate"] * (1/(1 + jnp.exp(5 - 50 * Y))) + \
+    #     grid_dict["recharge_rate"] * np.exp((np.log(0.1/2)/(grid_dict["port_radius"]**2)) * np.linalg.norm(X - grid_dict["port_center"][0], axis=-1, keepdims=True) ** 2) * (1/(1 + np.exp(5 + 50 * (Y - 1.))))
+    V = -grid_dict["charge_loss_rate"] * (Y > 0.0) + \
+        grid_dict["recharge_rate"] * (jnp.abs(X - grid_dict["port_center"]) < grid_dict["port_radius"]) * (Y < 1.0)
     ax_rooms.quiver(X, Y, U, V, color=color, alpha=0.2, scale=20, zorder=3, label="Flow")
     X = grid_dict["grid_X"][buffer+sparsity//2:-buffer:sparsity, buffer+sparsity//2:-buffer:sparsity]
     Y = grid_dict["grid_Y"][buffer+sparsity//2:-buffer:sparsity, buffer+sparsity//2:-buffer:sparsity]
     U = np.zeros_like(X) + grid_dict["flow_x"]
-    V = -grid_dict["charge_loss_rate"] * (1/(1 + jnp.exp(5 - 50 * Y))) + \
-        grid_dict["recharge_rate"] * np.exp((np.log(0.1/2)/(grid_dict["port_radius"]**2)) * np.linalg.norm(X - grid_dict["port_center"][0], axis=-1, keepdims=True) ** 2) * (1/(1 + np.exp(5 + 50 * (Y - 1.))))
+    # V = -grid_dict["charge_loss_rate"] * (1/(1 + jnp.exp(5 - 50 * Y))) + \
+    #     grid_dict["recharge_rate"] * np.exp((np.log(0.1/2)/(grid_dict["port_radius"]**2)) * np.linalg.norm(X - grid_dict["port_center"][0], axis=-1, keepdims=True) ** 2) * (1/(1 + np.exp(5 + 50 * (Y - 1.))))
+    V = -grid_dict["charge_loss_rate"] * (Y > 0.0) + \
+        grid_dict["recharge_rate"] * (jnp.abs(X - grid_dict["port_center"]) < grid_dict["port_radius"]) * (Y < 1.0)
     ax_rooms.quiver(X, Y, U, V, color=color, alpha=0.2, scale=20, zorder=3)
 
     ax_rooms.legend(frameon=True, facecolor="white", framealpha=0.8, ncol=2, loc="lower left")

@@ -216,10 +216,23 @@ def lower_ir_to_dag(irb: IRBuilder, root: IRId) -> tuple[DagBuilder, DAGId]:
     U_lefts: list[DAGId] = []
     U_rights: list[DAGId] = []
     for ir_left, ir_right in U_args:
+        
+        # TODO hard coding Until composition chain for now, assumes atomic lefts always
+        if irb.nodes[ir_right].__class__ in {Nary}: 
 
+            next_U_right = irb.nodes[ir_right].args[1]
+            sub_dag_right, sub_root_dag_right = lower_ir_to_dag(irb, next_U_right)
+            
+            next_U_left = lower_bool_leaf_expr_to_dag(irb, sub_dag_right, irb.nodes[ir_right].args[0])
+            sub_dag_min = sub_dag_right.min_n([next_U_left] + [sub_root_dag_right])
+
+            U_left = lower_bool_leaf_expr_to_dag(irb, sub_dag_right, ir_left)
+
+            return sub_dag_right, sub_dag_right.reachavoid(reach=sub_dag_min, stay=U_left)
+        
         # should only be done if args are leaf boolean expressions
         # eg. if irb.nodes[ir_left].__class__ in {ConstBool, Var, Unary}
-
+        # if irb.nodes[ir_left].__class__ in {ConstBool, Var, Unary}:
         U_lefts.append(lower_bool_leaf_expr_to_dag(irb, dag, ir_left))
         U_rights.append(lower_bool_leaf_expr_to_dag(irb, dag, ir_right))
 
