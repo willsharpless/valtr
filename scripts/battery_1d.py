@@ -32,7 +32,7 @@ plt.style.use("seaborn-v0_8-darkgrid")
 
 MODEL = "POINT" # artifact from 2d
 BASE_OUT_DIR = "results/battery_1d" # name for script
-DIR_TAG = "ra3_flow_recharge_nonsmooth" # name for specific run
+DIR_TAG = "ra2_flow_recharge_nonsmooth" # name for specific run
 LOAD = False # whether to load existing results
 
 ## Define the task specification in TL
@@ -43,7 +43,8 @@ if 'r1' in DIR_TAG:
 
 elif 'ra2' in DIR_TAG:
     # TASK_SOURCE = "F (tg && F tg) && G in_grid"
-    TASK_SOURCE = "in_grid U (tg && (in_grid U tg))"
+    # TASK_SOURCE = "in_grid U (tg && (in_grid U tg))"
+    TASK_SOURCE = "in_grid U (tg && X(in_grid U tg))"
 
 elif 'ra3' in DIR_TAG:
     # TASK_SOURCE = "F (tg && F (tg && F tg)) && G in_grid"

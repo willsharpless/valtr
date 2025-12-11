@@ -3,7 +3,7 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 import graphviz
 
 from valtr.reachability import (DAGAvoid, DagBuilder, DAGConst, DAGId, DAGMaxN, DAGMinN, DAGNegate, DAGNode,
-                                DAGReachAvoid, DAGReachAvoidLoop, DAGVar)
+                                DAGReachAvoid, DAGReachAvoidLoop, DAGVar, DAGNext)
 
 
 class DagRewriter:
@@ -40,6 +40,9 @@ class DagRewriter:
             case DAGNegate(arg=arg):
                 out = self.dst.negate(arg)
 
+            case DAGNext(arg=arg):
+                out = self.dst.next(self.visit(arg))
+
             case DAGMinN(args=args):
                 new_args = [self.visit(a) for a in args]
                 out = self.dst.min_n(new_args)
@@ -53,7 +56,6 @@ class DagRewriter:
                 new_stay = self.visit(stay)
                 out = self.dst.reachavoid(reach=new_reach, stay=new_stay)
 
-            # FIXME will this break?
             case DAGReachAvoidLoop(reach=reach, avoid=stay):
                 new_reach = self.visit(reach)
                 new_stay = self.visit(stay)
