@@ -32,8 +32,8 @@ plt.style.use("seaborn-v0_8-darkgrid")
 
 MODEL = "POINT" # artifact from 2d
 BASE_OUT_DIR = "results/battery_1d" # name for script
-DIR_TAG = "ra2_flow_recharge_nonsmooth" # name for specific run
-LOAD = False # whether to load existing results
+DIR_TAG = "raN_20_flow_recharge_nonsmooth_rk45" # name for specific run
+LOAD = True # whether to load existing results
 
 ## Define the task specification in TL
 # later, we map logic -> target/obstacle (doors, keys, walls, grid limits)
@@ -48,7 +48,12 @@ elif 'ra2' in DIR_TAG:
 
 elif 'ra3' in DIR_TAG:
     # TASK_SOURCE = "F (tg && F (tg && F tg)) && G in_grid"
-    TASK_SOURCE = "in_grid U (tg && (in_grid U (tg && (in_grid U tg))))"
+    # TASK_SOURCE = "in_grid U (tg && (in_grid U (tg && (in_grid U tg))))"
+    TASK_SOURCE = "in_grid U (tg && X(in_grid U (tg && X(in_grid U tg))))"
+
+elif 'raN' in DIR_TAG:
+    N_ra = int(DIR_TAG.split('_')[1])
+    TASK_SOURCE = "in_grid U " + "(tg && X(in_grid U " * (N_ra - 1) + "tg" + ")" * (2 * (N_ra - 1))
 
 elif 'rinf' in DIR_TAG:
     # TASK_SOURCE = "F tg && G in_grid"
@@ -276,7 +281,7 @@ def main():
     cbar = fig_sol.colorbar(im, cax=cax)
     cbar.add_lines(ln)
     ax_sol.set_title("Value")
-    ax_sol.get_legend().remove()
+    # ax_sol.get_legend().remove()
     fig_sol.savefig("solution_values.pdf", bbox_inches="tight")
     # plt.close(fig_sol)
 
@@ -336,7 +341,7 @@ def main():
                                         )
     plt.close(fig_rooms_path)
     plt.close(fig_rooms)
-    plt.close(fig_sol)
+    # plt.close(fig_sol)
 
     # -------------------------------------------------------------------------------------------
     # Batch solve for gif
@@ -383,7 +388,7 @@ def main():
     if 'trajectory_history' in results_batch:
         plot_batch_trajectories_gif(
             results_batch,
-            fig_rooms,
+            fig_sol,
             filename=f"batch_trajectories.gif",
             fps=60,
             skip_frames=1,  # Show more frames for detailed view
@@ -391,36 +396,36 @@ def main():
             bc_dict=rooms_bc_dict,
         )
 
-    # Roll out all nodes for debugging
-    value_node_ids = sorted([dag_id for dag_id, node in enumerate(value_tree_dag.nodes) if type(node) in [DAGReachAvoid, DAGAvoid]])[:-1][::-1]
-    for dag_id_init in value_node_ids:
-        print(f"Rolling out a batch for node {dag_id_init} ...")
-        results_batch = construct_optimal_path_batch_auto(
-            value_tree_dag, 
-            value_tree_solution, 
-            value_tree_grads, 
-            t_start, 
-            X_start, 
-            dag_id_init, 
-            grid,
-            dyn, 
-            times=times, 
-            tv=False, 
-            reaching_eps=0.01, 
-            integration_method='jax',
-            use_fast_version=False  # Use the regular batch version
-        )
+    # # Roll out all nodes for debugging
+    # value_node_ids = sorted([dag_id for dag_id, node in enumerate(value_tree_dag.nodes) if type(node) in [DAGReachAvoid, DAGAvoid]])[:-1][::-1]
+    # for dag_id_init in value_node_ids:
+    #     print(f"Rolling out a batch for node {dag_id_init} ...")
+    #     results_batch = construct_optimal_path_batch_auto(
+    #         value_tree_dag, 
+    #         value_tree_solution, 
+    #         value_tree_grads, 
+    #         t_start, 
+    #         X_start, 
+    #         dag_id_init, 
+    #         grid,
+    #         dyn, 
+    #         times=times, 
+    #         tv=False, 
+    #         reaching_eps=0.01, 
+    #         integration_method='jax',
+    #         use_fast_version=False  # Use the regular batch version
+    #     )
 
-        plot_batch_trajectories_gif(
-            results_batch,
-            fig_rooms,
-            filename=f"node{dag_id_init:02}_batch_trajectories.gif",
-            fps=60,
-            skip_frames=1,
-            grid_dict=grid_dict,
-            bc_dict=rooms_bc_dict,
-            highlight_reached=False,
-        )
+    #     plot_batch_trajectories_gif(
+    #         results_batch,
+    #         fig_rooms,
+    #         filename=f"node{dag_id_init:02}_batch_trajectories.gif",
+    #         fps=60,
+    #         skip_frames=1,
+    #         grid_dict=grid_dict,
+    #         bc_dict=rooms_bc_dict,
+    #         highlight_reached=False,
+    #     )
 
     # ----------------------------------------------------------------------------        
     logger.info("Complete.")
@@ -559,8 +564,9 @@ def plot_batch_trajectories_gif(
     # Extract trajectory data
     fig = copy.deepcopy(base_figure)
     ax = fig.axes[0]
+    ax.set_aspect("equal")
     ax.set_title("Value - Optimal Flow", fontsize=12)
-    ax.get_legend().remove()
+    # ax.get_legend().remove()
     trajectory_history = batch_results['trajectory_history']
     states = trajectory_history['states']  # Shape: (batch_size, time_steps, state_dim)
     times = trajectory_history['times']    # Shape: (batch_size, time_steps)
@@ -607,11 +613,13 @@ def plot_batch_trajectories_gif(
                             bbox=dict(boxstyle="round,pad=0.2", alpha=0.8, facecolor="white"))
 
     # add colorbar for battery charge
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
     sm = plt.cm.ScalarMappable(cmap=color_map, norm=norm)
     sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.04)
+    # make colorbar with vmin and vmax
+    cbar = fig.colorbar(sm, cax=cax)
     cbar.set_label('Battery', fontsize=8)
-    # add tick for each agent
     states_unique = np.unique(states[:,0,-1])
     cbar.set_ticks(states_unique)
     cbar.set_ticklabels([''] * len(states_unique))
@@ -622,6 +630,10 @@ def plot_batch_trajectories_gif(
         colors='black',
         labelsize=8
     )
+
+    # add axes labels
+    # ax.set_xlabel('1D Position (flow ←)', fontsize=10)
+    # ax.set_ylabel('Battery', fontsize=10)
 
     def animate(frame):
         """Animation function called for each frame"""
@@ -713,6 +725,7 @@ def plot_batch_trajectories_gif(
             labelleft=False
         )
         ax.grid(True)
+        ax.set_aspect("equal")
 
         return scatters + trails + [time_text]
 
@@ -758,6 +771,7 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], grid_dict: dict = None) -> 
             cmap=ListedColormap([color]),
             alpha=alpha,
             interpolation="nearest",
+            aspect="auto",
             zorder=4,
         )
         # add square marker legend entry if label:
@@ -767,10 +781,12 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], grid_dict: dict = None) -> 
     logger.info("Plotting SDFs...")
     fig_rooms, ax_rooms = plt.subplots(layout="constrained")
     ax_rooms.set_aspect("equal")
+    ax_rooms.set_xlabel("1D Position (flow ←)", fontsize=10)
+    ax_rooms.set_ylabel("Battery", fontsize=10)
 
     # Shade inside the rooms.
-    shade_supzero(ax_rooms, rooms_bc_dict["target"][grid_dict["grid_slice"]], "C1", alpha=0.6, label="Target")
-    shade_supzero(ax_rooms, rooms_bc_dict["port"][grid_dict["grid_slice"]], "C8", alpha=0.6, label="Port")
+    shade_supzero(ax_rooms, rooms_bc_dict["target"][grid_dict["grid_slice"]], "C4", alpha=0.6, label="Target (Goal)")
+    shade_supzero(ax_rooms, rooms_bc_dict["port"][grid_dict["grid_slice"]], "C5", alpha=0.6, label="Port (Charges)")
 
     # Plot contour for recharge function
     recharge_function = lambda state: grid_dict["recharge_rate"] * jnp.exp((jnp.log(0.1/2)/(grid_dict["port_radius"]**2)) * jnp.linalg.norm(state - grid_dict["port_center"]) ** 2)
@@ -796,7 +812,7 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], grid_dict: dict = None) -> 
 
     # shade_supzero(ax_rooms, rooms_bc_dict["door1"][:,:,0], "C5", alpha=0.9, label="Door 1")
     # shade_supzero(ax_rooms, rooms_bc_dict["door2"][:,:,0], "C6", alpha=0.9, label="Door 2")
-    shade_supzero(ax_rooms, -rooms_bc_dict["in_grid"][grid_dict["grid_slice"]], "C7", alpha=0.9, label="Bounds")
+    shade_supzero(ax_rooms, -rooms_bc_dict["in_grid"][grid_dict["grid_slice"]], "C7", alpha=0.9, label="Wall (Obstacle)")
 
     # add quiver corresponding to flow field
     sparsity = 20
@@ -832,6 +848,7 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], grid_dict: dict = None) -> 
         ha="left", va="center",
         fontsize=9,
     )
+    ax_rooms.set_aspect("equal")
 
     fig_rooms.savefig(fig_path, bbox_inches="tight")
     
@@ -842,6 +859,7 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], grid_dict: dict = None) -> 
     
     ax_rooms.title.set_text("")
     ax_rooms.set_title("")
+    ax_rooms.set_aspect("equal")
 
     for txt in ax_rooms.texts[:]:  # Use slice copy to avoid modification during iteration
         txt.remove()

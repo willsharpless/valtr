@@ -5,7 +5,7 @@ from hj_reachability import Grid
 from scipy import integrate as ode
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
-from valtr.reachability import DAGAvoid, DAGConst, DAGVar, DagBuilder, DAGId, DAGMaxN, DAGMinN, DAGReachAvoid, DAGReachAvoidLoop
+from valtr.reachability import DAGAvoid, DAGConst, DAGVar, DagBuilder, DAGId, DAGMaxN, DAGMinN, DAGReachAvoid, DAGReachAvoidLoop, DAGNext
 import faster_hj_grid_interpolation # patches on faster itp
 import copy
 import jax
@@ -210,13 +210,26 @@ def construct_optimal_path(
 
                 # Pick next RA/A problem #FIXME? more complex for (UNTIL) UNTIL (UNTIL) etc...
                 next_node = dag.nodes[best_next_dag_id]
+                next_operator_flag = False
                 match next_node:
                     case DAGAvoid() | DAGReachAvoid() | DAGReachAvoidLoop():
                         pass
                     case _:
                         dag_path.append(best_next_dag_id)  # will be overwritten
                         children_types = [type(dag.nodes[child]) for child in next_node.args]
-                        if DAGReachAvoid in children_types:
+
+                        if DAGNext in children_types and \
+                                DAGAvoid not in children_types and \
+                                DAGReachAvoid not in children_types and \
+                                DAGReachAvoidLoop not in children_types:
+                            best_next_dag_id = dag_nodes[next_node.args[children_types.index(DAGNext)]].arg
+                            next_operator_flag = True
+                            if not isinstance(dag_nodes[best_next_dag_id], (DAGReachAvoid, DAGReachAvoidLoop, DAGAvoid)):
+                                raise NotImplementedError("DAGNext must point to single RA/A node currently") # FIXME
+                        elif DAGNext in children_types:
+                            raise NotImplementedError("DAGNext mixed with RA/A nodes not supported yet") #FIXME
+                            
+                        elif DAGReachAvoid in children_types:
                             best_next_dag_id = next_node.args[children_types.index(DAGReachAvoid)]
                         elif DAGReachAvoidLoop in children_types:
                             best_next_dag_id = next_node.args[children_types.index(DAGReachAvoidLoop)]
@@ -228,9 +241,13 @@ def construct_optimal_path(
                                     str(type(next_node)).split(".")[-1].split("'")[0], best_next_dag_id
                                 )
                             )
+                        # FIXME: This logic can not properly handle complex cases yet, but general synthesis makes my brain hurt
 
-                t_reach: float = sol_t[best_reach_index]
-                x_reach = sol_y[:, best_reach_index]
+                next_value_delay = 0.1  # small time delay to avoid re-reaching immediately
+                t_steps_delay = int(np.ceil(next_value_delay / (sol_t[1] - sol_t[0])))
+                
+                t_reach: float = sol_t[best_reach_index] if not next_operator_flag else sol_t[best_reach_index + t_steps_delay]
+                x_reach = sol_y[:, best_reach_index] if not next_operator_flag else sol_y[:, best_reach_index + t_steps_delay]
                 next_sol, next_dag_path, next_switch_times = construct_optimal_path(
                     dag,
                     dag_values,
@@ -247,8 +264,14 @@ def construct_optimal_path(
                 )
 
                 # Combine solutions
-                t_combined = np.concatenate([sol_t[: best_reach_index + 1], next_sol.t])
-                x_combined = np.concatenate([sol_y[:, : best_reach_index + 1], next_sol.y], axis=1)
+                if not next_operator_flag:
+                    t_combined = np.concatenate([sol_t[: best_reach_index + 1], next_sol.t])
+                    x_combined = np.concatenate([sol_y[:, : best_reach_index + 1], next_sol.y], axis=1)
+                else:
+                    # if next operator, skip a timepoint
+                    t_combined = np.concatenate([sol_t[: best_reach_index + 1 + t_steps_delay], next_sol.t])
+                    x_combined = np.concatenate([sol_y[:, : best_reach_index + 1 + t_steps_delay], next_sol.y], axis=1)
+
                 sol = ode._ivp.ivp.OdeResult(t=t_combined, y=x_combined)
                 dag_path = dag_path + next_dag_path
                 switch_times = [t_reach] + next_switch_times
@@ -367,7 +390,7 @@ def construct_optimal_path_batch(
     tv=False,
     reaching_eps: float = 0.0,
     integration_method: str = 'jax',
-    max_switches: int = 10,
+    max_switches: int = 1000,
     max_integration_time: float = 10.0,
     step_size: float = 0.01
 ):
@@ -386,6 +409,10 @@ def construct_optimal_path_batch(
     current_times = np.full(batch_size, t_start, dtype=np.float32)
     current_dag_ids = np.full(batch_size, dag_root_id, dtype=np.int32)
     active_mask = np.ones(batch_size, dtype=bool)
+
+    # next operator delay size
+    next_operator_delay = 0.1 ## FIXME hardcoded from solver_utils
+    next_operator_delay_counter_max = int(np.ceil(next_operator_delay / step_size))  # 0.5s delay max
     
     # Results storage
     max_path_length = max_switches * 3 + 1  # Allow for intermediate nodes
@@ -443,9 +470,10 @@ def construct_optimal_path_batch(
     for dag_id in dag_grads.keys():
         dynamics_functions[dag_id] = create_dynamics_function(dag_id)
     
-    def check_reach_conditions(states, dag_ids_array, active):
+    def check_reach_conditions(states, dag_ids_array, active, next_operator_delay_counter):
         """Non-JIT reach condition checking to avoid DAG indexing issues"""
         should_switch = np.zeros(batch_size, dtype=bool)
+        # next_operator_flag = np.zeros(batch_size, dtype=bool)
         next_dag_ids = dag_ids_array.copy()
         intermediate_nodes = []  # Track intermediate nodes for path reconstruction
         
@@ -457,7 +485,7 @@ def construct_optimal_path_batch(
             state = states[i]
             dag_id = dag_ids_array[i]
             node = dag.nodes[dag_id]
-            
+
             if isinstance(node, DAGAvoid):
                 # Terminal node - don't switch, just stay on this DAG node
                 should_switch[i] = False
@@ -520,7 +548,24 @@ def construct_optimal_path_batch(
                         
                         # Find the RA/A child like the single version does
                         children_types = [type(dag.nodes[child]) for child in next_node.args]
-                        if DAGReachAvoid in children_types:
+
+                        if DAGNext in children_types and \
+                                DAGAvoid not in children_types and \
+                                DAGReachAvoid not in children_types and \
+                                DAGReachAvoidLoop not in children_types:
+                            
+                            path_intermediates.append(next_node.args[children_types.index(DAGNext)])
+                            best_next_dag_id = dag.nodes[next_node.args[children_types.index(DAGNext)]].arg
+
+                            if next_operator_delay_counter[i] <= 0:
+                                next_operator_delay_counter[i] = next_operator_delay_counter_max
+
+                            if not isinstance(dag.nodes[best_next_dag_id], (DAGReachAvoid, DAGReachAvoidLoop, DAGAvoid)):
+                                raise NotImplementedError("DAGNext must point to single RA/A node currently") # FIXME
+                        elif DAGNext in children_types:
+                            raise NotImplementedError("DAGNext mixed with RA/A nodes not supported yet") #FIXME
+
+                        elif DAGReachAvoid in children_types:
                             best_next_dag_id = next_node.args[children_types.index(DAGReachAvoid)]
                         elif DAGReachAvoidLoop in children_types:
                             best_next_dag_id = next_node.args[children_types.index(DAGReachAvoidLoop)]
@@ -529,23 +574,27 @@ def construct_optimal_path_batch(
                         else:
                             # Fallback - just use the composite node ID
                             best_next_dag_id = best_next_id
+                        
+                        # FIXME: This logic can not properly handle complex cases yet, but general synthesis makes my brain hurt
                     else:
                         # Direct RA/A node
                         best_next_dag_id = best_next_id
-                    
-                    should_switch[i] = True
+
+                    should_switch[i] = next_operator_delay_counter[i] < 2  # if Next operator, switch in delayed steps
                     next_dag_ids[i] = best_next_dag_id
                     intermediate_nodes.append(path_intermediates)
+
                 else:
                     intermediate_nodes.append([])
             else:
                 intermediate_nodes.append([])
         
-        return should_switch, next_dag_ids, intermediate_nodes, active
+        return should_switch, next_dag_ids, intermediate_nodes, active, next_operator_delay_counter
     
     # Main integration loop - each trajectory evolves independently
     target_time = 0.0  # Integration target time
     max_total_steps = int(abs(target_time - t_start) / step_size)
+    next_operator_delay_counter = np.zeros(batch_size)
     
     for global_step in range(max_total_steps):
         # Record trajectory state
@@ -559,9 +608,10 @@ def construct_optimal_path_batch(
         # Note: Don't check for trajectory completion - continue until full time horizon
             
         # Check reach conditions for all active trajectories
-        should_switch, next_dag_ids, intermediate_nodes, active_mask = check_reach_conditions(
-            current_states, current_dag_ids, active_mask
+        should_switch, next_dag_ids, intermediate_nodes, active_mask, next_operator_delay_counter = check_reach_conditions(
+            current_states, current_dag_ids, active_mask, next_operator_delay_counter
         )
+        next_operator_delay_counter = np.maximum(0, next_operator_delay_counter - 1) # decrement next operator counters
         
         # Handle switching for each trajectory independently
         for i in range(batch_size):

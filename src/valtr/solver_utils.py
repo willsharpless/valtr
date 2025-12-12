@@ -7,7 +7,7 @@ from matplotlib.colors import CenteredNorm
 from tqdm import tqdm
 import jax
 
-from valtr.reachability import DAGAvoid, DAGMaxN, DAGMinN, DAGNegate, DAGReachAvoid, DAGReachAvoidLoop, DAGVar, DAGConst, dag_to_str, \
+from valtr.reachability import DAGAvoid, DAGMaxN, DAGMinN, DAGNegate, DAGNext, DAGReachAvoid, DAGReachAvoidLoop, DAGVar, DAGConst, dag_to_str, \
     lower_ir_to_dag, DAGId
 
 def solve_avoid(bb_sdf_avoid: np.ndarray, times: np.ndarray, grid: hj.Grid, dyn: dynamics.Dynamics, gamma: float = 1, pbar=None):        
@@ -84,33 +84,57 @@ def solve_reach_avoid_loop(bb_sdf_reach: np.ndarray, bb_sdf_avoid: np.ndarray, t
 
     return values_over_time
 
-def solve_next_values(values: np.ndarray, next_time: float, grid: hj.Grid, dyn: dynamics.Dynamics, gamma: float = 1, tv:bool=False):
-
-    # roll out one step, using dynamics optimal control
-    init_x = grid.states
+def solve_next_values(values: np.ndarray, time: float, grid: hj.Grid, dyn: dynamics.Dynamics, 
+                      step_size: float = 0.1, gamma: float = 1., tv: bool = False, smooth: bool = True):
+    if tv:
+        raise NotImplementedError("Time varying dynamics not implemented yet.")
+    
     grad_values = grid.grad_values(values)
+    
+    def step(state):
+        grad_value = grid.interpolate_fast_jit(grad_values, state=state)
         
-    @jax.jit
-    def dynamics_for_dag_id(states, times, grad_values):
-        def single_dynamics(state, time, grad_values):
-            if tv and times is not None:
-                time_idx = jnp.argmin(jnp.abs(times - time))
-                grad_value = grid.interpolate_fast_jit(grad_values[time_idx], state=state)
-            else:
-                grad_value = grid.interpolate_fast_jit(grad_values, state=state)
-            
-            u = dyn.optimal_control(state, time, grad_value)
-            d = dyn.optimal_disturbance(state, time, grad_value)
-            fx = dyn.open_loop_dynamics(state, time)
-            Bu = dyn.control_jacobian(state, time)
-            Bd = dyn.disturbance_jacobian(state, time)
+        u = dyn.optimal_control(state, time, grad_value)
+        d = dyn.optimal_disturbance(state, time, grad_value)
+        fx = dyn.open_loop_dynamics(state, time)
+        Bu = dyn.control_jacobian(state, time)
+        Bd = dyn.disturbance_jacobian(state, time)
 
-            return fx + Bu @ u + Bd @ d
+        dx = fx + Bu @ u + Bd @ d
 
-        return jax.vmap(single_dynamics)(states, times, grad_values)
+        # next_state = state + step_size * dx # Forward Euler
+        # rk45
+        k1 = dx
+        k2 = dyn.open_loop_dynamics(state + 0.5 * step_size * k1, time + 0.5 * step_size)
+        k2 += dyn.control_jacobian(state + 0.5 * step_size * k1, time + 0.5 * step_size) @ u
+        k2 += dyn.disturbance_jacobian(state + 0.5 * step_size * k1, time + 0.5 * step_size) @ d
+        k3 = dyn.open_loop_dynamics(state + 0.5 * step_size * k2, time + 0.5 * step_size)
+        k3 += dyn.control_jacobian(state + 0.5 * step_size * k2, time + 0.5 * step_size) @ u
+        k3 += dyn.disturbance_jacobian(state + 0.5 * step_size * k2, time + 0.5 * step_size) @ d
+        k4 = dyn.open_loop_dynamics(state + step_size * k3, time + step_size)
+        k4 += dyn.control_jacobian(state + step_size * k3, time + step_size) @ u
+        k4 += dyn.disturbance_jacobian(state + step_size * k3, time + step_size) @ d
+        next_state = state + (step_size / 6.) * (k1 + 2 * k2 + 2 * k3 + k4)
 
-    next_states = dynamics_for_dag_id(init_x, next_time, grad_values)
-    next_values = grid.interpolate_fast_jit(values, state=next_states)
+        return next_state
+
+    next_states = jax.vmap(jax.vmap(step))(grid.states)
+
+    # Clip next_states to be within grid bounds ("G in_grid" makes this ok)
+    next_states_clipped = jnp.clip(next_states, grid.domain.lo, grid.domain.hi)
+    next_values = jax.vmap(jax.vmap(lambda state: grid.interpolate_fast_jit(values, state=state)))(next_states_clipped)
+
+    # perform a convolution to smooth out any artifacts from interpolation
+    # if smooth:
+    #     # kernel = jnp.array([[0, 1, 0],
+    #     #                     [1, 4, 1],
+    #     #                     [0, 1, 0]]) / 8.0
+    #     kernel = jnp.array([[1, 2, 3, 2, 1],
+    #                         [2, 4, 6, 4, 2],
+    #                         [3, 6, 9, 6, 3],
+    #                         [2, 4, 6, 4, 2],
+    #                         [1, 2, 3, 2, 1]]) / 16.0
+    #     next_values = jax.scipy.signal.convolve2d(next_values, kernel, mode='same')
 
     return gamma * next_values
 
@@ -135,6 +159,12 @@ def solve_dag_values(dag_builder, dict_locals, grid_dict, dyn, times, gamma,
                     val = dict_vars[arg]
                     dict_vars[dag_id] = -val
 
+                case DAGNext(arg=arg):
+                    val = dict_vars[arg]
+                    next_time = times[-1] # FIXME for tv systems
+                    next_val = solve_next_values(val, next_time, grid_dict["grid"], dyn, gamma=gamma)
+                    dict_vars[dag_id] = next_val
+
                 case DAGMinN(args=args):
                     args = np.stack([dict_vars[a] for a in args], axis=0)
                     val = np.min(args, axis=0)
@@ -150,9 +180,6 @@ def solve_dag_values(dag_builder, dict_locals, grid_dict, dyn, times, gamma,
                     arg_reach = dict_vars[reach]
                     arg_avoid = dict_vars[avoid]
 
-                    # Get a string representation of the sub-DAG for logging.
-                    title = "%{}: {}".format(dag_id, dag_to_str(dag_builder, DAGId(dag_id)))
-
                     temporal_values = solve_reach_avoid(arg_reach, arg_avoid, times=times, grid=grid_dict["grid"], dyn=dyn, gamma=gamma, pbar=pbar)
                     dict_vars[dag_id] = temporal_values[-1]  # Inf time approx final time
 
@@ -161,9 +188,6 @@ def solve_dag_values(dag_builder, dict_locals, grid_dict, dyn, times, gamma,
                     arg_reach = dict_vars[reach]
                     arg_avoid = dict_vars[avoid]
 
-                    # Get a string representation of the sub-DAG for logging.
-                    title = "%{}: {}".format(dag_id, dag_to_str(dag_builder, DAGId(dag_id)))
-
                     temporal_values = solve_reach_avoid_loop(arg_reach, arg_avoid, times=times, grid=grid_dict["grid"], dyn=dyn, gamma=gamma, pbar=pbar)
                     dict_vars[dag_id] = temporal_values[-1]  # Inf time approx final time
 
@@ -171,15 +195,15 @@ def solve_dag_values(dag_builder, dict_locals, grid_dict, dyn, times, gamma,
                     # Note: the avoid is a stay since we are maximizing the value.
                     arg_avoid = dict_vars[avoid]
 
-                    # Get a string representation of the sub-DAG for logging.
-                    title = "%{}: {}".format(dag_id, dag_to_str(dag_builder, DAGId(dag_id)))
-
                     temporal_values = solve_avoid(arg_avoid, times=times, grid=grid_dict["grid"], dyn=dyn, gamma=gamma, pbar=pbar)
                     dict_vars[dag_id] = temporal_values[-1]  # Inf time approx final time
             
+            title = "%{}: {}".format(dag_id, dag_to_str(dag_builder, DAGId(dag_id)))
             if type(n) in [DAGReachAvoid, DAGAvoid, DAGReachAvoidLoop]:
                 fig_values = plot_values(temporal_values, times, grid_dict, title=title, dag_id=dag_id, 
                                           multi_last_slice=multi_last_slice, multi_slices=multi_slices, multi_label=multi_label)
+            if type(n) in [DAGNext]:
+                fig_values = plot_values_next(val, next_val, times[-1], grid_dict, title=title, dag_id=dag_id)
 
     return dict_vars
 
@@ -229,6 +253,35 @@ def plot_values(values_over_time: list, times: np.ndarray, grid_params: dict, ti
                 
                 cbar = fig_.colorbar(im, ax=ax_)
                 cbar.add_lines(ln)
+
+    fig_.suptitle(title)
+    fig_.savefig("node_values/node{:02}_values.pdf".format(dag_id), bbox_inches="tight")
+    plt.close(fig_)
+
+    return fig_
+
+def plot_values_next(values: np.ndarray, next_values: np.ndarray, final_time:float, grid_params: dict, title: str, dag_id: int) -> plt.Figure:
+
+    grid_slice = grid_params["grid_slice"]
+
+    figsize = (6*3, 4)
+    fig_, axes_ = plt.subplots(nrows=1, ncols=3, figsize=figsize, constrained_layout=True)
+    for vi, value in enumerate([values, next_values, next_values - values]):
+        ax_ = axes_[vi]
+        ax_.set_title(f"t = -{final_time:2.2f}, {['Before', 'Next', 'Difference'][vi]}")
+        ax_.set_aspect("equal")
+        ax_.set(xlim=(grid_params["lbs"][0] - grid_params["grid_pad"][0], grid_params["ubs"][0] + grid_params["grid_pad"][0]))
+
+        im = ax_.contourf(grid_params["grid_X"], grid_params["grid_Y"], 
+                        value[grid_slice],
+                        levels=100, cmap="RdBu" if vi < 2 else "Spectral",
+                        norm=CenteredNorm())
+        ln = ax_.contour(grid_params["grid_X"], grid_params["grid_Y"], 
+                        value[grid_slice],
+                        levels=0, colors="black", linewidths=2)
+            
+        cbar = fig_.colorbar(im, ax=ax_)
+        cbar.add_lines(ln)
 
     fig_.suptitle(title)
     fig_.savefig("node_values/node{:02}_values.pdf".format(dag_id), bbox_inches="tight")
