@@ -312,3 +312,225 @@ def dag_to_str(builder: DagBuilder, rid: DAGId) -> str:
         return s
 
     return go(int(rid), top_level=True)
+
+def collect_predicate_info(builder: DagBuilder, root: DAGId) -> tuple[list[str], dict[str, int], list[int], dict[str, set], dict[str, set]]:
+    """
+    Collect predicates and track whether they appear negated and in which role (reach/avoid).
+    
+    Returns:
+        predicates: List of predicate names in order of discovery
+        predicate_to_idx: Mapping from predicate name to index
+        predicate_ids: List of node IDs for each predicate (first occurrence)
+        predicate_negations: Dict mapping predicate name to set of (is_negated, node_id) tuples
+        predicate_roles: Dict mapping predicate name to set of (role, node_id) tuples where role is 'reach', 'avoid', or None
+    """
+    predicates = []
+    predicate_to_idx = {}
+    predicate_ids = []
+    predicate_negations = {}  # predicate_name -> set of (is_negated, node_id)
+    predicate_roles = {}  # predicate_name -> set of (role, node_id) where role is 'reach', 'avoid', or None
+    
+    def _collect_recursive(node_id: int, is_negated: bool, role: Optional[str], visited: set):
+        """Recursive helper that updates the outer scope variables."""
+        if node_id in visited:
+            return
+        visited.add(node_id)
+        
+        node = builder.nodes[node_id]
+        
+        match node:
+            case DAGVar(name=name):
+                # Record this occurrence with its negation status and role
+                if name not in predicate_negations:
+                    predicate_negations[name] = set()
+                predicate_negations[name].add((is_negated, node_id))
+                
+                if name not in predicate_roles:
+                    predicate_roles[name] = set()
+                predicate_roles[name].add((role, node_id))
+                
+                # Add to predicates list if first occurrence
+                if name not in predicate_to_idx:
+                    predicate_to_idx[name] = len(predicates)
+                    predicates.append(name)
+                    predicate_ids.append(node_id)
+            
+            case DAGReachAvoid(reach=reach, avoid=avoid):
+                # Variables in reach are reach targets
+                _collect_recursive(reach, is_negated, 'reach', visited.copy())
+                # Variables in avoid are avoid constraints
+                _collect_recursive(avoid, is_negated, 'avoid', visited.copy())
+            
+            case DAGAvoid(avoid=avoid):
+                # Variables in avoid are avoid constraints
+                _collect_recursive(avoid, is_negated, 'avoid', visited.copy())
+            
+            case DAGNegate(arg=arg):
+                # Flip negation context and continue
+                _collect_recursive(arg, not is_negated, role, visited)
+            
+            case _:
+                # For all other nodes, propagate with same context
+                for child_id in node.children():
+                    _collect_recursive(child_id, is_negated, role, visited.copy())
+    
+    _collect_recursive(int(root), is_negated=False, role=None, visited=set())
+    return predicates, predicate_to_idx, predicate_ids, predicate_negations, predicate_roles
+
+def extract_trigger_predicate_map(builder: DagBuilder, root: DAGId):
+    """
+    Extract trigger predicate map from a DAG.
+    
+    Returns:
+        predicates: List of predicate names (DAGVar names)
+        predicate_ids: List of predicate node IDs
+        temporal_nodes: List of temporal node IDs in topological order
+        trigger_predicate_map: (N, P) array where entry [i, j] is the child node index
+                               that we switch to from node i when predicate j is satisfied,
+                               or -1 if no such transition exists.
+        negated_predicate_mask: (P,) array where entry [i] is True if predicate i is negated
+
+    Example:
+        For the task "F reach1 && F reach2 && G !obstacles", yielding a DAG with 4 nodes (RRAA, RAA1, RAA2, A) 
+        and 3 predicates (reach1, reach2, obstacles), with
+        
+        temporal_nodes = [13, 10, 7, 4] # RRAA, RAA1, RAA2, A
+        predicates = ["reach1", "reach2", "obstacles"]
+        negated_predicate_mask = [False, False, True]
+
+        then the trigger_predicate_map should look like:
+        
+        [[ 2,  1, -1],  # RRAA can reach1 (-> RAA2) or reach2 (-> RAA1)
+         [ 3, -1, -1],  # RAA1 can reach1 (-> A)
+         [-1,  3, -1],  # RAA2 can reach2 (-> A)
+         [-1, -1, -1]]  # A is a terminal node
+    """
+    
+    # Collect predicate information
+    predicates, predicate_to_idx, predicate_ids, predicate_negations, predicate_role_sets = collect_predicate_info(builder, root)
+
+    # Assert and extract unique negation status for each predicate
+    # After PassDuplicateMixedPolarity, each predicate should have consistent negation
+    negated_predicate_mask = []
+    for pred_name in predicates:
+        negation_statuses = {is_neg for is_neg, _ in predicate_negations[pred_name]}
+        assert len(negation_statuses) == 1, \
+            f"Predicate '{pred_name}' has mixed negation contexts: {negation_statuses}. " \
+            f"Apply PassDuplicateMixedPolarity before extracting trigger map."
+        negated_predicate_mask.append(negation_statuses.pop())
+    
+    # Assert and extract unique role for each predicate
+    # After PassDuplicateMixedRole, each predicate should have consistent role
+    predicate_roles = []  # 'reach', 'avoid', or None
+    for pred_name in predicates:
+        roles = {role for role, _ in predicate_role_sets[pred_name] if role is not None}
+        assert len(roles) <= 1, \
+            f"Predicate '{pred_name}' has mixed roles: {roles}. " \
+            f"Apply PassDuplicateMixedRole before extracting trigger map."
+        predicate_roles.append(roles.pop() if roles else None)
+    
+    # Collect all ReachAvoid and Avoid nodes in post-order (children before parents)
+    temporal_nodes_postorder = []
+    
+    def collect_temporal_nodes(node_id: int, visited: set):
+        if node_id in visited:
+            return
+        visited.add(node_id)
+        
+        node = builder.nodes[node_id]
+        
+        # Recursively visit children first (post-order traversal)
+        for child_id in node.children():
+            collect_temporal_nodes(child_id, visited)
+        
+        # Add temporal nodes
+        if isinstance(node, (DAGReachAvoid, DAGAvoid)):
+            temporal_nodes_postorder.append(node_id)
+    
+    collect_temporal_nodes(int(root), set())
+    
+    # Reverse to get topological order (root first, leaves last)
+    temporal_nodes = list(reversed(temporal_nodes_postorder))
+    
+    # Build position map
+    node_to_pos = {node_id: pos for pos, node_id in enumerate(temporal_nodes)}
+    
+    N = len(temporal_nodes)
+    P = len(predicates)
+    
+    # Initialize trigger map with -1 (no transition)
+    trigger_map = [[-1] * P for _ in range(N)]
+    
+    def find_predicate_triggers(node_id: int, parent_pos: int, visited: set):
+        """
+        Find which predicates trigger transitions from parent_pos to this node.
+        A transition occurs when there's a min(predicate, child_node).
+        """
+        if node_id in visited:
+            return
+        visited.add(node_id)
+        
+        node = builder.nodes[node_id]
+        
+        # If this is a temporal node, record its position
+        current_pos = node_to_pos.get(node_id, -1)
+        
+        match node:
+            case DAGReachAvoid(reach=reach_id, avoid=avoid_id):
+                # Explore reach and avoid branches
+                find_predicate_triggers(reach_id, current_pos, visited.copy())
+                find_predicate_triggers(avoid_id, current_pos, visited.copy())
+            
+            case DAGAvoid(avoid=avoid_id):
+                # Explore avoid branch
+                find_predicate_triggers(avoid_id, current_pos, visited.copy())
+            
+            case DAGMinN(args=args):
+                # Check if this min contains a predicate and a temporal node
+                pred_ids = []
+                temporal_ids = []
+                
+                for arg in args:
+                    arg_node = builder.nodes[arg]
+                    if isinstance(arg_node, DAGVar):
+                        pred_ids.append(arg)
+                    elif isinstance(arg_node, (DAGReachAvoid, DAGAvoid)):
+                        temporal_ids.append(arg)
+                    elif isinstance(arg_node, DAGNegate):
+                        # Check if it's negating a variable
+                        inner = builder.nodes[arg_node.arg]
+                        if isinstance(inner, DAGVar):
+                            pred_ids.append(arg_node.arg)
+                
+                # If we have both a predicate and a temporal node in the min,
+                # this represents a trigger
+                if pred_ids and temporal_ids and parent_pos >= 0:
+                    for pred_id in pred_ids:
+                        pred_node = builder.nodes[pred_id]
+                        if isinstance(pred_node, DAGVar):
+                            pred_idx = predicate_to_idx[pred_node.name]
+                            for temporal_id in temporal_ids:
+                                child_pos = node_to_pos.get(temporal_id, -1)
+                                if child_pos >= 0:
+                                    trigger_map[parent_pos][pred_idx] = child_pos
+                
+                # Continue exploring
+                for arg in args:
+                    find_predicate_triggers(arg, parent_pos, visited.copy())
+            
+            case DAGMaxN(args=args):
+                # For max, explore all branches
+                for arg in args:
+                    find_predicate_triggers(arg, parent_pos, visited.copy())
+            
+            case DAGNegate(arg=arg_id):
+                find_predicate_triggers(arg_id, parent_pos, visited.copy())
+            
+            case _:
+                pass
+    
+    # Start traversal from root
+    find_predicate_triggers(int(root), -1, set())
+    
+    return predicates, predicate_ids, predicate_roles, negated_predicate_mask, temporal_nodes, trigger_map
+
