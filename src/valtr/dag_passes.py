@@ -179,3 +179,241 @@ class PassFoldConstBool(DagRewriter):
 
         self.memo[i] = out
         return out
+
+
+class PassDuplicateMixedPolarity(DagRewriter):
+    """
+    Find predicates used in both positive and negative form.
+    Create separate DAGVar nodes for each polarity.
+
+    Example: if 'r' appears as both 'r' and '!r', create 'r_pos' and 'r_neg'. 
+    Eg. "(!r U s) && (F r)".
+
+    This ensures each predicate has a consistent polarity throughout the DAG, which
+    is required for proper trigger detection (which could be changed but is complicated).
+    """
+
+    def __init__(self, src: DagBuilder):
+        super().__init__(src)
+        self.var_polarities: Dict[str, Set[Tuple[bool, int]]] = {}
+        self.mixed_vars: Set[str] = set()
+        self.negate_context = False
+    
+    def run(self, root: DAGId) -> Tuple[DAGId, DagBuilder, bool]:
+        # First pass: collect variable polarities
+        self._collect_polarities(root, is_negated=False, visited=set())
+        
+        # Find variables with mixed polarity
+        self.mixed_vars = {
+            name 
+            for name, polarities in self.var_polarities.items()
+            if len({pol for pol, _ in polarities}) > 1
+        }
+        
+        if not self.mixed_vars:
+            # No changes needed
+            return root, self.src, False
+        
+        # Second pass: rewrite with duplicated variables
+        self.changed = True
+        out = self.visit(root)
+        return out, self.dst, self.changed
+    
+    def _collect_polarities(self, node_id: int, is_negated: bool, visited: set):
+        """First pass: collect all variable polarities."""
+        if node_id in visited:
+            return
+        visited.add(node_id)
+        
+        node = self.src.nodes[node_id]
+        
+        match node:
+            case DAGVar(name=name):
+                if name not in self.var_polarities:
+                    self.var_polarities[name] = set()
+                self.var_polarities[name].add((is_negated, node_id))
+            
+            case DAGNegate(arg=arg):
+                self._collect_polarities(arg, not is_negated, visited)
+            
+            case DAGMinN(args=args) | DAGMaxN(args=args):
+                for child in args:
+                    self._collect_polarities(child, is_negated, visited)
+            
+            case DAGReachAvoid(reach=reach, avoid=avoid):
+                self._collect_polarities(reach, is_negated, visited)
+                self._collect_polarities(avoid, is_negated, visited)
+            
+            case DAGAvoid(avoid=avoid):
+                self._collect_polarities(avoid, is_negated, visited)
+            
+            case _:
+                pass
+    
+    def visit(self, rid: DAGId) -> DAGId:
+        """Second pass: rewrite nodes with polarity-specific variable names."""
+        i = rid
+        if i in self.memo:
+            return self.memo[i]
+        
+        n = self.src.nodes[i]
+        
+        match n:
+            case DAGVar(name=name):
+                if name in self.mixed_vars:
+                    # Create polarity-specific variable
+                    suffix = "_neg" if self.negate_context else "_pos"
+                    out = self.dst.var(name + suffix)
+                else:
+                    out = self.dst.var(name)
+            
+            case DAGNegate(arg=arg):
+                # Toggle negation context
+                old_context = self.negate_context
+                self.negate_context = not old_context
+                new_arg = self.visit(arg)
+                self.negate_context = old_context
+                out = self.dst.negate(new_arg)
+            
+            case _:
+                # Use parent's visit for all other nodes
+                out = super().visit(rid)
+        
+        self.memo[i] = out
+        return out
+
+
+class PassDuplicateMixedRole(DagRewriter):
+    """
+    Find predicates used in both reach and avoid contexts.
+    Create separate DAGVar nodes for each role.
+    
+    Example: if 'r' appears as both a reach target (F r) and avoid constraint (G !r),
+    create 'r_reach' and 'r_avoid'. Eg. "F r && G !r" or "F (r && FG r)".
+    
+    This ensures each predicate has a consistent semantic role throughout the DAG,
+    which is required for proper trigger detection (which could be changed but is complicated).
+    """
+
+    def __init__(self, src: DagBuilder):
+        super().__init__(src)
+        self.var_roles: Dict[str, Set[Tuple[str, int]]] = {}  # var_name -> set of (role, node_id)
+        self.mixed_role_vars: Set[str] = set()
+        self.role_context = None  # 'reach' or 'avoid'
+    
+    def run(self, root: DAGId) -> Tuple[DAGId, DagBuilder, bool]:
+        # First pass: collect variable roles
+        self._collect_roles(root, role=None, visited=set())
+        
+        # Find variables with mixed roles
+        self.mixed_role_vars = {
+            name 
+            for name, roles in self.var_roles.items()
+            if len({role for role, _ in roles if role is not None}) > 1
+        }
+        
+        if not self.mixed_role_vars:
+            # No changes needed
+            return root, self.src, False
+        
+        # Second pass: rewrite with role-specific variables
+        self.changed = True
+        out = self.visit(root)
+        return out, self.dst, self.changed
+    
+    def _collect_roles(self, node_id: int, role: Optional[str], visited: set):
+        """First pass: collect all variable roles (reach vs avoid)."""
+        if node_id in visited:
+            return
+        visited.add(node_id)
+        
+        node = self.src.nodes[node_id]
+        
+        match node:
+            case DAGVar(name=name):
+                if name not in self.var_roles:
+                    self.var_roles[name] = set()
+                self.var_roles[name].add((role, node_id))
+            
+            case DAGReachAvoid(reach=reach, avoid=avoid):
+                # Variables in reach are reach targets
+                self._collect_roles(reach, 'reach', visited.copy())
+                # Variables in avoid are avoid constraints
+                self._collect_roles(avoid, 'avoid', visited.copy())
+            
+            case DAGAvoid(avoid=avoid):
+                # Variables in avoid are avoid constraints
+                self._collect_roles(avoid, 'avoid', visited.copy())
+            
+            case DAGNegate(arg=arg):
+                # Propagate role through negation
+                self._collect_roles(arg, role, visited)
+            
+            case DAGMinN(args=args) | DAGMaxN(args=args):
+                # Propagate role to all children
+                for child in args:
+                    self._collect_roles(child, role, visited.copy())
+            
+            case _:
+                pass
+    
+    def visit(self, rid: DAGId) -> DAGId:
+        """Second pass: rewrite nodes with role-specific variable names."""
+        i = rid
+        if i in self.memo:
+            return self.memo[i]
+        
+        n = self.src.nodes[i]
+        
+        match n:
+            case DAGVar(name=name):
+                if name in self.mixed_role_vars and self.role_context is not None:
+                    # Create role-specific variable
+                    suffix = f"_{self.role_context}"
+                    out = self.dst.var(name + suffix)
+                else:
+                    out = self.dst.var(name)
+            
+            case DAGReachAvoid(reach=reach, avoid=avoid):
+                # Set reach context
+                old_context = self.role_context
+                self.role_context = 'reach'
+                new_reach = self.visit(reach)
+                
+                # Set avoid context
+                self.role_context = 'avoid'
+                new_avoid = self.visit(avoid)
+                
+                # Restore context
+                self.role_context = old_context
+                out = self.dst.reachavoid(reach=new_reach, stay=new_avoid)
+            
+            case DAGAvoid(avoid=avoid):
+                # Set avoid context
+                old_context = self.role_context
+                self.role_context = 'avoid'
+                new_avoid = self.visit(avoid)
+                self.role_context = old_context
+                out = self.dst.avoid(new_avoid)
+            
+            case DAGNegate(arg=arg):
+                # Propagate role context through negation
+                new_arg = self.visit(arg)
+                out = self.dst.negate(new_arg)
+            
+            case DAGMinN(args=args):
+                # Propagate role context to all children
+                new_args = [self.visit(a) for a in args]
+                out = self.dst.min_n(new_args)
+            
+            case DAGMaxN(args=args):
+                # Propagate role context to all children
+                new_args = [self.visit(a) for a in args]
+                out = self.dst.max_n(new_args)
+            
+            case _:
+                # Use parent's visit for all other nodes
+                out = super().visit(rid)
+        
+        self.memo[i] = out
+        return out
