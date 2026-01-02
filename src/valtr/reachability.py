@@ -71,6 +71,12 @@ class DAGAvoid(DAGNode):
     def children(self) -> List[DAGId]:
         return [self.avoid]
 
+@frozen
+class DAGReach(DAGNode):
+    reach: DAGId  # A(arg)
+
+    def children(self) -> List[DAGId]:
+        return [self.reach]
 
 class DagBuilder:
     def __init__(self):
@@ -86,6 +92,11 @@ class DagBuilder:
         return i
 
     def const(self, v: bool) -> DAGId:
+        # # Make each const literal is unique.
+        # i = len(self.nodes)
+        # node = DAGConst(v)
+        # self.nodes.append(node)
+        # return i
         return self._get(("Const", v), DAGConst(v))
 
     def var(self, name: str) -> DAGId:
@@ -114,6 +125,10 @@ class DagBuilder:
     def avoid(self, arg: DAGId) -> DAGId:
         key = ("Avoid", arg)
         return self._get(key, DAGAvoid(arg))
+
+    def reach(self, arg: DAGId) -> DAGId:
+        key = ("Reach", arg)
+        return self._get(key, DAGReach(arg))
 
 
 class LoweringError(Exception):

@@ -1,6 +1,7 @@
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import graphviz
+import ipdb
 
 from valtr.reachability import (DAGAvoid, DagBuilder, DAGConst, DAGId, DAGMaxN, DAGMinN, DAGNegate, DAGNode,
                                 DAGReachAvoid, DAGVar)
@@ -38,7 +39,8 @@ class DagRewriter:
                 out = self.dst.var(s)
 
             case DAGNegate(arg=arg):
-                out = self.dst.negate(arg)
+                new_arg = self.visit(arg)
+                out = self.dst.negate(new_arg)
 
             case DAGMinN(args=args):
                 new_args = [self.visit(a) for a in args]
@@ -103,28 +105,31 @@ class PassFoldConstBool(DagRewriter):
 
             # ---------- AND (Min) ----------
             case DAGMinN(args=args):
-                # Recurse first
-                rebuilt = [self.visit(a) for a in args]
+                print("--------- Min ---------------")
+                # Remove all args that are const.
+                removed_true = False
+                non_const_args = []
+                for a in args:
+                    if not isinstance(a, DAGConst):
+                        non_const_args.append(a)
+                        continue
 
-                # Short-circuit: any False => False
-                for cid in rebuilt:
-                    cn = self.dst.nodes[cid]
-                    if isinstance(cn, DAGConst) and cn.value is False:
+                    assert isinstance(a, DAGConst)
+                    if a.value:
+                        # Remove True (+infty) operands
+                        removed_true = True
+                        print("Removed true!")
+                    else:
+                        # Any False => False
                         self.changed = True
                         out = self.dst.const(False)
                         self.memo[i] = out
                         return out
 
-                # Remove True (+infty) operands
-                filtered: List[DAGId] = []
-                removed_true = False
-                for cid in rebuilt:
-                    cn = self.dst.nodes[cid]
-                    if isinstance(cn, DAGConst) and cn.value is True:
-                        removed_true = True
-                        continue
-                    filtered.append(cid)
+                print("Args: {} -> {}".format(args, non_const_args))
 
+                # Remaining args are not const.
+                filtered = [self.visit(a) for a in non_const_args]
                 self.changed = self.changed or removed_true
 
                 # Collapse
@@ -139,28 +144,27 @@ class PassFoldConstBool(DagRewriter):
 
             # ---------- OR (Max) ----------
             case DAGMaxN(args=args):
-                # Recurse first
-                rebuilt = [self.visit(a) for a in args]
+                # Remove all args that are const.
+                removed_false = False
+                non_const_args = []
+                for a in args:
+                    if not isinstance(a, DAGConst):
+                        non_const_args.append(a)
+                        continue
 
-                # Short-circuit: any True => True
-                for cid in rebuilt:
-                    cn = self.dst.nodes[cid]
-                    if isinstance(cn, DAGConst) and cn.value is True:
+                    assert isinstance(a, DAGConst)
+                    if a.value:
+                        # Any True => True
                         self.changed = True
                         out = self.dst.const(True)
                         self.memo[i] = out
                         return out
-
-                # Remove False (-infty) operands
-                filtered: List[DAGId] = []
-                removed_false = False
-                for cid in rebuilt:
-                    cn = self.dst.nodes[cid]
-                    if isinstance(cn, DAGConst) and cn.value is False:
+                    else:
+                        # Remove False (0infty) operands
                         removed_false = True
-                        continue
-                    filtered.append(cid)
 
+                # Remaining args are not const.
+                filtered = [self.visit(a) for a in non_const_args]
                 self.changed = self.changed or removed_false
 
                 # Collapse
@@ -416,4 +420,31 @@ class PassDuplicateMixedRole(DagRewriter):
                 out = super().visit(rid)
         
         self.memo[i] = out
+        return out
+
+class PassRAToR(DagRewriter):
+    """
+        ReachAvoid(r, True)  ->  Reach r
+    If the avoid argument is a constant true, then change it to a reach DAG node.
+    """
+    def visit(self, rid: DAGId) -> DAGId:
+        i = rid
+        if i in self.memo:
+            return self.memo[i]
+        n = self.src.nodes[i]
+
+        match n:
+            case DAGReachAvoid(reach=reach_id, avoid=avoid_id):
+                rebuilt_reach_id = self.visit(reach_id)
+                avoid_node = self.src.nodes[avoid_id]
+                if isinstance(avoid_node, DAGConst) and avoid_node.value is True:
+                    self.changed = True
+                    out = self.dst.reach(rebuilt_reach_id)
+                else:
+                    rebuilt_avoid_id = self.visit(avoid_id)
+                    out = self.dst.reachavoid(rebuilt_reach_id, rebuilt_avoid_id)
+            case _:
+                out = super().visit(rid)
+
+        # self.memo[i] = out
         return out
