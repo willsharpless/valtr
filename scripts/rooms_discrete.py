@@ -14,8 +14,9 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import copy
 
 from valtr.dag_graphviz import visualize_dag
-from valtr.dag_passes import PassFoldConstBool, PassRAToR
+from valtr.dag_passes import PassFoldConstBool, PassRAToR, PassKeepReachable
 from valtr.ir_builder import IRBuilder
+from valtr.ir_graphviz import visualize_ir
 from valtr.ir_pass import PassCombineGloballySegments, PassFinallyToUntil
 from valtr.lowering import Lowerer
 from valtr.reachability import DAGAvoid, DAGMaxN, DAGMinN, DAGNegate, DAGReachAvoid, DAGVar, dag_to_str, \
@@ -86,6 +87,7 @@ def get_rooms(s: str):
 def main():
     # TASK_SOURCE = "(!d1 U k1) && G( !w )"
     TASK_SOURCE = "(!d1 U k1) && (!d2 U k2) && F k3 && G( !w )"
+    # TASK_SOURCE = "(!d1 U k1) && F k3 && G( !w )"
 
     # -------------------------------------------------------------------------------------------
     # Parse and lower the task specification to a value tree DAG.
@@ -106,20 +108,20 @@ def main():
         p = p_cls(ir)
         ir_root_id, ir = p.run(ir_root_id)
 
+    # dot_ir = visualize_ir(ir, ir_root_id, filename="ir_graph", view=True)
+
     # IR -> DAG
     value_tree_dag, dag_root = lower_ir_to_dag(ir, ir_root_id)
 
     # dot_dag = visualize_dag(value_tree_dag, dag_root, filename="rooms_discrete_dag1", view=True)
 
-    print("----------")
-
     # Perform constant folding.
     passes = [PassFoldConstBool]
     for p_cls in passes:
         p = p_cls(value_tree_dag)
-        changed = True
-        while changed:
-            dag_root, value_tree_dag, changed = p.run(dag_root)
+        # changed = True
+        # while changed:
+        dag_root, value_tree_dag, changed = p.run(dag_root)
 
     # Visualize the DAG.
     dot_dag = visualize_dag(value_tree_dag, dag_root, filename="rooms_discrete_dag", view=True)
@@ -183,8 +185,13 @@ def main():
                 dict_vars[dag_id] = solve_fn(s_v0, **kwargs)
 
         fig, ax = plt.subplots()
-        ax.imshow(dict_vars[dag_id].reshape(dyn.shape), vmin=-1, vmax=1)
-        ax.set_title(node)
+        im = ax.imshow(dict_vars[dag_id].reshape(dyn.shape), vmin=-1, vmax=1)
+
+        h, w = dyn.shape
+        ax.set_xticks(np.arange(w + 1) - 0.5)
+        ax.set_yticks(np.arange(h + 1) - 0.5)
+        cbar = fig.colorbar(im, ax=ax)
+        ax.set_title("{} ({})".format(dag_id, node))
         plt.show()
 
     logger.info("Done!")
