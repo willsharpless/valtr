@@ -86,8 +86,9 @@ def get_rooms(s: str):
 
 def main():
     # TASK_SOURCE = "(!d1 U k1) && G( !w )"
-    TASK_SOURCE = "(!d1 U k1) && (!d2 U k2) && F k3 && G( !w )"
+    # TASK_SOURCE = "(!d1 U k1) && (!d2 U k2) && F k3 && G( !w )"
     # TASK_SOURCE = "(!d1 U k1) && F k3 && G( !w )"
+    TASK_SOURCE = "(!d1 U k1) && G(!d2 U k2) && G(F k3) && G( !w )"
 
     # -------------------------------------------------------------------------------------------
     # Parse and lower the task specification to a value tree DAG.
@@ -108,7 +109,9 @@ def main():
         p = p_cls(ir)
         ir_root_id, ir = p.run(ir_root_id)
 
-    # dot_ir = visualize_ir(ir, ir_root_id, filename="ir_graph", view=True)
+    dot_ir = visualize_ir(ir, ir_root_id, filename="ir_graph", view=True)
+
+    exit(0)
 
     # IR -> DAG
     value_tree_dag, dag_root = lower_ir_to_dag(ir, ir_root_id)
