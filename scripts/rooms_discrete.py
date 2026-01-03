@@ -1,45 +1,102 @@
+import copy
 import os
-import tqdm
+import time
+
 import hj_reachability as hj
 import hj_reachability.dynamics as dynamics
 import ipdb
 import jax.numpy as jnp
-import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from dvi.gen_solver import make_solve_fn, reach_avoid_update_rule, avoid_update_rule
-from matplotlib.colors import CenteredNorm, ListedColormap
+import matplotlib.pyplot as plt
 import numpy as np
+import tqdm
+from dvi.dynamics.gridworld import GridWorld
+from dvi.gen_solver import avoid_update_rule, make_solve_fn, reach_avoid_update_rule
 from loguru import logger
+from matplotlib.colors import CenteredNorm, ListedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-import copy
+from scipy import integrate as ode
 
+from valtr.control import (construct_optimal_path, construct_optimal_path_batch, construct_optimal_path_batch_auto,
+                           construct_optimal_path_batch_fast, plot_optimal_path)
 from valtr.dag_graphviz import visualize_dag
-from valtr.dag_passes import PassFoldConstBool, PassRAToR, PassKeepReachable
+from valtr.dag_passes import PassFoldConstBool, PassKeepReachable, PassRAToR
 from valtr.ir_builder import IRBuilder
 from valtr.ir_graphviz import visualize_ir
 from valtr.ir_pass import PassCombineGloballySegments, PassFinallyToUntil
 from valtr.lowering import Lowerer
-from valtr.reachability import DAGAvoid, DAGMaxN, DAGMinN, DAGNegate, DAGReachAvoid, DAGVar, dag_to_str, \
-    lower_ir_to_dag, DAGId
+from valtr.reachability import (DAGGU, DAGAvoid, DAGId, DAGMaxN, DAGMinN, DAGNegate, DAGReachAvoid, DAGVar, dag_to_str,
+                                lower_ir_to_dag)
+from valtr.solver_utils import solve_dag_values
 from valtr.tl_lexer import TLLexer
 from valtr.tl_parser import TLParser
-from dvi.dynamics.gridworld import GridWorld
 from valtr.util.jax_util import rep_vmap
-from scipy import integrate as ode
-from valtr.solver_utils import solve_dag_values
-from valtr.control import construct_optimal_path, plot_optimal_path, \
-    construct_optimal_path_batch, construct_optimal_path_batch_fast, construct_optimal_path_batch_auto
-import time
 
-import ipdb
-
-MAP="""
+MAP1 = """
 #############
 #C  2 A 1   #
 #   2   1   #
 #   2   1 B #
 #############
 """
+
+MAP2 = """
+#######
+#^^^ K#
+#A<  B#
+###D###
+#A  >B#
+#######
+"""
+
+
+# def get_rooms():
+#     s = MAP1
+#     dyn, d_raw = parse_rooms(s)
+#     d = {
+#         "k1": np.where(d_raw["A"], 1, -1),
+#         "d1": np.where(d_raw["1"], 1, -1),
+#         "k2": np.where(d_raw["B"], 1, -1),
+#         "d2": np.where(d_raw["2"], 1, -1),
+#         "k3": np.where(d_raw["C"], 1, -1),
+#         "w": np.where(d_raw["#"], 1, -1),
+#     }
+#     return dyn, d
+#
+def get_rooms():
+    s = MAP2
+    dyn, d_raw = parse_rooms(s)
+    d = {
+        "r1": np.where(d_raw["A"], 1, -1),
+        "r2": np.where(d_raw["B"], 1, -1),
+        "k": np.where(d_raw["K"], 1, -1),
+        "d": np.where(d_raw["D"], 1, -1),
+        "w": np.where(d_raw["#"], 1, -1),
+        # Just for convenience.
+        "<": np.where(d_raw["<"], 1, -1),
+        ">": np.where(d_raw[">"], 1, -1),
+        "^": np.where(d_raw["^"], 1, -1),
+    }
+
+    # Modify the drift. On <, can only go left. On >, can only go right.
+    def drift_fn(state: jnp.ndarray, delta: jnp.ndarray):
+        # If state is on <, then only allow left movement.
+        x, y = state
+        left_only = jnp.array(d_raw["<"])[x, y]  # bool
+        right_only = jnp.array(d_raw[">"])[x, y]  # bool
+
+        up_only = jnp.array(d_raw["^"])[x, y]  # bool
+
+        delta_x = jnp.where(left_only, -1, jnp.where(right_only, 1, delta[0]))
+        delta_y = jnp.where(up_only, -1, delta[1])
+        delta = delta.at[0].set(delta_x).at[1].set(delta_y)
+
+        return state + delta
+
+    dyn.drift_fn = drift_fn
+
+    return dyn, d
+
 
 def parse_rooms(s: str):
     s = s.strip()
@@ -71,24 +128,15 @@ def parse_rooms(s: str):
 #     return np.where(arr, true_val, false_val)
 
 
-def get_rooms(s: str):
-    dyn, d_raw = parse_rooms(s)
-    d = {
-        "k1": np.where(d_raw["A"], 1, -1),
-        "d1": np.where(d_raw["1"], 1, -1),
-        "k2": np.where(d_raw["B"], 1, -1),
-        "d2": np.where(d_raw["2"], 1, -1),
-        "k3": np.where(d_raw["C"], 1, -1),
-        "w": np.where(d_raw["#"], 1, -1),
-    }
-    return dyn, d
-
-
 def main():
+    # MAP1
     # TASK_SOURCE = "(!d1 U k1) && G( !w )"
     # TASK_SOURCE = "(!d1 U k1) && (!d2 U k2) && F k3 && G( !w )"
     # TASK_SOURCE = "(!d1 U k1) && F k3 && G( !w )"
-    TASK_SOURCE = "(!d1 U k1) && G(!d2 U k2) && G(F k3) && G( !w )"
+    # TASK_SOURCE = "(!d1 U k1) && G(!d2 U k2) && G(F k3) && G( !w )"
+
+    # MAP2
+    TASK_SOURCE = "G F r1 && G F r2 && (!d U k) && G( !w )"
 
     # -------------------------------------------------------------------------------------------
     # Parse and lower the task specification to a value tree DAG.
@@ -109,9 +157,7 @@ def main():
         p = p_cls(ir)
         ir_root_id, ir = p.run(ir_root_id)
 
-    dot_ir = visualize_ir(ir, ir_root_id, filename="ir_graph", view=True)
-
-    exit(0)
+    # dot_ir = visualize_ir(ir, ir_root_id, filename="ir_graph", view=True)
 
     # IR -> DAG
     value_tree_dag, dag_root = lower_ir_to_dag(ir, ir_root_id)
@@ -126,10 +172,10 @@ def main():
         # while changed:
         dag_root, value_tree_dag, changed = p.run(dag_root)
 
-    # Visualize the DAG.
-    dot_dag = visualize_dag(value_tree_dag, dag_root, filename="rooms_discrete_dag", view=True)
+    # # Visualize the DAG.
+    # dot_dag = visualize_dag(value_tree_dag, dag_root, filename="rooms_discrete_dag", view=True)
 
-    dyn, dict_predicates_unflat = get_rooms(MAP)
+    dyn, dict_predicates_unflat = get_rooms()
     dict_predicates = {k: v.flatten() for k, v in dict_predicates_unflat.items()}
 
     # n_col = len(dict_predicates)
@@ -186,6 +232,11 @@ def main():
                 update_rule = avoid_update_rule
                 solve_fn = make_solve_fn(dyn, update_rule, n_updates=dyn.n_states)
                 dict_vars[dag_id] = solve_fn(s_v0, **kwargs)
+
+                ipdb.set_trace()
+
+            case DAGGU(args=args):
+                ipdb.set_trace()
 
         fig, ax = plt.subplots()
         im = ax.imshow(dict_vars[dag_id].reshape(dyn.shape), vmin=-1, vmax=1)

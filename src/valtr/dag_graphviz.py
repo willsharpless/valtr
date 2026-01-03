@@ -2,7 +2,7 @@ from typing import Iterable, List, Optional, Set
 
 import graphviz
 
-from valtr.reachability import (DAGAvoid, DagBuilder, DAGConst, DAGId, DAGMaxN, DAGMinN, DAGNegate, DAGNode,
+from valtr.reachability import (DAGGU, DAGAvoid, DagBuilder, DAGConst, DAGId, DAGMaxN, DAGMinN, DAGNegate, DAGNode,
                                 DAGReachAvoid, DAGVar)
 
 
@@ -37,6 +37,8 @@ def _label_for(i: int, node: DAGNode) -> str:
             op = f"MAX"
         case DAGReachAvoid(reach=_, avoid=_):
             op = "ReachAvoid"
+        case DAGGU(args=_):
+            op = "GU"
         case DAGAvoid(avoid=_):
             op = "Avoid"
         case _:
@@ -73,6 +75,7 @@ def visualize_dag(
         DAGMinN: ("#61655D", "box"),
         DAGMaxN: ("#E9E0C4", "box"),
         DAGReachAvoid: ("#1B5B93", "diamond"),
+        DAGGU: ("#3AA655", "octagon"),
         DAGAvoid: ("#CD3A3A", "hexagon"),
     }
 
@@ -105,6 +108,28 @@ def visualize_dag(
             # Enforce left→right order visually
             if l in seen and r in seen:
                 dot.edge(f"n{l}", f"n{r}", style="invis", weight="100", constraint="true")
+            continue
+        elif isinstance(node, DAGGU):
+            for q, r in node.args:
+                # Create an "until" node for each (q,r) pair.
+                until_node_name = f"n{q}_{r}"
+                until_color, until_shape = color_map[DAGReachAvoid]
+                dot.node(
+                    until_node_name,
+                    label="ReachAvoid",
+                    shape=until_shape,
+                    style="filled,rounded",
+                    fillcolor=until_color,
+                    color="#2c3e50",
+                )
+                dot.edge(f"n{i}", until_node_name)
+
+                # Add the q and r below the above node.
+                dot.edge(until_node_name, f"n{q}", label="q")
+                dot.edge(until_node_name, f"n{r}", label="r")
+
+                # Enforce left->right order visually
+                dot.edge(f"n{q}", f"n{r}", style="invis", weight="100", constraint="true")
             continue
 
         # Default edges for others

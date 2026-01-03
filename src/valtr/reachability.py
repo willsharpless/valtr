@@ -80,6 +80,20 @@ class DAGReach(DAGNode):
         return [self.reach]
 
 
+@frozen
+class DAGGU(DAGNode):
+    """G( AND_i ( q_i U r_i ) )"""
+
+    args: list[tuple[DAGId, DAGId]]
+
+    def children(self) -> List[DAGId]:
+        kids = []
+        for q_i, r_i in self.args:
+            kids.append(q_i)
+            kids.append(r_i)
+        return kids
+
+
 class DagBuilder:
     def __init__(self):
         self.nodes: List[DAGNode] = []
@@ -131,6 +145,12 @@ class DagBuilder:
     def reach(self, arg: DAGId) -> DAGId:
         key = ("Reach", arg)
         return self._get(key, DAGReach(arg))
+
+    def GU(self, args: list[tuple[DAGId, DAGId]]) -> DAGId:
+        args_tup = tuple(args)
+
+        key = ("GU", args_tup)
+        return self._get(key, DAGGU(args))
 
 
 class LoweringError(Exception):
@@ -295,9 +315,9 @@ def lower_ir_to_dag(irb: IRBuilder, root: IRId) -> tuple[DagBuilder, DAGId]:
     root_arg_ids = get_and_args_list(root_node, root)
 
     # 1: Extract the top-level AND arguments, separate it into the GU, U and G parts.
-    GU_args: list[TemporalBinary]
-    U_args: list[TemporalBinary]
-    G_args: list[TemporalUnary]
+    GU_args: list[TemporalBinary] = []
+    U_args: list[TemporalBinary] = []
+    G_args_id: list[IRId] = []
 
     for node_id in root_arg_ids:
         node = irb.nodes[node_id]
@@ -325,16 +345,28 @@ def lower_ir_to_dag(irb: IRBuilder, root: IRId) -> tuple[DagBuilder, DAGId]:
                             assert isinstance(arg_node, TemporalBinary)
                             GU_args.append(arg_node)
                         case _:
-                            G_args.append(arg_node)
+                            G_args_id.append(g_arg_id)
             case _:
                 raise LoweringError(f"Top-level must contain only UNTIL/GLOBALLY, got {type(node).__name__}")
 
     dag = DagBuilder()
-    return lower_ir_to_dag_(irb, dag, U_args, GU_args, G_args)
+
+    if len(G_args_id) == 0:
+        G_dag_arg = dag.const(True)
+    elif len(G_args_id) == 1:
+        G_dag_arg = lower_bool_leaf_expr_to_dag(irb, dag, G_args_id[0])
+    else:
+        raise LoweringError("IR should have been preprocessed to combine multiple G into one")
+
+    return dag, lower_ir_to_dag_(irb, dag, U_args, GU_args, G_dag_arg)
 
 
 def lower_ir_to_dag_(
-    irb: IRBuilder, dag: DagBuilder, U_args: list[TemporalBinary], GU_args: list[TemporalBinary], G_args: list[IRId]
+    irb: IRBuilder,
+    dag: DagBuilder,
+    U_args: list[TemporalBinary],
+    GU_args: list[TemporalBinary],
+    G_arg_dag: DAGId,
 ) -> DAGId:
     """
     AND_i G ( q_i U r_i )  AND  AND_j ( q_j U r_j )  AND  G q_G
@@ -347,7 +379,7 @@ def lower_ir_to_dag_(
     """
     # Base case: U_args is empty.
     if len(U_args) == 0:
-        return lower_ir_to_dag_GU(irb, dag, GU_args, G_args)
+        return lower_ir_to_dag_GU(irb, dag, GU_args, G_arg_dag)
 
     # Construct q_tilde.
     #     AND_i ( q_i OR r_i )
@@ -362,7 +394,7 @@ def lower_ir_to_dag_(
     q_tilde_ands_U = [lower_bool_leaf_expr_to_dag(irb, dag, node.left) for node in U_args]
 
     #     AND q_G
-    q_tilde_ands_G = [lower_bool_leaf_expr_to_dag(irb, dag, g_arg_id) for g_arg_id in G_args]
+    q_tilde_ands_G = [G_arg_dag]
 
     q_tilde = dag.min_n(q_tilde_ands_GU + q_tilde_ands_U + q_tilde_ands_G)
 
@@ -373,23 +405,47 @@ def lower_ir_to_dag_(
         r_j = lower_bool_leaf_expr_to_dag(irb, dag, node.right)
 
         U_args_without_j = [node for ii, node in enumerate(U_args) if ii != jj]
-        V_without_j = lower_ir_to_dag_(irb, dag, U_args_without_j, GU_args, G_args)
+        V_without_j = lower_ir_to_dag_(irb, dag, U_args_without_j, GU_args, G_arg_dag)
         r_tilde_maxs.append(dag.min_n([r_j, V_without_j]))
-    r_tilde = dag.max_n(r_tilde_maxs)
+
+    if len(r_tilde_maxs) == 0:
+        raise ValueError("Why U_args empty")
+    elif len(r_tilde_maxs) == 1:
+        r_tilde = r_tilde_maxs[0]
+    else:
+        r_tilde = dag.max_n(r_tilde_maxs)
 
     root_id = dag.reachavoid(reach=r_tilde, stay=q_tilde)
     return root_id
 
 
-def lower_ir_to_dag_GU(irb: IRBuilder, dag: DagBuilder, GU_args: list[TemporalBinary], G_args: list[IRId]) -> DAGId:
+def lower_ir_to_dag_GU(irb: IRBuilder, dag: DagBuilder, GU_args: list[TemporalBinary], G_arg_dag: DAGId) -> DAGId:
     """
     Lower AND_i G ( q_i U r_i )  AND  G q_G
 
-    => reachavoid( r_tilde, q_tilde )
-        q_tilde = AND_j q_j
-        r_tilde = OR_i r_i
+    # 1: Merge the G q_G inside the GU.
+        (q_i AND q_G) U (r_i AND G q_G)
+    # 2: Solve the G( AND U)
+    arbitrarily (?) order the GU_args.
+    Solve reachavoid( q_tilde_i, r_tilde_i ), where
+        q_tilde_i = q_i AND w_{not i}
+        r_tilde_i = r_i AND w_{not i} AND X V_{i + 1}
+    Have a single DAG node to represent this iteration.
     """
-    pass
+    # 1: Merge the G q_G inside the GU.
+    G_dag = dag.avoid(G_arg_dag)
+
+    GU_args_dag: list[tuple[DAGId, DAGId]] = []
+    for node in GU_args:
+        q_i_dag = lower_bool_leaf_expr_to_dag(irb, dag, node.left)
+        r_i_dag = lower_bool_leaf_expr_to_dag(irb, dag, node.right)
+
+        q_i_new = dag.min_n([q_i_dag, G_arg_dag])
+        r_i_new = dag.min_n([r_i_dag, G_dag])
+        GU_args_dag.append((q_i_new, r_i_new))
+
+    GU_dag = dag.GU(GU_args_dag)
+    return GU_dag
 
 
 SYM_MAX = "max"

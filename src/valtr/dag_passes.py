@@ -3,7 +3,7 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 import graphviz
 import ipdb
 
-from valtr.reachability import (DAGAvoid, DagBuilder, DAGConst, DAGId, DAGMaxN, DAGMinN, DAGNegate, DAGNode,
+from valtr.reachability import (DAGGU, DAGAvoid, DagBuilder, DAGConst, DAGId, DAGMaxN, DAGMinN, DAGNegate, DAGNode,
                                 DAGReachAvoid, DAGVar)
 
 
@@ -58,6 +58,10 @@ class DagRewriter:
             case DAGAvoid(avoid=avoid):
                 new_avoid = self.visit(avoid)
                 out = self.dst.avoid(new_avoid)
+
+            case DAGGU(args=args):
+                new_args = [(self.visit(q), self.visit(r)) for q, r in args]
+                out = self.dst.GU(new_args)
 
             case _:
                 raise AssertionError(f"Unhandled DAG node: {type(n).__name__}")
