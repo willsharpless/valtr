@@ -358,6 +358,9 @@ def lower_ir_to_dag(irb: IRBuilder, root: IRId) -> tuple[DagBuilder, DAGId]:
     else:
         raise LoweringError("IR should have been preprocessed to combine multiple G into one")
 
+    # if len(GU_args) == 0:
+    #     return dag, lower_ir_to_dag_no_GU_(irb, dag, U_args, G_dag_arg)
+    # else:
     return dag, lower_ir_to_dag_(irb, dag, U_args, GU_args, G_dag_arg)
 
 
@@ -432,20 +435,24 @@ def lower_ir_to_dag_GU(irb: IRBuilder, dag: DagBuilder, GU_args: list[TemporalBi
         r_tilde_i = r_i AND w_{not i} AND X V_{i + 1}
     Have a single DAG node to represent this iteration.
     """
-    # 1: Merge the G q_G inside the GU.
     G_dag = dag.avoid(G_arg_dag)
 
-    GU_args_dag: list[tuple[DAGId, DAGId]] = []
-    for node in GU_args:
-        q_i_dag = lower_bool_leaf_expr_to_dag(irb, dag, node.left)
-        r_i_dag = lower_bool_leaf_expr_to_dag(irb, dag, node.right)
+    if len(GU_args) == 0:
+        # Just a normal avoid.
+        return G_dag
+    else:
+        # 1: Merge the G q_G inside the GU.
+        GU_args_dag: list[tuple[DAGId, DAGId]] = []
+        for node in GU_args:
+            q_i_dag = lower_bool_leaf_expr_to_dag(irb, dag, node.left)
+            r_i_dag = lower_bool_leaf_expr_to_dag(irb, dag, node.right)
 
-        q_i_new = dag.min_n([q_i_dag, G_arg_dag])
-        r_i_new = dag.min_n([r_i_dag, G_dag])
-        GU_args_dag.append((q_i_new, r_i_new))
+            q_i_new = dag.min_n([q_i_dag, G_arg_dag])
+            r_i_new = dag.min_n([r_i_dag, G_dag])
+            GU_args_dag.append((q_i_new, r_i_new))
 
-    GU_dag = dag.GU(GU_args_dag)
-    return GU_dag
+        GU_dag = dag.GU(GU_args_dag)
+        return GU_dag
 
 
 SYM_MAX = "max"
@@ -505,6 +512,19 @@ def dag_to_str(builder: DagBuilder, rid: DAGId) -> str:
         return s
 
     return go(int(rid), top_level=True)
+
+
+# def lower_ir_to_dag_no_GU_(
+#     irb: IRBuilder,
+#     dag: DagBuilder,
+#     U_args: list[TemporalBinary],
+#     G_arg_dag: DAGId,
+# ) -> DAGId:
+#     """
+#
+#     """
+#     ...
+#
 
 
 def collect_predicate_info(

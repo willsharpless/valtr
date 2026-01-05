@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
 from dvi.dynamics.gridworld import GridWorld
-from dvi.gen_solver import avoid_update_rule, make_solve_fn, reach_avoid_update_rule
+from dvi.gen_solver import avoid_update_rule, make_solve_fn, reach_avoid_update_rule, FixedPointGUSolver
 from loguru import logger
 from matplotlib.colors import CenteredNorm, ListedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -81,15 +81,18 @@ def get_rooms():
     # Modify the drift. On <, can only go left. On >, can only go right.
     def drift_fn(state: jnp.ndarray, delta: jnp.ndarray):
         # If state is on <, then only allow left movement.
-        x, y = state
-        left_only = jnp.array(d_raw["<"])[x, y]  # bool
-        right_only = jnp.array(d_raw[">"])[x, y]  # bool
+        y, x = state
+        left_only = jnp.array(d_raw["<"])[y, x]  # bool
+        right_only = jnp.array(d_raw[">"])[y, x]  # bool
 
-        up_only = jnp.array(d_raw["^"])[x, y]  # bool
+        up_only = jnp.array(d_raw["^"])[y, x]  # bool
 
         delta_x = jnp.where(left_only, -1, jnp.where(right_only, 1, delta[0]))
         delta_y = jnp.where(up_only, -1, delta[1])
-        delta = delta.at[0].set(delta_x).at[1].set(delta_y)
+
+        # delta_y = delta[1]
+        # delta_y = jnp.where((x == 2) & (y == 1), -1, delta_y)
+        delta = delta.at[1].set(delta_x).at[0].set(delta_y)
 
         return state + delta
 
@@ -136,7 +139,8 @@ def main():
     # TASK_SOURCE = "(!d1 U k1) && G(!d2 U k2) && G(F k3) && G( !w )"
 
     # MAP2
-    TASK_SOURCE = "G F r1 && G F r2 && (!d U k) && G( !w )"
+    # TASK_SOURCE = "G F r1 && G F r2 && (!d U k) && G( !w )"
+    TASK_SOURCE = "G( !w )"
 
     # -------------------------------------------------------------------------------------------
     # Parse and lower the task specification to a value tree DAG.
@@ -187,6 +191,26 @@ def main():
     #     ax.set_title(k)
     # plt.show()
 
+    h, w = dyn.shape
+
+    # # Visualize the map.
+    # # Use a different color for each symbol.
+    # _, d_raw = parse_rooms(MAP2)
+    #
+    # empty_map = np.zeros_like(d_raw["#"])
+    # for ii, (k, v) in enumerate(d_raw.items()):
+    #     empty_map = np.where(v, ii + 1, empty_map)
+    #
+    # fig, ax = plt.subplots()
+    # cmap = plt.get_cmap("tab20", len(d_raw) + 1)
+    # im = ax.imshow(empty_map, cmap=cmap)
+    # cbar = fig.colorbar(im, ax=ax, ticks=np.arange(len(d_raw) + 1))
+    # cbar.ax.set_yticklabels([""] + list(d_raw.keys()))
+    # ax.set_title("Map visualization")
+    # ax.set_xticks(np.arange(w + 1) - 0.5)
+    # ax.set_yticks(np.arange(h + 1) - 0.5)
+    # plt.show()
+
     # Solve.
     dict_vars = {}
     dict_locals = dict_predicates
@@ -233,15 +257,15 @@ def main():
                 solve_fn = make_solve_fn(dyn, update_rule, n_updates=dyn.n_states)
                 dict_vars[dag_id] = solve_fn(s_v0, **kwargs)
 
-                ipdb.set_trace()
-
             case DAGGU(args=args):
-                ipdb.set_trace()
+                U_args = [[dict_vars[q], dict_vars[r]] for q, r in args]
+
+                solver = FixedPointGUSolver(U_args)
+                dict_vars[dag_id] = solver.solve(n_iters=10)
 
         fig, ax = plt.subplots()
         im = ax.imshow(dict_vars[dag_id].reshape(dyn.shape), vmin=-1, vmax=1)
 
-        h, w = dyn.shape
         ax.set_xticks(np.arange(w + 1) - 0.5)
         ax.set_yticks(np.arange(h + 1) - 0.5)
         cbar = fig.colorbar(im, ax=ax)
