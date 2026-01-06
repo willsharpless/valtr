@@ -7,13 +7,14 @@ import hj_reachability as hj
 import hj_reachability.dynamics as dynamics
 import ipdb
 import jax.numpy as jnp
-import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
 from dvi.dynamics.gridworld import GridWorld
-from dvi.gen_solver import FixedPointGUSolver, avoid_update_rule, make_solve_fn, reach_avoid_update_rule
+from dvi.gen_solver import (FixedPointGUSolver, avoid_update_rule, avoid_update_rule_with_actions, make_solve_fn,
+                            make_solve_fn_with_actions, reach_avoid_update_rule, reach_avoid_update_rule_with_actions)
 from loguru import logger
+from matplotlib.animation import FuncAnimation
 from matplotlib.colors import CenteredNorm, ListedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy import integrate as ode
@@ -26,6 +27,7 @@ from valtr.ir_builder import IRBuilder
 from valtr.ir_graphviz import visualize_ir
 from valtr.ir_pass import PassCombineGloballySegments, PassFinallyToUntil
 from valtr.lowering import Lowerer
+from valtr.mintime_rollout import MinTimeRollout
 from valtr.reachability import (DAGGU, DAGAvoid, DAGId, DAGMaxN, DAGMinN, DAGNegate, DAGReachAvoid, DAGVar, dag_to_str,
                                 lower_ir_to_dag)
 from valtr.solver_utils import solve_dag_values
@@ -52,56 +54,60 @@ MAP2 = """
 #######
 """
 
+MAP_NUM = 1
 
-# def get_rooms():
-#     s = MAP1
-#     dyn, d_raw = parse_rooms(s)
-#     d = {
-#         "k1": np.where(d_raw["A"], 1, -1),
-#         "d1": np.where(d_raw["1"], 1, -1),
-#         "k2": np.where(d_raw["B"], 1, -1),
-#         "d2": np.where(d_raw["2"], 1, -1),
-#         "k3": np.where(d_raw["C"], 1, -1),
-#         "w": np.where(d_raw["#"], 1, -1),
-#     }
-#     return dyn, d
-#
+
 def get_rooms():
-    s = MAP2
-    dyn, d_raw = parse_rooms(s)
-    d = {
-        "r1": np.where(d_raw["A"], 1, -1),
-        "r2": np.where(d_raw["B"], 1, -1),
-        "k": np.where(d_raw["K"], 1, -1),
-        "d": np.where(d_raw["D"], 1, -1),
-        "w": np.where(d_raw["#"], 1, -1),
-        # Just for convenience.
-        "<": np.where(d_raw["<"], 1, -1),
-        ">": np.where(d_raw[">"], 1, -1),
-        "^": np.where(d_raw["^"], 1, -1),
-    }
+    if MAP_NUM == 1:
+        s = MAP1
+        dyn, d_raw = parse_rooms(s)
+        d = {
+            "k1": np.where(d_raw["A"], 1, -1),
+            "d1": np.where(d_raw["1"], 1, -1),
+            "k2": np.where(d_raw["B"], 1, -1),
+            "d2": np.where(d_raw["2"], 1, -1),
+            "k3": np.where(d_raw["C"], 1, -1),
+            "w": np.where(d_raw["#"], 1, -1),
+        }
+        return dyn, d
+    elif MAP_NUM == 2:
+        s = MAP2
+        dyn, d_raw = parse_rooms(s)
+        d = {
+            "r1": np.where(d_raw["A"], 1, -1),
+            "r2": np.where(d_raw["B"], 1, -1),
+            "k": np.where(d_raw["K"], 1, -1),
+            "d": np.where(d_raw["D"], 1, -1),
+            "w": np.where(d_raw["#"], 1, -1),
+            # Just for convenience.
+            "<": np.where(d_raw["<"], 1, -1),
+            ">": np.where(d_raw[">"], 1, -1),
+            "^": np.where(d_raw["^"], 1, -1),
+        }
 
-    # Modify the drift. On <, can only go left. On >, can only go right.
-    def drift_fn(state: jnp.ndarray, delta: jnp.ndarray):
-        # If state is on <, then only allow left movement.
-        y, x = state
-        left_only = jnp.array(d_raw["<"])[y, x]  # bool
-        right_only = jnp.array(d_raw[">"])[y, x]  # bool
+        # Modify the drift. On <, can only go left. On >, can only go right.
+        def drift_fn(state: jnp.ndarray, delta: jnp.ndarray):
+            # If state is on <, then only allow left movement.
+            y, x = state
+            left_only = jnp.array(d_raw["<"])[y, x]  # bool
+            right_only = jnp.array(d_raw[">"])[y, x]  # bool
 
-        up_only = jnp.array(d_raw["^"])[y, x]  # bool
+            up_only = jnp.array(d_raw["^"])[y, x]  # bool
 
-        delta_x = jnp.where(left_only, -1, jnp.where(right_only, 1, delta[0]))
-        delta_y = jnp.where(up_only, -1, delta[1])
+            delta_x = jnp.where(left_only, -1, jnp.where(right_only, 1, delta[0]))
+            delta_y = jnp.where(up_only, -1, delta[1])
 
-        # delta_y = delta[1]
-        # delta_y = jnp.where((x == 2) & (y == 1), -1, delta_y)
-        delta = delta.at[1].set(delta_x).at[0].set(delta_y)
+            # delta_y = delta[1]
+            # delta_y = jnp.where((x == 2) & (y == 1), -1, delta_y)
+            delta = delta.at[1].set(delta_x).at[0].set(delta_y)
 
-        return state + delta
+            return state + delta
 
-    dyn.drift_fn = drift_fn
+        dyn.drift_fn = drift_fn
 
-    return dyn, d
+        return dyn, d
+    else:
+        raise NotImplementedError("")
 
 
 def parse_rooms(s: str):
@@ -136,15 +142,20 @@ def parse_rooms(s: str):
 
 @app.default()
 def main(view_pdf: bool = False):
-    # MAP1
-    # TASK_SOURCE = "(!d1 U k1) && G( !w )"
-    # TASK_SOURCE = "(!d1 U k1) && (!d2 U k2) && F k3 && G( !w )"
-    # TASK_SOURCE = "(!d1 U k1) && F k3 && G( !w )"
-    # TASK_SOURCE = "(!d1 U k1) && G(!d2 U k2) && G(F k3) && G( !w )"
-
-    # MAP2
-    TASK_SOURCE = "G F r1 && G F r2 && (!d U k) && G( !w )"
-    # TASK_SOURCE = "G( !w )"
+    if MAP_NUM == 1:
+        # MAP1
+        # TASK_SOURCE = "!d1 U k1"
+        # TASK_SOURCE = "(!d1 U k1) && G( !w )"
+        # TASK_SOURCE = "(!d1 U k1) && (!d2 U k2) && G( !w )"
+        TASK_SOURCE = "(!d1 U k1) && (!d2 U k2) && F k3 && G( !w )"
+        # TASK_SOURCE = "(!d1 U k1) && F k3 && G( !w )"
+        # TASK_SOURCE = "(!d1 U k1) && G(!d2 U k2) && G(F k3) && G( !w )"
+    elif MAP_NUM == 2:
+        # MAP2
+        TASK_SOURCE = "G F r1 && G F r2 && (!d U k) && G( !w )"
+        # TASK_SOURCE = "G( !w )"
+    else:
+        raise ValueError("Invalid MAP_NUM")
 
     # -------------------------------------------------------------------------------------------
     # Parse and lower the task specification to a value tree DAG.
@@ -187,6 +198,7 @@ def main(view_pdf: bool = False):
     # Visualize the DAG.
     visualize_dag(value_tree_dag, dag_root, filename="rooms_discrete_dag", view=view_pdf)
 
+    dyn: GridWorld
     dyn, dict_predicates_unflat = get_rooms()
     dict_predicates = {k: v.flatten() for k, v in dict_predicates_unflat.items()}
 
@@ -203,7 +215,9 @@ def main(view_pdf: bool = False):
 
     # Visualize the map.
     # Use a different color for each symbol.
-    _, d_raw = parse_rooms(MAP2)
+
+    map_str = MAP1 if MAP_NUM == 1 else MAP2
+    _, d_raw = parse_rooms(map_str)
 
     empty_map = np.zeros_like(d_raw["#"])
     for ii, (k, v) in enumerate(d_raw.items()):
@@ -213,6 +227,15 @@ def main(view_pdf: bool = False):
 
     fig, ax = plt.subplots()
     cmap = plt.get_cmap("tab20", len(d_raw))
+    colors = cmap.colors
+
+    # Get the index of " " in the keys to set it to white.
+    if " " in d_raw:
+        space_idx = list(d_raw.keys()).index(" ")
+        colors[space_idx] = np.array([1.0, 1.0, 1.0, 1.0])
+
+    cmap = ListedColormap(colors)
+
     im = ax.imshow(empty_map, cmap=cmap, vmin=0, vmax=len(d_raw))
     cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
     cbar.ax.set_yticklabels(list(d_raw.keys()))
@@ -222,11 +245,9 @@ def main(view_pdf: bool = False):
     fig.savefig("rooms_discrete.pdf")
     plt.close(fig)
 
-    print(d_raw.keys())
-    ipdb.set_trace()
-
     # Solve.
     dict_vars = {}
+    dict_actions = {}
     dict_locals = dict_predicates
     for dag_id, node in enumerate(tqdm.tqdm(value_tree_dag.nodes)):
         match node:
@@ -256,9 +277,11 @@ def main(view_pdf: bool = False):
                 s_v0 = arg_reach
                 kwargs = dict(s_r=arg_reach, s_q=arg_avoid)
 
-                update_rule = reach_avoid_update_rule
-                solve_fn = make_solve_fn(dyn, update_rule, n_updates=dyn.n_states)
-                dict_vars[dag_id] = solve_fn(s_v0, **kwargs)
+                # update_rule = reach_avoid_update_rule
+                # solve_fn = make_solve_fn(dyn, update_rule, n_updates=dyn.n_states)
+                update_rule = reach_avoid_update_rule_with_actions
+                solve_fn = make_solve_fn_with_actions(dyn, update_rule, n_updates=dyn.n_states)
+                dict_vars[dag_id], dict_actions[dag_id] = solve_fn(s_v0, **kwargs)
 
             case DAGAvoid(avoid=avoid):
                 # Note: the avoid is a stay since we are maximizing the value.
@@ -267,22 +290,100 @@ def main(view_pdf: bool = False):
                 s_v0 = arg_avoid
                 kwargs = dict(s_q=arg_avoid)
 
-                update_rule = avoid_update_rule
-                solve_fn = make_solve_fn(dyn, update_rule, n_updates=dyn.n_states)
-                dict_vars[dag_id] = solve_fn(s_v0, **kwargs)
+                # update_rule = avoid_update_rule
+                # solve_fn = make_solve_fn(dyn, update_rule, n_updates=dyn.n_states)
+                update_rule = avoid_update_rule_with_actions
+                solve_fn = make_solve_fn_with_actions(dyn, update_rule, n_updates=dyn.n_states)
+                dict_vars[dag_id], dict_actions[dag_id] = solve_fn(s_v0, **kwargs)
 
             case DAGGU(args=args):
                 U_args = [[dict_vars[q], dict_vars[r]] for q, r in args]
                 dict_vars[dag_id] = FixedPointGUSolver().solve(dyn, U_args, n_iters=3)
 
-        fig, ax = plt.subplots()
-        im = ax.imshow(dict_vars[dag_id].reshape(dyn.shape), vmin=-1, vmax=1)
+        # fig, ax = plt.subplots()
+        # im = ax.imshow(dict_vars[dag_id].reshape(dyn.shape), vmin=-1, vmax=1)
+        #
+        # ax.set_xticks(np.arange(w + 1) - 0.5)
+        # ax.set_yticks(np.arange(h + 1) - 0.5)
+        # cbar = fig.colorbar(im, ax=ax)
+        # ax.set_title("{} ({})".format(dag_id, node))
+        # plt.show()
 
-        ax.set_xticks(np.arange(w + 1) - 0.5)
-        ax.set_yticks(np.arange(h + 1) - 0.5)
-        cbar = fig.colorbar(im, ax=ax)
-        ax.set_title("{} ({})".format(dag_id, node))
-        plt.show()
+    # ---------------------------------
+    # Visualize the final value function.
+    ncol = 2
+    figsize = np.array([ncol * 6, 4])
+    fig, axes = plt.subplots(1, ncol, figsize=figsize)
+    #     map
+    ax = axes[0]
+    im = ax.imshow(empty_map, cmap=cmap, vmin=0, vmax=len(d_raw))
+    cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
+    cbar.ax.set_yticklabels(list(d_raw.keys()))
+    ax.set_xticks(np.arange(w + 1) - 0.5)
+    ax.set_yticks(np.arange(h + 1) - 0.5)
+
+    #     value
+    ax = axes[1]
+    im = ax.imshow(dict_vars[dag_root].reshape(dyn.shape), vmin=-1, vmax=1)
+    ax.set_xticks(np.arange(w + 1) - 0.5)
+    ax.set_yticks(np.arange(h + 1) - 0.5)
+    cbar = fig.colorbar(im, ax=ax)
+    ax.set_title("Final value function")
+    fig.savefig("rooms_discrete_value.pdf")
+    plt.close(fig)
+
+    # ---------------------------------
+    # Rollout from a feasible start state.
+    value = dict_vars[dag_root]
+    feasible_states = np.where(value > 0)[0]
+
+    rng = np.random.default_rng(seed=12345)
+    start_state = rng.choice(feasible_states)
+
+    rollouter = MinTimeRollout(dyn, value_tree_dag, dag_root, dict_vars, dict_actions)
+    Tp1_states, T_actions = rollouter.rollout(start_state, max_steps=25)
+
+    # Visualize the rollout by animating the path and saving as mp4.
+    n_frames = len(Tp1_states)
+    fig, ax = plt.subplots()
+
+    # Visualize the map again.
+    im = ax.imshow(empty_map, cmap=cmap, vmin=0, vmax=len(d_raw))
+    cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
+    cbar.ax.set_yticklabels(list(d_raw.keys()))
+    ax.set_xticks(np.arange(w + 1) - 0.5)
+    ax.set_yticks(np.arange(h + 1) - 0.5)
+
+    # Draw the state as a red dot.
+    (state_dot,) = ax.plot([], [], marker="o", color="red", ms=5)
+
+    kk_text = ax.text(
+        0.02,
+        0.98,
+        "",
+        transform=ax.transAxes,
+        verticalalignment="top",
+        horizontalalignment="left",
+        color="white",
+        fontsize=8,
+        bbox=dict(facecolor="black", alpha=0.5, pad=2),
+    )
+
+    def init_fn():
+        return [state_dot, kk_text]
+
+    def update_fn(kk: int) -> list[plt.Artist]:
+        state = Tp1_states[kk]
+
+        y, x = dyn.decode_state(state)
+        state_dot.set_data([x], [y])
+
+        kk_text.set_text(f"Step {kk: 3}")
+
+        return [state_dot, kk_text]
+
+    anim = FuncAnimation(fig, update_fn, n_frames, init_fn, blit=True)
+    anim.save("rooms_discrete_rollout.mp4", fps=5, dpi=200)
 
     logger.info("Done!")
 

@@ -2,6 +2,7 @@ from enum import Enum, auto
 from typing import Dict, Iterable, List, NewType, Optional, Set, Tuple
 
 import graphviz
+import ipdb
 from attrs import define, field, frozen
 
 from valtr.ir import (Binary, BinaryIROpKind, ConstBool, IRId, IRNode, Nary, NaryKind, TemporalBinary, TemporalUnary,
@@ -19,6 +20,21 @@ class DAGId(int):
 class DAGNode:
     def children(self) -> List[DAGId]:
         return []
+
+    def is_temporal(self) -> bool:
+        return False
+
+
+def temporal(cls):
+    """Class decorator to mark a DAGNode subclass as temporal."""
+
+    original_is_temporal = cls.is_temporal
+
+    def new_is_temporal(self) -> bool:
+        return True
+
+    cls.is_temporal = new_is_temporal
+    return cls
 
 
 @frozen
@@ -56,6 +72,7 @@ class DAGMaxN(DAGNode):
 
 
 @frozen
+@temporal
 class DAGReachAvoid(DAGNode):
     reach: DAGId
     avoid: DAGId
@@ -65,6 +82,7 @@ class DAGReachAvoid(DAGNode):
 
 
 @frozen
+@temporal
 class DAGAvoid(DAGNode):
     avoid: DAGId  # A(arg)
 
@@ -73,6 +91,7 @@ class DAGAvoid(DAGNode):
 
 
 @frozen
+@temporal
 class DAGReach(DAGNode):
     reach: DAGId  # A(arg)
 
@@ -81,6 +100,7 @@ class DAGReach(DAGNode):
 
 
 @frozen
+@temporal
 class DAGGU(DAGNode):
     """G( AND_i ( q_i U r_i ) )"""
 
@@ -124,9 +144,12 @@ class DagBuilder:
 
     def min_n(self, args: Iterable[DAGId]) -> DAGId:
         s = tuple(sorted(set(args)))
-        if len(s) <= 1:
-            raise ValueError("min_n requires at least 2 arguments")
-        return self._get(("MinN", s), DAGMinN(s))
+        if len(s) == 0:
+            raise ValueError("min_n requires at least 1 argument")
+        elif len(s) == 1:
+            return args[0]
+        else:
+            return self._get(("MinN", s), DAGMinN(s))
 
     def max_n(self, args: Iterable[DAGId]) -> DAGId:
         s = tuple(sorted(set(args)))
@@ -397,9 +420,13 @@ def lower_ir_to_dag_(
     q_tilde_ands_U = [lower_bool_leaf_expr_to_dag(irb, dag, node.left) for node in U_args]
 
     #     AND q_G
-    q_tilde_ands_G = [G_arg_dag]
+    q_tilde_args = q_tilde_ands_GU + q_tilde_ands_U
+    G_arg_node = dag.nodes[G_arg_dag]
+    if not (isinstance(G_arg_node, DAGConst) and G_arg_node.value is True):
+        q_tilde_ands_G = [G_arg_dag]
+        q_tilde_args += q_tilde_ands_G
 
-    q_tilde = dag.min_n(q_tilde_ands_GU + q_tilde_ands_U + q_tilde_ands_G)
+    q_tilde = dag.min_n(q_tilde_args)
 
     # Construct r_tilde.
     r_tilde_maxs = []
@@ -435,7 +462,12 @@ def lower_ir_to_dag_GU(irb: IRBuilder, dag: DagBuilder, GU_args: list[TemporalBi
         r_tilde_i = r_i AND w_{not i} AND X V_{i + 1}
     Have a single DAG node to represent this iteration.
     """
-    G_dag = dag.avoid(G_arg_dag)
+    G_node = dag.nodes[G_arg_dag]
+    if isinstance(G_node, DAGConst) and G_node.value is True:
+        # The avoid is a no-op.
+        G_dag = dag.const(True)
+    else:
+        G_dag = dag.avoid(G_arg_dag)
 
     if len(GU_args) == 0:
         # Just a normal avoid.
@@ -754,3 +786,17 @@ def extract_trigger_predicate_map(builder: DagBuilder, root: DAGId):
     find_predicate_triggers(int(root), -1, set())
 
     return predicates, predicate_ids, predicate_roles, negated_predicate_mask, temporal_nodes, trigger_map
+
+
+def has_temporal_children(node_id: DAGId, dag: DagBuilder) -> bool:
+    """
+    Recursively check if a DAG node has any temporal children
+    """
+    node = dag.nodes[int(node_id)]
+    for child_id in node.children():
+        child_node = dag.nodes[child_id]
+        if child_node.is_temporal():
+            return True
+        if has_temporal_children(child_id, dag):
+            return True
+    return False
