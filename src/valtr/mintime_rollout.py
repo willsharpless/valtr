@@ -1,10 +1,12 @@
 import ipdb
 import jax.numpy as jnp
 import numpy as np
+import tqdm
 from dvi.dynamics.discrete import DiscreteDyn
 from loguru import logger
 
-from valtr.reachability import DAGAvoid, DagBuilder, DAGId, DAGMaxN, DAGMinN, DAGReachAvoid, has_temporal_children
+from valtr.reachability import (DAGGU, DAGAvoid, DagBuilder, DAGId, DAGMaxN, DAGMinN, DAGReachAvoid,
+                                has_temporal_children)
 
 
 class MinTimeRollout:
@@ -15,12 +17,17 @@ class MinTimeRollout:
         dag_root: DAGId,
         dict_vars: dict[int, jnp.ndarray],
         dict_actions: dict[int, jnp.ndarray],
+        dict_GU_vars: dict[int, list[jnp.ndarray]],
+        dict_GU_actions: dict[int, list[jnp.ndarray]],
     ):
         self.dyn = dyn
         self.dag = dag
         self.dag_root = dag_root
         self.dict_vars = dict_vars
         self.dict_actions = dict_actions
+
+        self.dict_GU_vars = dict_GU_vars
+        self.dict_GU_actions = dict_GU_actions
 
     def rollout(self, start_state: int, max_steps: int = 10):
         state = start_state
@@ -30,9 +37,13 @@ class MinTimeRollout:
         Tp1_states = [state]
         T_actions = []
 
-        for kk in range(max_steps):
+        GU_index_dict: dict[DAGId, int] = {}
+
+        for kk in tqdm.trange(max_steps):
             node = dag_nodes[cur_node_id]
             current_value = self.dict_vars[cur_node_id][state]
+
+            action_dict = None
 
             # Traverse the tree until we reach a temporal operator.
             while True:
@@ -101,6 +112,18 @@ class MinTimeRollout:
                         else:
                             # If no temporal children, then execute the action associated with the reach node.
                             break
+                    case DAGGU(args=args):
+                        if len(args) == 1:
+                            logger.info("GU with one argument")
+                            # Only one argument, execute its action
+                            break
+
+                        if cur_node_id not in GU_index_dict:
+                            GU_index_dict[cur_node_id] = 0
+
+                        # GU is a "leaf node", we just need to cycle through its arguments.
+                        cur_GU_index = GU_index_dict[cur_node_id]
+
                     case DAGAvoid(avoid=avoid):
                         # Avoid shouldn't have any temporal children.
                         assert not has_temporal_children(avoid, self.dag)
@@ -111,7 +134,8 @@ class MinTimeRollout:
                         raise ValueError(f"Unexpected node type: {node}")
 
             # At this point, we have reached a temporal operator. Choose the action associated with this node.
-            action_dict = self.dict_actions[cur_node_id]
+            if action_dict is None:
+                action_dict = self.dict_actions[cur_node_id]
             action = action_dict[state]
 
             # Apply the action to get the next state.

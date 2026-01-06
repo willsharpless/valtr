@@ -54,7 +54,27 @@ MAP2 = """
 #######
 """
 
-MAP_NUM = 1
+MAP3 = """
+#####
+#A  #
+##  #
+##  #
+#A  #
+#   #
+#####
+"""
+
+MAP3_DRIFT = """
+#####
+#<  #
+## ^#
+## ^#
+#v ^#
+#>>^#
+#####
+"""
+
+MAP_NUM = 3
 
 
 def get_rooms():
@@ -106,6 +126,37 @@ def get_rooms():
         dyn.drift_fn = drift_fn
 
         return dyn, d
+    elif MAP_NUM == 3:
+        dyn, d_raw = parse_rooms(MAP3)
+        d = {
+            "r": np.where(d_raw["A"], 1, -1),
+            "w": np.where(d_raw["#"], 1, -1),
+        }
+        _, d_raw_drift = parse_rooms(MAP3_DRIFT)
+
+        # Modify the drift.
+        def drift_fn(state: jnp.ndarray, delta: jnp.ndarray):
+            # If state is on <, then only allow left movement.
+            y, x = state
+            l_only = jnp.array(d_raw_drift["<"])[y, x]  # bool
+            r_only = jnp.array(d_raw_drift[">"])[y, x]  # bool
+            u_only = jnp.array(d_raw_drift["^"])[y, x]  # bool
+            d_only = jnp.array(d_raw_drift["v"])[y, x]  # bool
+
+            delta_x = jnp.where(l_only, -1, jnp.where(r_only, 1, delta[0]))
+            delta_y = jnp.where(u_only, -1, jnp.where(d_only, 1, delta[1]))
+
+            # In l_only or r_only, delta_y = 0. Similarly, in u_only or d_only, delta_x = 0.
+            delta_y = jnp.where(l_only | r_only, 0, delta_y)
+            delta_x = jnp.where(u_only | d_only, 0, delta_x)
+
+            delta = delta.at[1].set(delta_x).at[0].set(delta_y)
+
+            return state + delta
+
+        dyn.drift_fn = drift_fn
+        return dyn, d
+
     else:
         raise NotImplementedError("")
 
@@ -152,8 +203,11 @@ def main(view_pdf: bool = False):
         # TASK_SOURCE = "(!d1 U k1) && G(!d2 U k2) && G(F k3) && G( !w )"
     elif MAP_NUM == 2:
         # MAP2
-        TASK_SOURCE = "G F r1 && G F r2 && (!d U k) && G( !w )"
+        TASK_SOURCE = "G F r1 && G F r2 && G( !w )"
+        # TASK_SOURCE = "G F r1 && G F r2 && (!d U k) && G( !w )"
         # TASK_SOURCE = "G( !w )"
+    elif MAP_NUM == 3:
+        TASK_SOURCE = "G F r && G( !w )"
     else:
         raise ValueError("Invalid MAP_NUM")
 
@@ -216,8 +270,13 @@ def main(view_pdf: bool = False):
     # Visualize the map.
     # Use a different color for each symbol.
 
-    map_str = MAP1 if MAP_NUM == 1 else MAP2
-    _, d_raw = parse_rooms(map_str)
+    if MAP_NUM == 3:
+        d_raw = parse_rooms(MAP3)[1]
+        d_raw_drift = parse_rooms(MAP3_DRIFT)[1]
+        d_raw = d_raw_drift | d_raw
+    else:
+        map_str = MAP1 if MAP_NUM == 1 else MAP2 if MAP_NUM == 2 else MAP3
+        _, d_raw = parse_rooms(map_str)
 
     empty_map = np.zeros_like(d_raw["#"])
     for ii, (k, v) in enumerate(d_raw.items()):
@@ -248,6 +307,8 @@ def main(view_pdf: bool = False):
     # Solve.
     dict_vars = {}
     dict_actions = {}
+    dict_GU_vars = {}
+    dict_GU_actions = {}
     dict_locals = dict_predicates
     for dag_id, node in enumerate(tqdm.tqdm(value_tree_dag.nodes)):
         match node:
@@ -298,7 +359,8 @@ def main(view_pdf: bool = False):
 
             case DAGGU(args=args):
                 U_args = [[dict_vars[q], dict_vars[r]] for q, r in args]
-                dict_vars[dag_id] = FixedPointGUSolver().solve(dyn, U_args, n_iters=3)
+                out = FixedPointGUSolver().solve(dyn, U_args, n_iters=3)
+                dict_vars[dag_id], dict_actions[dag_id], dict_GU_vars[dag_id], dict_GU_actions[dag_id] = out
 
         # fig, ax = plt.subplots()
         # im = ax.imshow(dict_vars[dag_id].reshape(dyn.shape), vmin=-1, vmax=1)
@@ -340,8 +402,8 @@ def main(view_pdf: bool = False):
     rng = np.random.default_rng(seed=12345)
     start_state = rng.choice(feasible_states)
 
-    rollouter = MinTimeRollout(dyn, value_tree_dag, dag_root, dict_vars, dict_actions)
-    Tp1_states, T_actions = rollouter.rollout(start_state, max_steps=25)
+    rollouter = MinTimeRollout(dyn, value_tree_dag, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+    Tp1_states, T_actions = rollouter.rollout(start_state, max_steps=50)
 
     # Visualize the rollout by animating the path and saving as mp4.
     n_frames = len(Tp1_states)
