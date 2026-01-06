@@ -47,7 +47,7 @@ MAP1 = """
 
 MAP2 = """
 #######
-#^^^ K#
+#^K ^^#
 #A<  B#
 ###D###
 #A  >B#
@@ -74,7 +74,7 @@ MAP3_DRIFT = """
 #####
 """
 
-MAP_NUM = 3
+MAP_NUM = 2
 
 
 def get_rooms():
@@ -203,8 +203,8 @@ def main(view_pdf: bool = False):
         # TASK_SOURCE = "(!d1 U k1) && G(!d2 U k2) && G(F k3) && G( !w )"
     elif MAP_NUM == 2:
         # MAP2
-        TASK_SOURCE = "G F r1 && G F r2 && G( !w )"
-        # TASK_SOURCE = "G F r1 && G F r2 && (!d U k) && G( !w )"
+        # TASK_SOURCE = "G F r1 && G F r2 && G( !w )"
+        TASK_SOURCE = "G F r1 && G F r2 && (!d U k) && G( !w )"
         # TASK_SOURCE = "G( !w )"
     elif MAP_NUM == 3:
         TASK_SOURCE = "G F r && G( !w )"
@@ -255,6 +255,7 @@ def main(view_pdf: bool = False):
     dyn: GridWorld
     dyn, dict_predicates_unflat = get_rooms()
     dict_predicates = {k: v.flatten() for k, v in dict_predicates_unflat.items()}
+    # logger.info("dyn.shape: {}".format(dyn.shape))
 
     # n_col = len(dict_predicates)
     # figsize = np.array([n_col * 3, 3])
@@ -304,6 +305,22 @@ def main(view_pdf: bool = False):
     fig.savefig("rooms_discrete.pdf")
     plt.close(fig)
 
+    # # --------------------------
+    # start_state = dyn.encode_state((2, 3))
+    #
+    # fig, ax = plt.subplots()
+    # im = ax.imshow(empty_map, cmap=cmap, vmin=0, vmax=len(d_raw))
+    # cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
+    # cbar.ax.set_yticklabels(list(d_raw.keys()))
+    # for action in range(dyn.n_actions):
+    #     state_new = dyn.step(start_state, action)
+    #     y, x = dyn.decode_state(state_new)
+    #     ax.plot(x, y, marker="o", label=f"Action {action}")
+    # ax.legend()
+    # plt.show()
+    # exit(0)
+
+    # -------------------------------------------
     # Solve.
     dict_vars = {}
     dict_actions = {}
@@ -394,6 +411,54 @@ def main(view_pdf: bool = False):
     fig.savefig("rooms_discrete_value.pdf")
     plt.close(fig)
 
+    # # -------------------------------------------
+    # # Visualize the GU actions.
+    # node_idx = list(dict_GU_actions.keys())[0]
+    # GU_actions = dict_GU_actions[node_idx]
+    #
+    # cmap = plt.get_cmap("tab10", dyn.n_actions)
+    #
+    # ncol = len(GU_actions)
+    # figsize = np.array([ncol * 6, 4])
+    # fig, axes = plt.subplots(1, ncol + 1, figsize=figsize, layout="constrained")
+    #
+    # ax = axes[0]
+    # im = ax.imshow(dict_vars[dag_root].reshape(dyn.shape), vmin=-1, vmax=1)
+    # ax.set_xticks(np.arange(w + 1) - 0.5)
+    # ax.set_yticks(np.arange(h + 1) - 0.5)
+    # cbar = fig.colorbar(im, ax=ax)
+    #
+    # arrow_map = {0: "→", 1: "←", 2: "↑", 3: "↓", 4: "•"}
+    #
+    # for ii, ax in enumerate(axes[1:]):
+    #     actions = GU_actions[ii].reshape(dyn.shape)
+    #
+    #     im = ax.imshow(actions, vmin=0, vmax=dyn.n_actions - 1, cmap=cmap)
+    #     ax.set_xticks(np.arange(w + 1) - 0.5)
+    #     ax.set_yticks(np.arange(h + 1) - 0.5)
+    #     cbar = fig.colorbar(im, ax=ax, ticks=np.arange(dyn.n_actions))
+    #     cbar.ax.set_yticklabels(["R", "L", "D", "U", "Stay"])
+    #
+    #     # Put text arrows.
+    #     for y in range(h):
+    #         for x in range(w):
+    #             action = int(actions[y, x])
+    #             ax.text(
+    #                 x,
+    #                 y,
+    #                 arrow_map.get(action, str(action)),
+    #                 color="black",
+    #                 ha="center",
+    #                 va="center",
+    #                 fontsize=12,
+    #                 fontweight="bold",
+    #             )
+    #
+    #     ax.set_title(f"GU Action {ii}")
+    #
+    # fig.savefig("rooms_discrete_gu_actions.pdf")
+    # plt.close(fig)
+
     # ---------------------------------
     # Rollout from a feasible start state.
     value = dict_vars[dag_root]
@@ -401,9 +466,24 @@ def main(view_pdf: bool = False):
 
     rng = np.random.default_rng(seed=12345)
     start_state = rng.choice(feasible_states)
+    # start_state = dyn.encode_state((2, 4))
 
+    # Visualize the start state.
+    y, x = dyn.decode_state(start_state)
+    fig, ax = plt.subplots()
+    im = ax.imshow(empty_map, cmap=cmap, vmin=0, vmax=len(d_raw))
+    cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
+    cbar.ax.set_yticklabels(list(d_raw.keys()))
+    ax.set_xticks(np.arange(w + 1) - 0.5)
+    ax.set_yticks(np.arange(h + 1) - 0.5)
+    (state_dot,) = ax.plot([x], [y], marker="o", color="red", ms=5)
+    ax.set_title("Start state")
+    fig.savefig("rooms_discrete_start_state.pdf")
+    plt.close(fig)
+
+    # ----------------------------
     rollouter = MinTimeRollout(dyn, value_tree_dag, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
-    Tp1_states, T_actions = rollouter.rollout(start_state, max_steps=50)
+    Tp1_states, T_actions = rollouter.rollout(start_state, max_steps=30)
 
     # Visualize the rollout by animating the path and saving as mp4.
     n_frames = len(Tp1_states)

@@ -40,13 +40,12 @@ class MinTimeRollout:
         GU_index_dict: dict[DAGId, int] = {}
 
         for kk in tqdm.trange(max_steps):
-            node = dag_nodes[cur_node_id]
-            current_value = self.dict_vars[cur_node_id][state]
-
-            action_dict = None
-
             # Traverse the tree until we reach a temporal operator.
             while True:
+                node = dag_nodes[cur_node_id]
+                current_value = self.dict_vars[cur_node_id][state]
+                action_dict = None
+
                 match node:
                     case DAGMinN(args=args):
                         # Decide which child to go to based on which is the minimum.
@@ -106,13 +105,18 @@ class MinTimeRollout:
                                 break
                             else:
                                 # Otherwise, go to the temporal child.
+                                if cur_node_id == temporal_idx:
+                                    logger.error("cur_node_id: {}, temporal_idx: {}".format(cur_node_id, temporal_idx))
+                                    ipdb.set_trace()
+
                                 cur_node_id = temporal_idx
                                 logger.info("Switching to temporal child: {}".format(cur_node_id))
-                                break
+                                continue
                         else:
                             # If no temporal children, then execute the action associated with the reach node.
                             break
                     case DAGGU(args=args):
+                        args: list[tuple[DAGId, DAGId]]
                         if len(args) == 1:
                             logger.info("GU with one argument")
                             # Only one argument, execute its action
@@ -123,6 +127,42 @@ class MinTimeRollout:
 
                         # GU is a "leaf node", we just need to cycle through its arguments.
                         cur_GU_index = GU_index_dict[cur_node_id]
+                        cur_q_idx, cur_r_idx = args[cur_GU_index]
+                        r_value = self.dict_vars[cur_r_idx][state]
+
+                        # Get the value of the NEXT state for the NEXT GU arg.
+                        action_dict = self.dict_GU_actions[cur_node_id][cur_GU_index]
+                        action_curr = action_dict[state]
+                        state_new = self.dyn.step(state, action_curr)
+
+                        next_GU_index = (cur_GU_index + 1) % len(args)
+                        value_next_GU = self.dict_GU_vars[cur_node_id][next_GU_index][state_new]
+                        stay_current_GU_node = (r_value < value_next_GU) and (r_value < current_value)
+
+                        action_curr_text = ["R", "L", "D", "U", "Stay"][action_curr]
+
+                        logger.info(
+                            "Cur Node: {} | Cur GU idx: {} | r_value: {} | value_next_GU: {} | current_value: {} | stay: {} | action_curr: {}".format(
+                                cur_node_id,
+                                cur_GU_index,
+                                r_value,
+                                value_next_GU,
+                                current_value,
+                                stay_current_GU_node,
+                                action_curr_text,
+                            )
+                        )
+                        # ipdb.set_trace()
+
+                        if stay_current_GU_node:
+                            # Stay on the current GU arg if (r_value < value_next_GU) and (r_value < current_value)
+                            logger.info("Taking action for GU index {} | {}".format(cur_GU_index, action_curr_text))
+                            break
+                        else:
+                            # Otherwise, advance to the next GU arg.
+                            GU_index_dict[cur_node_id] = next_GU_index
+                            logger.info("Moving to next GU arg: {}".format(next_GU_index))
+                            continue
 
                     case DAGAvoid(avoid=avoid):
                         # Avoid shouldn't have any temporal children.
