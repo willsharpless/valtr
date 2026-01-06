@@ -26,8 +26,8 @@ class DagRewriter:
 
     def visit(self, rid: DAGId) -> DAGId:
         i = rid
-        if i in self.memo:
-            return self.memo[i]
+        # if i in self.memo:
+        #     return self.memo[i]
 
         n = self.src.nodes[i]
 

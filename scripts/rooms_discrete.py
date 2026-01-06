@@ -2,6 +2,7 @@ import copy
 import os
 import time
 
+import cyclopts
 import hj_reachability as hj
 import hj_reachability.dynamics as dynamics
 import ipdb
@@ -11,7 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
 from dvi.dynamics.gridworld import GridWorld
-from dvi.gen_solver import avoid_update_rule, make_solve_fn, reach_avoid_update_rule, FixedPointGUSolver
+from dvi.gen_solver import FixedPointGUSolver, avoid_update_rule, make_solve_fn, reach_avoid_update_rule
 from loguru import logger
 from matplotlib.colors import CenteredNorm, ListedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -31,6 +32,8 @@ from valtr.solver_utils import solve_dag_values
 from valtr.tl_lexer import TLLexer
 from valtr.tl_parser import TLParser
 from valtr.util.jax_util import rep_vmap
+
+app = cyclopts.App()
 
 MAP1 = """
 #############
@@ -131,7 +134,8 @@ def parse_rooms(s: str):
 #     return np.where(arr, true_val, false_val)
 
 
-def main():
+@app.default()
+def main(view_pdf: bool = False):
     # MAP1
     # TASK_SOURCE = "(!d1 U k1) && G( !w )"
     # TASK_SOURCE = "(!d1 U k1) && (!d2 U k2) && F k3 && G( !w )"
@@ -139,8 +143,8 @@ def main():
     # TASK_SOURCE = "(!d1 U k1) && G(!d2 U k2) && G(F k3) && G( !w )"
 
     # MAP2
-    # TASK_SOURCE = "G F r1 && G F r2 && (!d U k) && G( !w )"
-    TASK_SOURCE = "G( !w )"
+    TASK_SOURCE = "G F r1 && G F r2 && (!d U k) && G( !w )"
+    # TASK_SOURCE = "G( !w )"
 
     # -------------------------------------------------------------------------------------------
     # Parse and lower the task specification to a value tree DAG.
@@ -161,23 +165,27 @@ def main():
         p = p_cls(ir)
         ir_root_id, ir = p.run(ir_root_id)
 
-    # dot_ir = visualize_ir(ir, ir_root_id, filename="ir_graph", view=True)
+    dot_ir = visualize_ir(ir, ir_root_id, filename="ir_graph", view=view_pdf)
 
     # IR -> DAG
     value_tree_dag, dag_root = lower_ir_to_dag(ir, ir_root_id)
 
-    # dot_dag = visualize_dag(value_tree_dag, dag_root, filename="rooms_discrete_dag1", view=True)
+    n_changes = 0
+    visualize_dag(value_tree_dag, dag_root, filename="rooms_discrete_dag0", view=view_pdf)
 
     # Perform constant folding.
     passes = [PassFoldConstBool]
     for p_cls in passes:
-        p = p_cls(value_tree_dag)
-        # changed = True
-        # while changed:
-        dag_root, value_tree_dag, changed = p.run(dag_root)
+        changed = True
+        while changed:
+            p = p_cls(value_tree_dag)
+            dag_root, value_tree_dag, changed = p.run(dag_root)
+            n_changes += int(changed)
+            if changed:
+                visualize_dag(value_tree_dag, dag_root, filename=f"rooms_discrete_dag{n_changes}", view=view_pdf)
 
-    # # Visualize the DAG.
-    # dot_dag = visualize_dag(value_tree_dag, dag_root, filename="rooms_discrete_dag", view=True)
+    # Visualize the DAG.
+    visualize_dag(value_tree_dag, dag_root, filename="rooms_discrete_dag", view=view_pdf)
 
     dyn, dict_predicates_unflat = get_rooms()
     dict_predicates = {k: v.flatten() for k, v in dict_predicates_unflat.items()}
@@ -193,23 +201,29 @@ def main():
 
     h, w = dyn.shape
 
-    # # Visualize the map.
-    # # Use a different color for each symbol.
-    # _, d_raw = parse_rooms(MAP2)
-    #
-    # empty_map = np.zeros_like(d_raw["#"])
-    # for ii, (k, v) in enumerate(d_raw.items()):
-    #     empty_map = np.where(v, ii + 1, empty_map)
-    #
-    # fig, ax = plt.subplots()
-    # cmap = plt.get_cmap("tab20", len(d_raw) + 1)
-    # im = ax.imshow(empty_map, cmap=cmap)
-    # cbar = fig.colorbar(im, ax=ax, ticks=np.arange(len(d_raw) + 1))
-    # cbar.ax.set_yticklabels([""] + list(d_raw.keys()))
-    # ax.set_title("Map visualization")
-    # ax.set_xticks(np.arange(w + 1) - 0.5)
-    # ax.set_yticks(np.arange(h + 1) - 0.5)
-    # plt.show()
+    # Visualize the map.
+    # Use a different color for each symbol.
+    _, d_raw = parse_rooms(MAP2)
+
+    empty_map = np.zeros_like(d_raw["#"])
+    for ii, (k, v) in enumerate(d_raw.items()):
+        empty_map = np.where(v, ii, empty_map)
+
+    tick_locs = np.arange(len(d_raw)) + 0.5
+
+    fig, ax = plt.subplots()
+    cmap = plt.get_cmap("tab20", len(d_raw))
+    im = ax.imshow(empty_map, cmap=cmap, vmin=0, vmax=len(d_raw))
+    cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
+    cbar.ax.set_yticklabels(list(d_raw.keys()))
+    ax.set_title("Map visualization")
+    ax.set_xticks(np.arange(w + 1) - 0.5)
+    ax.set_yticks(np.arange(h + 1) - 0.5)
+    fig.savefig("rooms_discrete.pdf")
+    plt.close(fig)
+
+    print(d_raw.keys())
+    ipdb.set_trace()
 
     # Solve.
     dict_vars = {}
@@ -259,9 +273,7 @@ def main():
 
             case DAGGU(args=args):
                 U_args = [[dict_vars[q], dict_vars[r]] for q, r in args]
-
-                solver = FixedPointGUSolver(U_args)
-                dict_vars[dag_id] = solver.solve(n_iters=10)
+                dict_vars[dag_id] = FixedPointGUSolver().solve(dyn, U_args, n_iters=3)
 
         fig, ax = plt.subplots()
         im = ax.imshow(dict_vars[dag_id].reshape(dyn.shape), vmin=-1, vmax=1)
@@ -277,4 +289,4 @@ def main():
 
 if __name__ == "__main__":
     with ipdb.launch_ipdb_on_exception():
-        main()
+        app()
