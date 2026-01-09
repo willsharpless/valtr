@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
 from dvi.dynamics.gridworld import GridWorld
-from dvi.dynamics.gridworld_ma import GridWorldMA, rew_to_ma
+from dvi.dynamics.gridworld_ma import GridWorldMA, ma_collision_predicate, rew_to_ma
 from dvi.gen_solver import (FixedPointGUSolver, avoid_update_rule_with_actions, make_solve_fn_with_actions,
                             reach_avoid_update_rule_with_actions)
 from loguru import logger
@@ -41,14 +41,17 @@ app = cyclopts.App()
 MAP = """
 #######
 #^K ^^#
-#A<  B#
+#v   B#
+#A<   #
 ###D###
 #A  >B#
-# C  ^#
+#    ^#
+# C   #
 #######
 """
 
-TASK_SOURCE = "G F r1 && G F r2 && G F r3 && (!d U k) && G( !w)"
+TASK_SOURCE = "G F r1 && G F r2 && G F r3 && (!d U k) && G(!w) && G(!collide)"
+# TASK_SOURCE = "G(!w) && G(!collide)"
 
 
 @app.default()
@@ -94,7 +97,9 @@ def main(view_pdf: bool = False):
 
     dict_predicates_unflat = d
     dict_predicates = {k: v.flatten() for k, v in dict_predicates_unflat.items()}
+
     # Convert from single-agent to multi-agent predicates.
+    collide_dist = 1.0  # Diagonal is safe, but not adjacent.
     dict_predicates = {
         "r1": rew_to_ma(dict_predicates["r1"], dyn_ma.n_agents, "max"),
         "r2": rew_to_ma(dict_predicates["r2"], dyn_ma.n_agents, "max"),
@@ -102,6 +107,7 @@ def main(view_pdf: bool = False):
         "k": rew_to_ma(dict_predicates["k"], dyn_ma.n_agents, "max"),
         "d": rew_to_ma(dict_predicates["d"], dyn_ma.n_agents, "max"),
         "w": rew_to_ma(dict_predicates["w"], dyn_ma.n_agents, "max"),
+        "collide": ma_collision_predicate(dyn_ma, collide_dist),
     }
 
     # -------------------------------------------
@@ -113,11 +119,24 @@ def main(view_pdf: bool = False):
 
     value = dict_vars[dag_root]
 
-    feasible_states = np.where(value > 0)[0]
+    feasible_states = np.where(value >= 0)[0]
     logger.info("Num feasible states: {}".format(len(feasible_states)))
 
+    if len(feasible_states) == 0:
+        logger.warning("No feasible states found!")
+
+        # Debug
+        agent1 = (1, 3)
+        agent2 = (3, 3)
+        agent3 = (5, 3)
+        state = dyn_ma.encode_from_tups([agent1, agent2, agent3])
+        logger.info("Collide: {}".format(dict_predicates["collide"][state]))
+        logger.info("Value: {}".format(value[state]))
+
+        ipdb.set_trace()
+
     # If possible, choose an initial state where none of the agents start on the key.
-    is_good = (dict_predicates["k"] != 1) & (value > 0)
+    is_good = (dict_predicates["k"] != 1) & (value >= 0)
     feasible_states_good = np.where(is_good)[0]
     logger.info("Num feasible states (where not on key): {}".format(len(feasible_states_good)))
     if len(feasible_states_good) > 0:

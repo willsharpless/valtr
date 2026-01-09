@@ -379,11 +379,10 @@ def lower_ir_to_dag(irb: IRBuilder, root: IRId) -> tuple[DagBuilder, DAGId]:
     elif len(G_args_id) == 1:
         G_dag_arg = lower_bool_leaf_expr_to_dag(irb, dag, G_args_id[0])
     else:
-        raise LoweringError("IR should have been preprocessed to combine multiple G into one")
+        # Lower each of the args, then AND them.
+        G_dag_args = [lower_bool_leaf_expr_to_dag(irb, dag, gid) for gid in G_args_id]
+        G_dag_arg = dag.min_n(G_dag_args)
 
-    # if len(GU_args) == 0:
-    #     return dag, lower_ir_to_dag_no_GU_(irb, dag, U_args, G_dag_arg)
-    # else:
     return dag, lower_ir_to_dag_(irb, dag, U_args, GU_args, G_dag_arg)
 
 
@@ -544,19 +543,6 @@ def dag_to_str(builder: DagBuilder, rid: DAGId) -> str:
         return s
 
     return go(int(rid), top_level=True)
-
-
-# def lower_ir_to_dag_no_GU_(
-#     irb: IRBuilder,
-#     dag: DagBuilder,
-#     U_args: list[TemporalBinary],
-#     G_arg_dag: DAGId,
-# ) -> DAGId:
-#     """
-#
-#     """
-#     ...
-#
 
 
 def collect_predicate_info(
