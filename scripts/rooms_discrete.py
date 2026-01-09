@@ -61,7 +61,14 @@ MAP3_DRIFT = """
 #####
 """
 
-MAP_NUM = 2
+MAP4 = """
+###########
+#BA     A #
+#    S    #
+###########
+"""
+
+MAP_NUM = 4
 
 
 def get_rooms():
@@ -107,7 +114,15 @@ def get_rooms():
         # Modify the drift.
         dyn.drift_fn = get_drift_fn(d_raw_drift, force=True)
         return dyn, d
-
+    elif MAP_NUM == 4:
+        dyn, d_raw = parse_rooms(MAP4)
+        d = {
+            "A": np.where(d_raw["A"], 1, -1),
+            "B": np.where(d_raw["B"], 1, -1),
+            "S": np.where(d_raw["S"], 1, -1),
+            "w": np.where(d_raw["#"], 1, -1),
+        }
+        return dyn, d
     else:
         raise NotImplementedError("")
 
@@ -117,7 +132,7 @@ def get_rooms():
 
 
 @app.default()
-def main(view_pdf: bool = False):
+def main(view_pdf: bool = False, gamma: float | None = None):
     if MAP_NUM == 1:
         # MAP1
         # TASK_SOURCE = "!d1 U k1"
@@ -133,6 +148,8 @@ def main(view_pdf: bool = False):
         # TASK_SOURCE = "G( !w )"
     elif MAP_NUM == 3:
         TASK_SOURCE = "G F r && G( !w )"
+    elif MAP_NUM == 4:
+        TASK_SOURCE = "F A && F B && G( !w )"
     else:
         raise ValueError("Invalid MAP_NUM")
 
@@ -167,7 +184,7 @@ def main(view_pdf: bool = False):
         d_raw_drift = parse_rooms(MAP3_DRIFT)[1]
         d_raw = d_raw_drift | d_raw
     else:
-        map_str = MAP1 if MAP_NUM == 1 else MAP2 if MAP_NUM == 2 else MAP3
+        map_str = [None, MAP1, MAP2, MAP3, MAP4][MAP_NUM]
         _, d_raw = parse_rooms(map_str)
 
     empty_map = np.zeros_like(d_raw["#"])
@@ -213,7 +230,9 @@ def main(view_pdf: bool = False):
 
     # -------------------------------------------
     # Solve.
-    dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(dyn, value_tree_dag, dict_predicates)
+    dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
+        dyn, value_tree_dag, dict_predicates, gamma=gamma
+    )
 
     # ---------------------------------
     # Visualize the final value function.
@@ -291,9 +310,12 @@ def main(view_pdf: bool = False):
     value = dict_vars[dag_root]
     feasible_states = np.where(value > 0)[0]
 
-    rng = np.random.default_rng(seed=12345)
-    start_state = rng.choice(feasible_states)
-    # start_state = dyn.encode_state((2, 4))
+    if MAP_NUM == 4:
+        start_state = dyn.encode_state((2, 5))
+    else:
+        rng = np.random.default_rng(seed=12345)
+        start_state = rng.choice(feasible_states)
+        # start_state = dyn.encode_state((2, 4))
 
     # Visualize the start state.
     y, x = dyn.decode_state(start_state)

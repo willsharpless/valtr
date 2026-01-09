@@ -55,7 +55,7 @@ TASK_SOURCE = "G F r1 && G F r2 && G F r3 && (!d U k) && G(!w) && G(!collide)"
 
 
 @app.default()
-def main(view_pdf: bool = False):
+def main(view_pdf: bool = False, gamma: float | None = None):
     dyn, d_raw = parse_rooms(MAP)
     d = {
         "r1": np.where(d_raw["A"], 1, -1),
@@ -112,7 +112,9 @@ def main(view_pdf: bool = False):
 
     # -------------------------------------------
     # Solve.
-    dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(dyn_ma, value_tree_dag, dict_predicates)
+    dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
+        dyn_ma, value_tree_dag, dict_predicates, gamma=gamma
+    )
 
     # ---------------------------------
     rng = np.random.default_rng(seed=12345)

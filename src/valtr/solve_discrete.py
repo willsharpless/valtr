@@ -1,3 +1,6 @@
+import functools as ft
+
+import ipdb
 import numpy as np
 import tqdm
 from dvi.dynamics.discrete import DiscreteDyn
@@ -7,13 +10,17 @@ from dvi.gen_solver import (FixedPointGUSolver, avoid_update_rule_with_actions, 
 from valtr.reachability import DAGGU, DAGAvoid, DagBuilder, DAGMaxN, DAGMinN, DAGNegate, DAGReachAvoid, DAGVar
 
 
-def solve_discrete(dyn: DiscreteDyn, value_tree_dag: DagBuilder, dict_predicates: dict[str, np.ndarray]):
+def solve_discrete(
+    dyn: DiscreteDyn, value_tree_dag: DagBuilder, dict_predicates: dict[str, np.ndarray], gamma: float | None = None
+):
     dict_vars = {}
     dict_actions = {}
     dict_GU_vars = {}
     dict_GU_actions = {}
     dict_locals = dict_predicates
-    for dag_id, node in enumerate(tqdm.tqdm(value_tree_dag.nodes)):
+    pbar = tqdm.tqdm(value_tree_dag.nodes)
+    for dag_id, node in enumerate(pbar):
+        pbar.set_description(f"Solving node {type(node)}")
         match node:
             case DAGVar(name=name):
                 assert name in dict_locals, "Unknown variable name {}".format(name)
@@ -44,7 +51,7 @@ def solve_discrete(dyn: DiscreteDyn, value_tree_dag: DagBuilder, dict_predicates
 
                 # update_rule = reach_avoid_update_rule
                 # solve_fn = make_solve_fn(dyn, update_rule, n_updates=dyn.n_states)
-                update_rule = reach_avoid_update_rule_with_actions
+                update_rule = reach_avoid_update_rule_with_actions(gamma)
                 solve_fn = make_solve_fn_with_actions(dyn, update_rule, n_updates=dyn.n_states)
                 dict_vars[dag_id], dict_actions[dag_id] = solve_fn(s_v0, **kwargs)
 
@@ -57,13 +64,31 @@ def solve_discrete(dyn: DiscreteDyn, value_tree_dag: DagBuilder, dict_predicates
 
                 # update_rule = avoid_update_rule
                 # solve_fn = make_solve_fn(dyn, update_rule, n_updates=dyn.n_states)
-                update_rule = avoid_update_rule_with_actions
+                update_rule = avoid_update_rule_with_actions(gamma)
                 solve_fn = make_solve_fn_with_actions(dyn, update_rule, n_updates=dyn.n_states)
                 dict_vars[dag_id], dict_actions[dag_id] = solve_fn(s_v0, **kwargs)
 
             case DAGGU(args=args):
                 U_args = [[dict_vars[q], dict_vars[r]] for q, r in args]
-                out = FixedPointGUSolver().solve(dyn, U_args, n_iters=3)
+                out = FixedPointGUSolver().solve(dyn, U_args, n_iters=3, gamma=gamma)
                 dict_vars[dag_id], dict_actions[dag_id], dict_GU_vars[dag_id], dict_GU_actions[dag_id] = out
+
+        # # Visualize.
+        # import matplotlib.pyplot as plt
+        #
+        # tmp = dict_vars[dag_id]
+        # vmin = tmp[tmp >= 0].min()
+        # if vmin == 1:
+        #     vmin = -1
+        #
+        # h, w = dyn.shape
+        # fig, ax = plt.subplots()
+        # im = ax.imshow(dict_vars[dag_id].reshape(dyn.shape), vmin=vmin, vmax=1)
+        #
+        # ax.set_xticks(np.arange(w + 1) - 0.5)
+        # ax.set_yticks(np.arange(h + 1) - 0.5)
+        # cbar = fig.colorbar(im, ax=ax)
+        # ax.set_title("{} ({}), gamma={}".format(dag_id, node, gamma))
+        # plt.show()
 
     return dict_vars, dict_actions, dict_GU_vars, dict_GU_actions
