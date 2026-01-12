@@ -1,4 +1,6 @@
 import functools as ft
+import pathlib
+import pickle
 
 import ipdb
 import numpy as np
@@ -6,19 +8,21 @@ import tqdm
 from dvi.dynamics.discrete import DiscreteDyn
 from dvi.gen_solver import (FixedPointGUSolver, avoid_update_rule_with_actions, make_solve_fn_with_actions,
                             reach_avoid_update_rule_with_actions)
+from loguru import logger
 
-from valtr.reachability import DAGGU, DAGAvoid, DagBuilder, DAGMaxN, DAGMinN, DAGNegate, DAGReachAvoid, DAGVar
+from valtr.reachability import (DAGGU, DAGAvoid, DagBuilder, DAGId, DAGMaxN, DAGMinN, DAGNegate, DAGNode, DAGReachAvoid,
+                                DAGVar)
 
 
 def solve_discrete(
-    dyn: DiscreteDyn, value_tree_dag: DagBuilder, dict_predicates: dict[str, np.ndarray], gamma: float | None = None
+    dyn: DiscreteDyn, dag_nodes: list[DAGNode], dict_predicates: dict[str, np.ndarray], gamma: float | None = None
 ):
     dict_vars = {}
     dict_actions = {}
     dict_GU_vars = {}
     dict_GU_actions = {}
     dict_locals = dict_predicates
-    pbar = tqdm.tqdm(value_tree_dag.nodes)
+    pbar = tqdm.tqdm(dag_nodes)
     for dag_id, node in enumerate(pbar):
         pbar.set_description(f"Solving node {type(node)}")
         match node:
@@ -92,3 +96,45 @@ def solve_discrete(
         # plt.show()
 
     return dict_vars, dict_actions, dict_GU_vars, dict_GU_actions
+
+
+def save_discrete_sol(
+    pkl_path: pathlib.Path,
+    dyn_ma: DiscreteDyn,
+    dag_nodes: list[DAGNode],
+    dag_root: DAGId,
+    dict_vars: dict[DAGId, np.ndarray],
+    dict_actions: dict[DAGId, np.ndarray],
+    dict_GU_vars: dict[DAGId, np.ndarray],
+    dict_GU_actions: dict[DAGId, np.ndarray],
+):
+    out_dict = {
+        "dyn_ma": dyn_ma,
+        "dag_nodes": dag_nodes,
+        "dag_root": dag_root,
+        "dict_vars": dict_vars,
+        "dict_actions": dict_actions,
+        "dict_GU_vars": dict_GU_vars,
+        "dict_GU_actions": dict_GU_actions,
+    }
+    with open(pkl_path, "wb") as f:
+        pickle.dump(out_dict, f)
+
+    logger.success("Saved discrete solution to {}".format(pkl_path))
+
+
+def load_discrete_sol(pkl_path: pathlib.Path):
+    with open(pkl_path, "rb") as f:
+        in_dict = pickle.load(f)
+
+    dyn_ma = in_dict["dyn_ma"]
+    dag_nodes = in_dict["dag_nodes"]
+    dag_root = in_dict["dag_root"]
+    dict_vars = in_dict["dict_vars"]
+    dict_actions = in_dict["dict_actions"]
+    dict_GU_vars = in_dict["dict_GU_vars"]
+    dict_GU_actions = in_dict["dict_GU_actions"]
+
+    logger.success("Loaded discrete solution from {}".format(pkl_path))
+
+    return dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions

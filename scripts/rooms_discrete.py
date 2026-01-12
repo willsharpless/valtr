@@ -1,6 +1,5 @@
 import cyclopts
 import ipdb
-import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 from dvi.dynamics.gridworld import GridWorld
@@ -8,18 +7,9 @@ from loguru import logger
 from matplotlib.animation import FuncAnimation
 from matplotlib.colors import ListedColormap
 
-from valtr.dag_graphviz import visualize_dag
-from valtr.dag_passes import PassFoldConstBool
-from valtr.gridworld_utils import get_drift_fn, parse_rooms
-from valtr.ir_builder import IRBuilder
-from valtr.ir_graphviz import visualize_ir
-from valtr.ir_pass import PassCombineGloballySegments, PassFinallyToUntil
-from valtr.lowering import Lowerer
+from valtr.gridworld_utils import parse_rooms, GridWorldDriftFn
 from valtr.mintime_rollout import MinTimeRollout
-from valtr.reachability import lower_ir_to_dag
 from valtr.solve_discrete import solve_discrete
-from valtr.tl_lexer import TLLexer
-from valtr.tl_parser import TLParser
 from valtr.valtr import to_dag
 
 app = cyclopts.App()
@@ -100,7 +90,7 @@ def get_rooms():
         }
 
         # Modify the drift. On <, can only go left. On >, can only go right.
-        dyn.drift_fn = get_drift_fn(d_raw, force=False)
+        dyn.drift_fn = GridWorldDriftFn(d_raw, force=False)
 
         return dyn, d
     elif MAP_NUM == 3:
@@ -112,7 +102,7 @@ def get_rooms():
         _, d_raw_drift = parse_rooms(MAP3_DRIFT)
 
         # Modify the drift.
-        dyn.drift_fn = get_drift_fn(d_raw_drift, force=True)
+        dyn.drift_fn = GridWorldDriftFn(d_raw_drift, force=True)
         return dyn, d
     elif MAP_NUM == 4:
         dyn, d_raw = parse_rooms(MAP4)

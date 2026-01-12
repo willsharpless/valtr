@@ -1,29 +1,17 @@
+import pathlib
+
 import cyclopts
 import ipdb
-import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-import tqdm
-from dvi.dynamics.gridworld import GridWorld
 from dvi.dynamics.gridworld_ma import GridWorldMA, ma_collision_predicate, rew_to_ma
-from dvi.gen_solver import (FixedPointGUSolver, avoid_update_rule_with_actions, make_solve_fn_with_actions,
-                            reach_avoid_update_rule_with_actions)
 from loguru import logger
 from matplotlib.animation import FuncAnimation
 from matplotlib.colors import ListedColormap
 
-from valtr.dag_graphviz import visualize_dag
-from valtr.dag_passes import PassFoldConstBool
-from valtr.gridworld_utils import get_drift_fn, parse_rooms
-from valtr.ir_builder import IRBuilder
-from valtr.ir_graphviz import visualize_ir
-from valtr.ir_pass import PassCombineGloballySegments, PassFinallyToUntil
-from valtr.lowering import Lowerer
+from valtr.gridworld_utils import GridWorldDriftFn, parse_rooms
 from valtr.mintime_rollout import MinTimeRollout
-from valtr.reachability import DAGGU, DAGAvoid, DAGMaxN, DAGMinN, DAGNegate, DAGReachAvoid, DAGVar, lower_ir_to_dag
-from valtr.solve_discrete import solve_discrete
-from valtr.tl_lexer import TLLexer
-from valtr.tl_parser import TLParser
+from valtr.solve_discrete import load_discrete_sol, save_discrete_sol, solve_discrete
 from valtr.valtr import to_dag
 
 app = cyclopts.App()
@@ -73,7 +61,7 @@ TASK_SOURCE = "G F r1 && G F r2 && G F r3 && (!d U k) && G(!w) && G(!collide)"
 
 
 @app.default()
-def main(view_pdf: bool = False, gamma: float | None = None):
+def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = False):
     dyn, d_raw = parse_rooms(MAP)
     d = {
         "r1": np.where(d_raw["A"], 1, -1),
@@ -87,7 +75,7 @@ def main(view_pdf: bool = False, gamma: float | None = None):
         ">": np.where(d_raw[">"], 1, -1),
         "^": np.where(d_raw["^"], 1, -1),
     }
-    dyn.drift_fn = get_drift_fn(d_raw, force=False)
+    dyn.drift_fn = GridWorldDriftFn(d_raw, force=False)
     # ------------------------------
 
     h, w = dyn.shape
@@ -112,6 +100,7 @@ def main(view_pdf: bool = False, gamma: float | None = None):
     value_tree_dag, dag_root = to_dag(
         TASK_SOURCE, ir_filename="rooms_discrete_ma_ir", dag_filename="rooms_discrete_ma_dag"
     )
+    dag_nodes = value_tree_dag.nodes
 
     dict_predicates_unflat = d
     dict_predicates = {k: v.flatten() for k, v in dict_predicates_unflat.items()}
@@ -130,9 +119,16 @@ def main(view_pdf: bool = False, gamma: float | None = None):
 
     # -------------------------------------------
     # Solve.
-    dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
-        dyn_ma, value_tree_dag, dict_predicates, gamma=gamma
-    )
+    pkl_path = pathlib.Path("rooms_discrete_ma_sol.pkl")
+
+    if resolve or not pkl_path.exists():
+        dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
+            dyn_ma, dag_nodes, dict_predicates, gamma=gamma
+        )
+
+        save_discrete_sol(pkl_path, dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+
+    dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = load_discrete_sol(pkl_path)
 
     # ---------------------------------
     rng = np.random.default_rng(seed=12345)
@@ -148,7 +144,7 @@ def main(view_pdf: bool = False, gamma: float | None = None):
 
     # If possible, choose an initial state where none of the agents start on the key.
     # start_state = dyn_ma.encode_from_tups([(3, 3), (3, 5), (7, 5)])
-    start_state = dyn_ma.encode_from_tups([(4, 9), (6, 6)])
+    start_state = dyn_ma.encode_from_tups([(3, 8), (6, 6)])
     if start_state is not None and value[start_state] >= 0:
         logger.info("Using hardcoded start state.")
     else:
@@ -159,7 +155,7 @@ def main(view_pdf: bool = False, gamma: float | None = None):
             start_state = rng.choice(feasible_states)
 
     # ---------------------------------
-    rollouter = MinTimeRollout(dyn_ma, value_tree_dag, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+    rollouter = MinTimeRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
     Tp1_states, T_actions = rollouter.rollout(start_state, max_steps=50)
 
     # Visualize the rollout by animating the path and saving as mp4.

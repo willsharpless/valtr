@@ -774,15 +774,15 @@ def extract_trigger_predicate_map(builder: DagBuilder, root: DAGId):
     return predicates, predicate_ids, predicate_roles, negated_predicate_mask, temporal_nodes, trigger_map
 
 
-def has_temporal_children(node_id: DAGId, dag: DagBuilder) -> bool:
+def has_temporal_children(node_id: DAGId, nodes: list[DAGNode]) -> bool:
     """
     Recursively check if a DAG node has any temporal children
     """
-    node = dag.nodes[int(node_id)]
+    node = nodes[int(node_id)]
     for child_id in node.children():
-        child_node = dag.nodes[child_id]
+        child_node = nodes[child_id]
         if child_node.is_temporal():
             return True
-        if has_temporal_children(child_id, dag):
+        if has_temporal_children(child_id, nodes):
             return True
     return False

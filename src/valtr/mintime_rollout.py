@@ -5,15 +5,14 @@ import tqdm
 from dvi.dynamics.discrete import DiscreteDyn
 from loguru import logger
 
-from valtr.reachability import (DAGGU, DAGAvoid, DagBuilder, DAGId, DAGMaxN, DAGMinN, DAGReachAvoid,
-                                has_temporal_children)
+from valtr.reachability import DAGGU, DAGAvoid, DAGId, DAGMaxN, DAGMinN, DAGNode, DAGReachAvoid, has_temporal_children
 
 
 class MinTimeRollout:
     def __init__(
         self,
         dyn: DiscreteDyn,
-        dag: DagBuilder,
+        dag_nodes: list[DAGNode],
         dag_root: DAGId,
         dict_vars: dict[int, jnp.ndarray],
         dict_actions: dict[int, jnp.ndarray],
@@ -21,7 +20,7 @@ class MinTimeRollout:
         dict_GU_actions: dict[int, list[jnp.ndarray]],
     ):
         self.dyn = dyn
-        self.dag = dag
+        self.dag_nodes = dag_nodes
         self.dag_root = dag_root
         self.dict_vars = dict_vars
         self.dict_actions = dict_actions
@@ -32,7 +31,7 @@ class MinTimeRollout:
     def rollout(self, start_state: int, max_steps: int = 10):
         state = start_state
         cur_node_id = self.dag_root
-        dag_nodes = self.dag.nodes
+        dag_nodes = self.dag_nodes
 
         Tp1_states = [state]
         T_actions = []
@@ -59,7 +58,7 @@ class MinTimeRollout:
                         cur_node_id = args[int(np.argmax(arg_values))]
                     case DAGReachAvoid(reach=reach_idx, avoid=avoid):
                         reach_node = dag_nodes[reach_idx]
-                        if has_temporal_children(reach_idx, self.dag):
+                        if has_temporal_children(reach_idx, self.dag_nodes):
                             # It's either just a min, or a max of mins.
                             # If it's the latter, identify which branch to take.
 
