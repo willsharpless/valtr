@@ -150,6 +150,7 @@ def main(view_pdf: bool = False, gamma: float | None = None):
     print(f"Input task logic: {TASK_SOURCE}")
 
     value_tree_dag, dag_root = to_dag(TASK_SOURCE, ir_filename="rooms_discrete_ir", dag_filename="rooms_discrete_dag")
+    dag_nodes = value_tree_dag.nodes
 
     dyn: GridWorld
     dyn, dict_predicates_unflat = get_rooms()
@@ -222,7 +223,7 @@ def main(view_pdf: bool = False, gamma: float | None = None):
     # -------------------------------------------
     # Solve.
     dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
-        dyn, value_tree_dag, dict_predicates, gamma=gamma
+        dyn, dag_nodes, dict_predicates, gamma=gamma
     )
 
     # ---------------------------------
@@ -323,7 +324,7 @@ def main(view_pdf: bool = False, gamma: float | None = None):
     plt.close(fig)
 
     # ----------------------------
-    rollouter = MinTimeRollout(dyn, value_tree_dag, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+    rollouter = MinTimeRollout(dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
     Tp1_states, T_actions = rollouter.rollout(start_state, max_steps=30)
 
     # Visualize the rollout by animating the path and saving as mp4.
