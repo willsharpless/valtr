@@ -38,16 +38,34 @@ app = cyclopts.App()
 # #######
 # """
 
+# MAP = """
+# #######
+# #^K ^^#
+# #v   B#
+# #A<   #
+# ###D###
+# #A  >B#
+# #    ^#
+# # C   #
+# #######
+# """
+
 MAP = """
-#######
-#^K ^^#
-#v   B#
-#A<   #
-###D###
-#A  >B#
-#    ^#
-# C   #
-#######
+###############
+# K           #
+#           BB#
+#           BB#
+#vv   ####    #
+#AA<  ####    #
+#AA<          #
+######DDD######
+#AA        >BB#
+#AA        >BB#
+#   ##      ^^#
+#   ##        #
+#     CC      #
+#     CC      #
+###############
 """
 
 TASK_SOURCE = "G F r1 && G F r2 && G F r3 && (!d U k) && G(!w) && G(!collide)"
@@ -88,8 +106,8 @@ def main(view_pdf: bool = False, gamma: float | None = None):
     cmap = ListedColormap(colors)
 
     # ------------------------------
-    # dyn_ma = GridWorldMA(dyn, n_agents=2)
-    dyn_ma = GridWorldMA(dyn, n_agents=3)
+    dyn_ma = GridWorldMA(dyn, n_agents=2)
+    # dyn_ma = GridWorldMA(dyn, n_agents=3)
 
     value_tree_dag, dag_root = to_dag(
         TASK_SOURCE, ir_filename="rooms_discrete_ma_ir", dag_filename="rooms_discrete_ma_dag"
@@ -124,27 +142,21 @@ def main(view_pdf: bool = False, gamma: float | None = None):
     feasible_states = np.where(value >= 0)[0]
     logger.info("Num feasible states: {}".format(len(feasible_states)))
 
-    if len(feasible_states) == 0:
-        logger.warning("No feasible states found!")
-
-        # Debug
-        agent1 = (1, 3)
-        agent2 = (3, 3)
-        agent3 = (5, 3)
-        state = dyn_ma.encode_from_tups([agent1, agent2, agent3])
-        logger.info("Collide: {}".format(dict_predicates["collide"][state]))
-        logger.info("Value: {}".format(value[state]))
-
-        ipdb.set_trace()
-
-    # If possible, choose an initial state where none of the agents start on the key.
     is_good = (dict_predicates["k"] != 1) & (value >= 0)
     feasible_states_good = np.where(is_good)[0]
     logger.info("Num feasible states (where not on key): {}".format(len(feasible_states_good)))
-    if len(feasible_states_good) > 0:
-        start_state = rng.choice(feasible_states_good)
+
+    # If possible, choose an initial state where none of the agents start on the key.
+    # start_state = dyn_ma.encode_from_tups([(3, 3), (3, 5), (7, 5)])
+    start_state = dyn_ma.encode_from_tups([(4, 9), (6, 6)])
+    if start_state is not None and value[start_state] >= 0:
+        logger.info("Using hardcoded start state.")
     else:
-        start_state = rng.choice(feasible_states)
+        logger.info("Hardcoded start state not feasible: {}".format(value[start_state]))
+        if len(feasible_states_good) > 0:
+            start_state = rng.choice(feasible_states_good)
+        else:
+            start_state = rng.choice(feasible_states)
 
     # ---------------------------------
     rollouter = MinTimeRollout(dyn_ma, value_tree_dag, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)

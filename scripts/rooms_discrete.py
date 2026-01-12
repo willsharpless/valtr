@@ -149,7 +149,8 @@ def main(view_pdf: bool = False, gamma: float | None = None):
     elif MAP_NUM == 3:
         TASK_SOURCE = "G F r && G( !w )"
     elif MAP_NUM == 4:
-        TASK_SOURCE = "F A && F B && G( !w )"
+        # TASK_SOURCE = "F A && F B && G( !w )"
+        TASK_SOURCE = "G F A && G F B && G( !w )"
     else:
         raise ValueError("Invalid MAP_NUM")
 
@@ -311,7 +312,8 @@ def main(view_pdf: bool = False, gamma: float | None = None):
     feasible_states = np.where(value > 0)[0]
 
     if MAP_NUM == 4:
-        start_state = dyn.encode_state((2, 5))
+        # start_state = dyn.encode_state((2, 5))
+        start_state = dyn.encode_state((2, 7))
     else:
         rng = np.random.default_rng(seed=12345)
         start_state = rng.choice(feasible_states)
