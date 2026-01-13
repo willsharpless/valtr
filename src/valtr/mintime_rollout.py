@@ -28,7 +28,7 @@ class MinTimeRollout:
         self.dict_GU_vars = dict_GU_vars
         self.dict_GU_actions = dict_GU_actions
 
-    def rollout(self, start_state: int, max_steps: int = 10):
+    def rollout(self, start_state: int, max_steps: int = 10, quiet: bool = False, which=jnp):
         state = start_state
         cur_node_id = self.dag_root
         dag_nodes = self.dag_nodes
@@ -65,7 +65,7 @@ class MinTimeRollout:
                             if isinstance(reach_node, DAGMaxN):
                                 min_values = [self.dict_vars[idx][state] for idx in reach_node.args]
                                 branch = int(np.argmax(min_values))
-                                logger.info("min values: {}".format(min_values))
+                                # logger.info("min values: {}".format(min_values))
                                 reach_min_idx = reach_node.args[branch]
                             else:
                                 assert isinstance(reach_node, DAGMinN)
@@ -89,17 +89,17 @@ class MinTimeRollout:
                             non_temporal_value = np.min(non_temporal_values)
                             temporal_value = self.dict_vars[temporal_idx][state]
 
-                            logger.info(
-                                "Cur Node: {} | Min Node: {} | nontemp_idxs: {} | temp_idxs: {} | nontemp: {} | temp: {} | cur: {}".format(
-                                    cur_node_id,
-                                    reach_min_idx,
-                                    non_temporal_idxs,
-                                    temporal_idxs,
-                                    non_temporal_value,
-                                    temporal_value,
-                                    current_value,
-                                )
-                            )
+                            # logger.info(
+                            #     "Cur Node: {} | Min Node: {} | nontemp_idxs: {} | temp_idxs: {} | nontemp: {} | temp: {} | cur: {}".format(
+                            #         cur_node_id,
+                            #         reach_min_idx,
+                            #         non_temporal_idxs,
+                            #         temporal_idxs,
+                            #         non_temporal_value,
+                            #         temporal_value,
+                            #         current_value,
+                            #     )
+                            # )
 
                             if (non_temporal_value < temporal_value) and (non_temporal_value < current_value):
                                 # Stay on the current node if (non_temporal < temporal) AND (non_temporal < V)
@@ -111,7 +111,7 @@ class MinTimeRollout:
                                     ipdb.set_trace()
 
                                 cur_node_id = temporal_idx
-                                logger.info("Switching to temporal child: {}".format(cur_node_id))
+                                # logger.info("Switching to temporal child: {}".format(cur_node_id))
                                 continue
                         else:
                             # If no temporal children, then execute the action associated with the reach node.
@@ -134,7 +134,7 @@ class MinTimeRollout:
                         # Get the value of the NEXT state for the NEXT GU arg.
                         action_dict = self.dict_GU_actions[cur_node_id][cur_GU_index]
                         action_curr = action_dict[state]
-                        state_new = self.dyn.step(state, action_curr)
+                        state_new = self.dyn.step(state, action_curr, which=which)
 
                         next_GU_index = (cur_GU_index + 1) % len(args)
                         value_next_GU = self.dict_GU_vars[cur_node_id][next_GU_index][state_new]
@@ -147,20 +147,20 @@ class MinTimeRollout:
                         # If it cycles, execute the current action and then move to the next GU arg (upon which the same
                         # thing will happen again).
                         same_value = (r_value == value_next_GU) and (r_value == current_value)
-                        action_curr_str = self.dyn.action_to_str(action_curr)
+                        # action_curr_str = self.dyn.action_to_str(action_curr)
 
-                        logger.info(
-                            "Cur Node: {} | Cur GU idx: {} | r_value: {} | value_next_GU: {} | current_value: {} | "
-                            "stay: {} | action_curr: {}".format(
-                                cur_node_id,
-                                cur_GU_index,
-                                r_value,
-                                value_next_GU,
-                                current_value,
-                                stay_current_GU_node,
-                                action_curr_str,
-                            )
-                        )
+                        # logger.info(
+                        #     "Cur Node: {} | Cur GU idx: {} | r_value: {} | value_next_GU: {} | current_value: {} | "
+                        #     "stay: {} | action_curr: {}".format(
+                        #         cur_node_id,
+                        #         cur_GU_index,
+                        #         r_value,
+                        #         value_next_GU,
+                        #         current_value,
+                        #         stay_current_GU_node,
+                        #         action_curr_str,
+                        #     )
+                        # )
 
                         if same_value:
                             if cycle_start_GU_idx is None:
@@ -178,7 +178,7 @@ class MinTimeRollout:
                         else:
                             # Otherwise, advance to the next GU arg.
                             GU_index_dict[cur_node_id] = next_GU_index
-                            logger.info("Moving to next GU arg: {}".format(next_GU_index))
+                            # logger.info("Moving to next GU arg: {}".format(next_GU_index))
                             continue
 
                     case DAGAvoid(avoid=avoid):
@@ -196,7 +196,7 @@ class MinTimeRollout:
             action = action_dict[state]
 
             # Apply the action to get the next state.
-            state_new = self.dyn.step(state, action)
+            state_new = self.dyn.step(state, action, which=which)
 
             # # If the current value >= next value, and there are no temporal children, then the trajectory has ended.
             # current_value = self.dict_vars[cur_node_id][state]

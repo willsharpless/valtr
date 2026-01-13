@@ -1,3 +1,4 @@
+import ipdb
 import jax.numpy as jnp
 import numpy as np
 from dvi.dynamics.gridworld import GridWorld
@@ -34,28 +35,36 @@ class GridWorldDriftFn:
         self.d = d
         self.force = force
 
-    def __call__(self, state: jnp.ndarray, delta: jnp.ndarray):
+    def __call__(self, state: jnp.ndarray, delta: jnp.ndarray, which=jnp):
+        if which is jnp:
+            print("which: {}".format(which))
+            ipdb.set_trace()
         d = self.d
         force = self.force
         y, x = state
-        l_only = jnp.array(d["<"])[y, x]  # bool
-        r_only = jnp.array(d[">"])[y, x]  # bool
-        u_only = jnp.array(d["^"])[y, x]  # bool
+        l_only = which.array(d["<"])[y, x]  # bool
+        r_only = which.array(d[">"])[y, x]  # bool
+        u_only = which.array(d["^"])[y, x]  # bool
 
         if "v" in d:
-            d_only = jnp.array(d["v"])[y, x]  # bool
+            d_only = which.array(d["v"])[y, x]  # bool
         else:
             d_only = np.array(False)
 
-        delta_x = jnp.where(l_only, -1, jnp.where(r_only, 1, delta[0]))
-        delta_y = jnp.where(u_only, -1, jnp.where(d_only, 1, delta[1]))
+        delta_x = which.where(l_only, -1, which.where(r_only, 1, delta[0]))
+        delta_y = which.where(u_only, -1, which.where(d_only, 1, delta[1]))
 
         if force:
             # In l_only or r_only, delta_y = 0. Similarly, in u_only or d_only, delta_x = 0.
-            delta_y = jnp.where(l_only | r_only, 0, delta_y)
-            delta_x = jnp.where(u_only | d_only, 0, delta_x)
+            delta_y = which.where(l_only | r_only, 0, delta_y)
+            delta_x = which.where(u_only | d_only, 0, delta_x)
 
-        delta = delta.at[1].set(delta_x).at[0].set(delta_y)
+        if isinstance(delta, jnp.ndarray):
+            delta = delta.at[1].set(delta_x).at[0].set(delta_y)
+        else:
+            assert isinstance(delta, np.ndarray)
+            delta[1] = delta_x
+            delta[0] = delta_y
 
         return state + delta
 
