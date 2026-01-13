@@ -1,6 +1,8 @@
 import functools as ft
+import jax
 import pathlib
 import pickle
+from typing import NamedTuple
 
 import ipdb
 import numpy as np
@@ -98,6 +100,16 @@ def solve_discrete(
     return dict_vars, dict_actions, dict_GU_vars, dict_GU_actions
 
 
+class DiscreteSol(NamedTuple):
+    dyn_ma: DiscreteDyn
+    dag_nodes: list[DAGNode]
+    dag_root: DAGId
+    dict_vars: dict[DAGId, np.ndarray]
+    dict_actions: dict[DAGId, np.ndarray]
+    dict_GU_vars: dict[DAGId, np.ndarray]
+    dict_GU_actions: dict[DAGId, np.ndarray]
+
+
 def save_discrete_sol(
     pkl_path: pathlib.Path,
     dyn_ma: DiscreteDyn,
@@ -112,10 +124,10 @@ def save_discrete_sol(
         "dyn_ma": dyn_ma,
         "dag_nodes": dag_nodes,
         "dag_root": dag_root,
-        "dict_vars": dict_vars,
-        "dict_actions": dict_actions,
-        "dict_GU_vars": dict_GU_vars,
-        "dict_GU_actions": dict_GU_actions,
+        "dict_vars": jax.device_get(dict_vars),
+        "dict_actions": jax.device_get(dict_actions),
+        "dict_GU_vars": jax.device_get(dict_GU_vars),
+        "dict_GU_actions": jax.device_get(dict_GU_actions),
     }
     with open(pkl_path, "wb") as f:
         pickle.dump(out_dict, f)
@@ -137,4 +149,4 @@ def load_discrete_sol(pkl_path: pathlib.Path):
 
     logger.success("Loaded discrete solution from {}".format(pkl_path))
 
-    return dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions
+    return DiscreteSol(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)

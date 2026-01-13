@@ -94,7 +94,8 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
     cmap = ListedColormap(colors)
 
     # ------------------------------
-    dyn_ma = GridWorldMA(dyn, n_agents=2)
+    dyn_ma = GridWorldMA(dyn, n_agents=1)
+    # dyn_ma = GridWorldMA(dyn, n_agents=2)
     # dyn_ma = GridWorldMA(dyn, n_agents=3)
 
     value_tree_dag, dag_root = to_dag(
@@ -144,7 +145,8 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
 
     # If possible, choose an initial state where none of the agents start on the key.
     # start_state = dyn_ma.encode_from_tups([(3, 3), (3, 5), (7, 5)])
-    start_state = dyn_ma.encode_from_tups([(3, 8), (6, 6)])
+    # start_state = dyn_ma.encode_from_tups([(3, 8), (6, 6)])
+    start_state = dyn_ma.encode_from_tups([(6, 6)])
     if start_state is not None and value[start_state] >= 0:
         logger.info("Using hardcoded start state.")
     else:
@@ -156,14 +158,14 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
 
     # ---------------------------------
     rollouter = MinTimeRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
-    Tp1_states, T_actions = rollouter.rollout(start_state, max_steps=50)
+    Tp1_states, T_actions = rollouter.rollout(start_state, max_steps=100)
 
     # Visualize the rollout by animating the path and saving as mp4.
     n_frames = len(Tp1_states)
     fig, ax = plt.subplots()
 
     # Visualize the map again.
-    im = ax.imshow(empty_map, cmap=cmap, vmin=0, vmax=len(d_raw), alpha=0.5)
+    im = ax.imshow(empty_map, cmap=cmap, vmin=0, vmax=len(d_raw), alpha=0.5, origin="lower")
     cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
     cbar.ax.set_yticklabels(list(d_raw.keys()))
     ax.set_xticks(np.arange(w + 1) - 0.5)

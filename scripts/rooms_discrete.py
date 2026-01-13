@@ -327,12 +327,14 @@ def main(view_pdf: bool = False, gamma: float | None = None):
     rollouter = MinTimeRollout(dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
     Tp1_states, T_actions = rollouter.rollout(start_state, max_steps=30)
 
+    logger.info("dyn.shape: {}".format(dyn.shape))
+
     # Visualize the rollout by animating the path and saving as mp4.
     n_frames = len(Tp1_states)
     fig, ax = plt.subplots()
 
     # Visualize the map again.
-    im = ax.imshow(empty_map, cmap=cmap, vmin=0, vmax=len(d_raw))
+    im = ax.imshow(empty_map, cmap=cmap, vmin=0, vmax=len(d_raw), alpha=0.5, origin="lower")
     cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
     cbar.ax.set_yticklabels(list(d_raw.keys()))
     ax.set_xticks(np.arange(w + 1) - 0.5)
