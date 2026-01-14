@@ -1,10 +1,9 @@
 from enum import Enum, auto
-from typing import Dict, Iterable, List, NewType, Optional, Set, Tuple
+from typing import Dict, Iterable, List, NamedTuple, NewType, Optional, Set, Tuple
 
 import graphviz
 import ipdb
 from attrs import define, field, frozen
-
 from valtr.ir import (Binary, BinaryIROpKind, ConstBool, IRId, IRNode, Nary, NaryKind, TemporalBinary, TemporalUnary,
                       Unary, UnaryIROpKind, Var)
 from valtr.ir_builder import IRBuilder
@@ -16,6 +15,9 @@ class DAGId(int):
     pass
 
 
+_TEMPORAL_CLASSES = set()
+
+
 @frozen
 class DAGNode:
     def children(self) -> List[DAGId]:
@@ -23,6 +25,18 @@ class DAGNode:
 
     def is_temporal(self) -> bool:
         return False
+
+    @staticmethod
+    def n_temporal_classes():
+        return len(_TEMPORAL_CLASSES)
+
+    @staticmethod
+    def get_temporal_classes():
+        return _TEMPORAL_CLASSES
+
+    @staticmethod
+    def get_temporal_classes_sorted():
+        return sorted(_TEMPORAL_CLASSES)
 
 
 def temporal(cls):
@@ -34,6 +48,8 @@ def temporal(cls):
         return True
 
     cls.is_temporal = new_is_temporal
+    cls_fullname = f"{cls.__module__}.{cls.__qualname__}"
+    _TEMPORAL_CLASSES.add(cls_fullname)
     return cls
 
 
@@ -324,7 +340,7 @@ def get_and_args_list(node: IRNode, node_id: IRId) -> list[IRId]:
             return [node_id]
 
 
-def lower_ir_to_dag(irb: IRBuilder, root: IRId) -> tuple[DagBuilder, DAGId]:
+def lower_ir_to_dag(irb: IRBuilder, root: IRId, dag: DagBuilder | None = None) -> tuple[DagBuilder, DAGId]:
     """
     AND_i G ( q_i U r_i )  AND  AND_j ( q_j U r_j )  AND  G q_G
 
@@ -372,7 +388,8 @@ def lower_ir_to_dag(irb: IRBuilder, root: IRId) -> tuple[DagBuilder, DAGId]:
             case _:
                 raise LoweringError(f"Top-level must contain only UNTIL/GLOBALLY, got {type(node).__name__}")
 
-    dag = DagBuilder()
+    if dag is None:
+        dag = DagBuilder()
 
     if len(G_args_id) == 0:
         G_dag_arg = dag.const(True)
@@ -431,7 +448,10 @@ def lower_ir_to_dag_(
     r_tilde_maxs = []
     for jj, node in enumerate(U_args):
         # r_j AND V_{without j}
-        r_j = lower_bool_leaf_expr_to_dag(irb, dag, node.right)
+        try:
+            r_j = lower_bool_leaf_expr_to_dag(irb, dag, node.right)
+        except LoweringError:
+            _, r_j = lower_ir_to_dag(irb, node.right, dag=dag)
 
         U_args_without_j = [node for ii, node in enumerate(U_args) if ii != jj]
         V_without_j = lower_ir_to_dag_(irb, dag, U_args_without_j, GU_args, G_arg_dag)
@@ -545,9 +565,15 @@ def dag_to_str(builder: DagBuilder, rid: DAGId) -> str:
     return go(int(rid), top_level=True)
 
 
-def collect_predicate_info(
-    builder: DagBuilder, root: DAGId
-) -> tuple[list[str], dict[str, int], list[int], dict[str, set], dict[str, set]]:
+class PredicateInfo(NamedTuple):
+    predicates: list[str]
+    predicate_to_idx: dict[str, int]
+    predicate_ids: list[int]
+    predicate_negations: dict[str, set[tuple[bool, int]]]
+    predicate_roles: dict[str, set[tuple[str | None, int]]]
+
+
+def collect_predicate_info(nodes: list[DAGNode], root: DAGId) -> PredicateInfo:
     """
     Collect predicates and track whether they appear negated and in which role (reach/avoid).
 
@@ -570,7 +596,7 @@ def collect_predicate_info(
             return
         visited.add(node_id)
 
-        node = builder.nodes[node_id]
+        node = nodes[node_id]
 
         match node:
             case DAGVar(name=name):
@@ -609,10 +635,19 @@ def collect_predicate_info(
                     _collect_recursive(child_id, is_negated, role, visited.copy())
 
     _collect_recursive(int(root), is_negated=False, role=None, visited=set())
-    return predicates, predicate_to_idx, predicate_ids, predicate_negations, predicate_roles
+    return PredicateInfo(predicates, predicate_to_idx, predicate_ids, predicate_negations, predicate_roles)
 
 
-def extract_trigger_predicate_map(builder: DagBuilder, root: DAGId):
+class TriggerPredicateMapOut(NamedTuple):
+    predicates: list[str]
+    predicate_ids: list[str]
+    predicate_roles: list[set[tuple[str | None, int]]]
+    negated_predicate_mask: list[bool]
+    temporal_nodes: list[int]
+    trigger_map: list[list[int]]  # (N, P) array
+
+
+def extract_trigger_predicate_map(nodes: list[DAGNode], root: DAGId) -> TriggerPredicateMapOut:
     """
     Extract trigger predicate map from a DAG.
 
@@ -642,9 +677,8 @@ def extract_trigger_predicate_map(builder: DagBuilder, root: DAGId):
     """
 
     # Collect predicate information
-    predicates, predicate_to_idx, predicate_ids, predicate_negations, predicate_role_sets = collect_predicate_info(
-        builder, root
-    )
+    out: PredicateInfo = collect_predicate_info(nodes, root)
+    predicates, predicate_to_idx, predicate_ids, predicate_negations, predicate_role_sets = out
 
     # Assert and extract unique negation status for each predicate
     # After PassDuplicateMixedPolarity, each predicate should have consistent negation
@@ -676,7 +710,7 @@ def extract_trigger_predicate_map(builder: DagBuilder, root: DAGId):
             return
         visited.add(node_id)
 
-        node = builder.nodes[node_id]
+        node = nodes[node_id]
 
         # Recursively visit children first (post-order traversal)
         for child_id in node.children():
@@ -709,7 +743,7 @@ def extract_trigger_predicate_map(builder: DagBuilder, root: DAGId):
             return
         visited.add(node_id)
 
-        node = builder.nodes[node_id]
+        node = nodes[node_id]
 
         # If this is a temporal node, record its position
         current_pos = node_to_pos.get(node_id, -1)
@@ -730,14 +764,14 @@ def extract_trigger_predicate_map(builder: DagBuilder, root: DAGId):
                 temporal_ids = []
 
                 for arg in args:
-                    arg_node = builder.nodes[arg]
+                    arg_node = nodes[arg]
                     if isinstance(arg_node, DAGVar):
                         pred_ids.append(arg)
                     elif isinstance(arg_node, (DAGReachAvoid, DAGAvoid)):
                         temporal_ids.append(arg)
                     elif isinstance(arg_node, DAGNegate):
                         # Check if it's negating a variable
-                        inner = builder.nodes[arg_node.arg]
+                        inner = nodes[arg_node.arg]
                         if isinstance(inner, DAGVar):
                             pred_ids.append(arg_node.arg)
 
@@ -745,7 +779,7 @@ def extract_trigger_predicate_map(builder: DagBuilder, root: DAGId):
                 # this represents a trigger
                 if pred_ids and temporal_ids and parent_pos >= 0:
                     for pred_id in pred_ids:
-                        pred_node = builder.nodes[pred_id]
+                        pred_node = nodes[pred_id]
                         if isinstance(pred_node, DAGVar):
                             pred_idx = predicate_to_idx[pred_node.name]
                             for temporal_id in temporal_ids:
@@ -771,7 +805,31 @@ def extract_trigger_predicate_map(builder: DagBuilder, root: DAGId):
     # Start traversal from root
     find_predicate_triggers(int(root), -1, set())
 
-    return predicates, predicate_ids, predicate_roles, negated_predicate_mask, temporal_nodes, trigger_map
+    return TriggerPredicateMapOut(
+        predicates, predicate_ids, predicate_roles, negated_predicate_mask, temporal_nodes, trigger_map
+    )
+
+
+def temporal_nodes_topological(nodes: list[DAGNode], node_id: DAGId, visited: set | None = None) -> list[DAGId]:
+    if visited is None:
+        visited = set()
+
+    if node_id in visited:
+        return []
+    visited.add(node_id)
+
+    node = nodes[int(node_id)]
+
+    # Recursively visit children.
+    temporal_nodes = []
+    for child_id in node.children():
+        temporal_nodes += temporal_nodes_topological(nodes, child_id, visited)
+
+    # Add self if temporal.
+    if node.is_temporal():
+        temporal_nodes.append(node_id)
+
+    return temporal_nodes
 
 
 def has_temporal_children(node_id: DAGId, nodes: list[DAGNode]) -> bool:

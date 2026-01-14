@@ -1,10 +1,6 @@
-from functools import lru_cache
-from typing import Dict, Iterable, List, Optional, Tuple
-
-from valtr.ir import (Binary, BinaryIROpKind, ConstBool, IntervalIR, IRId, IRNode, Nary, NaryKind, TemporalBinary,
-                      TemporalUnary, Unary, UnaryIROpKind, Var)
+from valtr.ir import (BinaryIROpKind, IntervalIR, IRId, NaryKind, UnaryIROpKind)
 from valtr.ir_builder import IRBuilder
-from valtr.tl_parser import BinaryOp, BinaryOpKind, Identifier, Interval, Node, UnaryOp, UnaryOpKind
+from valtr.tl_parser import BinaryOp, Identifier, Interval, Node, UnaryOp
 
 
 def _to_iv(iv_ast: Interval | None) -> IntervalIR | None:

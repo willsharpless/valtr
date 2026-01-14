@@ -1,7 +1,9 @@
 from typing import List, Optional
 
-from valtr.ir import BinaryIROpKind, IntervalIR, IRId, Nary, NaryKind, TemporalUnary, UnaryIROpKind
-from valtr.ir_rewriter import IRRewriter
+from valtr.ir import BinaryIROpKind, IntervalIR, IRId, Nary, NaryKind, TemporalUnary, UnaryIROpKind, Var, ConstBool, \
+    Unary, TemporalBinary, Binary
+from valtr.ir_builder import IRBuilder
+from valtr.ir_rewriter import IRPass, IRRewriter
 from valtr.lexer import Span
 
 
@@ -174,6 +176,60 @@ class PassCombineGloballySegments(IRRewriter):
 
             case _:
                 out = super().visit(rid)
+
+        self.memo[i] = out
+        return out
+
+
+class DNFConverter(IRRewriter):
+    def visit(self, rid: IRId) -> IRId:
+        # Pass dnf through all temporal operators:
+        # dnf( ( ... ) U ( ... ) ) = ( dnf( ... ) ) U ( dnf( ... ) )
+        # dnf( G( ... ) ) = G( dnf( ... ) )
+        i = int(rid)
+        if i in self.memo:
+            return self.memo[i]
+
+        n = self.src.nodes[i]
+
+        match n:
+            case Var(name=name, span=span):
+                out = self.rebuild_Var(name, span)
+
+            case ConstBool(value=value, span=span):
+                out = self.rebuild_ConstBool(value, span)
+
+            case TemporalUnary(kind=kind, arg=arg, interval=iv, span=span):
+                arg_id = self.visit(arg)
+                out = self.rebuild_TemporalUnary(kind, arg_id, iv, span)
+
+            case Unary(kind=kind, arg=arg, span=span):
+                arg_id = self.visit(arg)
+                out = self.rebuild_Unary(kind, arg_id, span)
+
+            case TemporalBinary(kind=kind, left=left, right=right, interval=iv, span=span):
+                l_id = self.visit(left)
+                r_id = self.visit(right)
+                out = self.rebuild_TemporalBinary(kind, l_id, r_id, iv, span)
+
+            case Binary(kind=kind, left=left, right=right, span=span):
+                raise ValueError("Binary nodes should have been converted to Nary... ?")
+
+            case Nary(kind=kind, args=args, span=span):
+                arg_ids = [self.visit(a) for a in args]
+
+                if kind == NaryKind.OR:
+                    ...
+                elif kind == NaryKind.AND:
+                    # Distribute OR over AND.
+                    ...
+                else:
+                    raise ValueError(f"Unexpected Nary kind: {kind}")
+
+                # out = self.rebuild_Nary(kind, arg_ids, span)
+
+            case _:
+                out = self.generic_visit(i, n)
 
         self.memo[i] = out
         return out
