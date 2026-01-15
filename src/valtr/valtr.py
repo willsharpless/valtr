@@ -1,5 +1,5 @@
 from valtr.dag_graphviz import visualize_dag
-from valtr.dag_passes import PassFoldConstBool
+from valtr.dag_passes import PassFoldConstBool, PassRAToR
 from valtr.ir_builder import IRBuilder
 from valtr.ir_graphviz import visualize_ir
 from valtr.ir_pass import PassCombineGloballySegments, PassFinallyToUntil
@@ -34,7 +34,7 @@ def to_dag(spec: str, ir_filename: str | None = None, dag_filename: str | None =
     # visualize_dag(value_tree_dag, dag_root, filename="rooms_discrete_dag0", view=view_pdf)
 
     # Perform constant folding.
-    passes = [PassFoldConstBool]
+    passes = [PassFoldConstBool, PassRAToR]
     for p_cls in passes:
         changed = True
         while changed:

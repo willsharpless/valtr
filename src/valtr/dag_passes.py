@@ -4,7 +4,7 @@ import graphviz
 import ipdb
 
 from valtr.reachability import (DAGGU, DAGAvoid, DagBuilder, DAGConst, DAGId, DAGMaxN, DAGMinN, DAGNegate, DAGNode,
-                                DAGReachAvoid, DAGVar)
+                                DAGReach, DAGReachAvoid, DAGVar)
 
 
 class DagRewriter:
@@ -54,6 +54,10 @@ class DagRewriter:
                 new_reach = self.visit(reach)
                 new_stay = self.visit(stay)
                 out = self.dst.reachavoid(reach=new_reach, stay=new_stay)
+
+            case DAGReach(reach=reach):
+                new_reach = self.visit(reach)
+                out = self.dst.reach(new_reach)
 
             case DAGAvoid(avoid=avoid):
                 new_avoid = self.visit(avoid)
