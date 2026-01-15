@@ -36,9 +36,6 @@ class GridWorldDriftFn:
         self.force = force
 
     def __call__(self, state: jnp.ndarray, delta: jnp.ndarray, which=jnp):
-        if which is jnp:
-            print("which: {}".format(which))
-            ipdb.set_trace()
         d = self.d
         force = self.force
         y, x = state

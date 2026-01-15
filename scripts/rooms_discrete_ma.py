@@ -94,8 +94,8 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
     cmap = ListedColormap(colors)
 
     # ------------------------------
-    dyn_ma = GridWorldMA(dyn, n_agents=1)
-    # dyn_ma = GridWorldMA(dyn, n_agents=2)
+    # dyn_ma = GridWorldMA(dyn, n_agents=1)
+    dyn_ma = GridWorldMA(dyn, n_agents=2)
     # dyn_ma = GridWorldMA(dyn, n_agents=3)
 
     value_tree_dag, dag_root = to_dag(
@@ -145,8 +145,8 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
 
     # If possible, choose an initial state where none of the agents start on the key.
     # start_state = dyn_ma.encode_from_tups([(3, 3), (3, 5), (7, 5)])
-    # start_state = dyn_ma.encode_from_tups([(3, 8), (6, 6)])
-    start_state = dyn_ma.encode_from_tups([(6, 6)])
+    start_state = dyn_ma.encode_from_tups([(3, 8), (6, 6)])
+    # start_state = dyn_ma.encode_from_tups([(6, 6)])
     if start_state is not None and value[start_state] >= 0:
         logger.info("Using hardcoded start state.")
     else:
