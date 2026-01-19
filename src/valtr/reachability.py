@@ -4,6 +4,7 @@ from typing import Dict, Iterable, List, NamedTuple, NewType, Optional, Set, Tup
 import graphviz
 import ipdb
 from attrs import define, field, frozen
+
 from valtr.ir import (Binary, BinaryIROpKind, ConstBool, IRId, IRNode, Nary, NaryKind, TemporalBinary, TemporalUnary,
                       Unary, UnaryIROpKind, Var)
 from valtr.ir_builder import IRBuilder
@@ -117,17 +118,39 @@ class DAGReach(DAGNode):
 
 @frozen
 @temporal
-class DAGGU(DAGNode):
-    """G( AND_i ( q_i U r_i ) )"""
+class DAGGUSingle(DAGNode):
+    """A single G( q U r )"""
 
-    args: list[tuple[DAGId, DAGId]]
+    reach: DAGId
+    avoid: DAGId
 
     def children(self) -> List[DAGId]:
-        kids = []
-        for q_i, r_i in self.args:
-            kids.append(q_i)
-            kids.append(r_i)
-        return kids
+        return [self.reach, self.avoid]
+
+
+@frozen
+class DAGGUMinN(DAGNode):
+    """Same as MinN, but for convenience indicates that all the children are DAGGUSingle."""
+
+    args: Tuple[DAGId, ...]
+
+    def children(self) -> List[DAGId]:
+        return list(self.args)
+
+
+# @frozen
+# @temporal
+# class DAGGU(DAGNode):
+#     """G( AND_i ( q_i U r_i ) )"""
+#
+#     args: list[tuple[DAGId, DAGId]]
+#
+#     def children(self) -> List[DAGId]:
+#         kids = []
+#         for q_i, r_i in self.args:
+#             kids.append(q_i)
+#             kids.append(r_i)
+#         return kids
 
 
 class DagBuilder:
@@ -185,11 +208,19 @@ class DagBuilder:
         key = ("Reach", arg)
         return self._get(key, DAGReach(arg))
 
-    def GU(self, args: list[tuple[DAGId, DAGId]]) -> DAGId:
-        args_tup = tuple(args)
+    def GU_single(self, reach: DAGId, stay: DAGId) -> DAGId:
+        key = ("GUSingle", reach, stay)
+        return self._get(key, DAGGUSingle(reach, stay))
 
-        key = ("GU", args_tup)
-        return self._get(key, DAGGU(args))
+    def GU_min_n(self, args: Iterable[DAGId]) -> DAGId:
+        s = tuple(args)
+        return self._get(("GUMinN", s), DAGGUMinN(s))
+
+    # def GU(self, args: list[tuple[DAGId, DAGId]]) -> DAGId:
+    #     args_tup = tuple(args)
+    #
+    #     key = ("GU", args_tup)
+    #     return self._get(key, DAGGU(args))
 
 
 class LoweringError(Exception):
@@ -493,16 +524,16 @@ def lower_ir_to_dag_GU(irb: IRBuilder, dag: DagBuilder, GU_args: list[TemporalBi
         return G_dag
     else:
         # 1: Merge the G q_G inside the GU.
-        GU_args_dag: list[tuple[DAGId, DAGId]] = []
+        GU_args_dag: list[DAGId] = []
         for node in GU_args:
             q_i_dag = lower_bool_leaf_expr_to_dag(irb, dag, node.left)
             r_i_dag = lower_bool_leaf_expr_to_dag(irb, dag, node.right)
 
             q_i_new = dag.min_n([q_i_dag, G_arg_dag])
             r_i_new = dag.min_n([r_i_dag, G_dag])
-            GU_args_dag.append((q_i_new, r_i_new))
+            GU_args_dag.append(dag.GU_single(q_i_new, r_i_new))
 
-        GU_dag = dag.GU(GU_args_dag)
+        GU_dag = dag.GU_min_n(GU_args_dag)
         return GU_dag
 
 
@@ -830,6 +861,23 @@ def temporal_nodes_topological(nodes: list[DAGNode], node_id: DAGId, visited: se
         temporal_nodes.append(node_id)
 
     return temporal_nodes
+
+
+def get_node_parent_dict(nodes: list[DAGNode], root_id: DAGId) -> dict[DAGId, DAGId]:
+    """
+    Build a mapping from each node to its parent node.
+    Assumes a single root and a tree structure (no shared sub-nodes).
+    """
+    parent_dict: dict[DAGId, DAGId] = {}
+
+    def visit(node_id: DAGId):
+        node = nodes[int(node_id)]
+        for child_id in node.children():
+            parent_dict[child_id] = node_id
+            visit(child_id)
+
+    visit(root_id)
+    return parent_dict
 
 
 def has_temporal_children(node_id: DAGId, nodes: list[DAGNode]) -> bool:

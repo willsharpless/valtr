@@ -50,6 +50,7 @@ class BinaryIROpKind(Enum):
             BinaryOpKind.RELEASE: BinaryIROpKind.RELEASE,
             BinaryOpKind.IMPLIES: BinaryIROpKind.IMPLIES,
             BinaryOpKind.AND: BinaryIROpKind.AND,
+            BinaryOpKind.OR: BinaryIROpKind.OR,
         }
         if ttype in mapping:
             return mapping[ttype]

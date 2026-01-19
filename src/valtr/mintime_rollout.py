@@ -5,7 +5,8 @@ import tqdm
 from dvi.dynamics.discrete import DiscreteDyn
 from loguru import logger
 
-from valtr.reachability import DAGGU, DAGAvoid, DAGId, DAGMaxN, DAGMinN, DAGNode, DAGReachAvoid, has_temporal_children
+from valtr.reachability import (DAGAvoid, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN, DAGNode, DAGReachAvoid,
+                                has_temporal_children)
 
 
 class MinTimeRollout:
@@ -116,8 +117,8 @@ class MinTimeRollout:
                         else:
                             # If no temporal children, then execute the action associated with the reach node.
                             break
-                    case DAGGU(args=args):
-                        args: list[tuple[DAGId, DAGId]]
+                    case DAGGUMinN(args=args):
+                        args: list[DAGId]
                         if len(args) == 1:
                             logger.info("GU with one argument")
                             # Only one argument, execute its action
@@ -128,7 +129,9 @@ class MinTimeRollout:
 
                         # GU is a "leaf node", we just need to cycle through its arguments.
                         cur_GU_index = GU_index_dict[cur_node_id]
-                        cur_q_idx, cur_r_idx = args[cur_GU_index]
+                        GU_single_node = self.dag_nodes[args[cur_GU_index]]
+                        assert isinstance(GU_single_node, DAGGUSingle)
+                        cur_q_idx, cur_r_idx = GU_single_node.avoid, GU_single_node.reach
                         r_value = self.dict_vars[cur_r_idx][state]
 
                         # Get the value of the NEXT state for the NEXT GU arg.
