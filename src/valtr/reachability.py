@@ -531,7 +531,7 @@ def lower_ir_to_dag_GU(irb: IRBuilder, dag: DagBuilder, GU_args: list[TemporalBi
 
             q_i_new = dag.min_n([q_i_dag, G_arg_dag])
             r_i_new = dag.min_n([r_i_dag, G_dag])
-            GU_args_dag.append(dag.GU_single(q_i_new, r_i_new))
+            GU_args_dag.append(dag.GU_single(reach=r_i_new, stay=q_i_new))
 
         GU_dag = dag.GU_min_n(GU_args_dag)
         return GU_dag
