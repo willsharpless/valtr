@@ -371,7 +371,9 @@ def get_and_args_list(node: IRNode, node_id: IRId) -> list[IRId]:
             return [node_id]
 
 
-def lower_ir_to_dag(irb: IRBuilder, root: IRId, dag: DagBuilder | None = None) -> tuple[DagBuilder, DAGId]:
+def lower_ir_to_dag(
+    irb: IRBuilder, root: IRId, dag: DagBuilder | None = None, nested: bool = False
+) -> tuple[DagBuilder, DAGId]:
     """
     AND_i G ( q_i U r_i )  AND  AND_j ( q_j U r_j )  AND  G q_G
 
@@ -389,6 +391,7 @@ def lower_ir_to_dag(irb: IRBuilder, root: IRId, dag: DagBuilder | None = None) -
     U_args: list[TemporalBinary] = []
     G_args_id: list[IRId] = []
 
+    outside_args = []
     for node_id in root_arg_ids:
         node = irb.nodes[node_id]
         match node:
@@ -416,6 +419,12 @@ def lower_ir_to_dag(irb: IRBuilder, root: IRId, dag: DagBuilder | None = None) -
                             GU_args.append(arg_node)
                         case _:
                             G_args_id.append(g_arg_id)
+            case Var(name=name):
+                if not nested:
+                    raise LoweringError("Top-level must contain only UNTIL/GLOBALLY unless nested, got bare Var")
+                else:
+                    dag_arg = lower_bool_leaf_expr_to_dag(irb, dag, node_id)
+                    outside_args.append(dag_arg)
             case _:
                 raise LoweringError(f"Top-level must contain only UNTIL/GLOBALLY, got {type(node).__name__}")
 
@@ -431,7 +440,13 @@ def lower_ir_to_dag(irb: IRBuilder, root: IRId, dag: DagBuilder | None = None) -
         G_dag_args = [lower_bool_leaf_expr_to_dag(irb, dag, gid) for gid in G_args_id]
         G_dag_arg = dag.min_n(G_dag_args)
 
-    return dag, lower_ir_to_dag_(irb, dag, U_args, GU_args, G_dag_arg)
+    dag_id = lower_ir_to_dag_(irb, dag, U_args, GU_args, G_dag_arg)
+
+    if len(outside_args) > 0:
+        # AND with outside args.
+        dag_id = dag.min_n([dag_id, *outside_args])
+
+    return dag, dag_id
 
 
 def lower_ir_to_dag_(
@@ -482,7 +497,7 @@ def lower_ir_to_dag_(
         try:
             r_j = lower_bool_leaf_expr_to_dag(irb, dag, node.right)
         except LoweringError:
-            _, r_j = lower_ir_to_dag(irb, node.right, dag=dag)
+            _, r_j = lower_ir_to_dag(irb, node.right, dag=dag, nested=True)
 
         U_args_without_j = [node for ii, node in enumerate(U_args) if ii != jj]
         V_without_j = lower_ir_to_dag_(irb, dag, U_args_without_j, GU_args, G_arg_dag)

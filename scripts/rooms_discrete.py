@@ -310,8 +310,7 @@ def main(view_pdf: bool = False, gamma: float | None = None):
         start_state = rng.choice(feasible_states)
         # start_state = dyn.encode_state((2, 4))
 
-    # Visualize the start state.
-    y, x = dyn.decode_state(start_state)
+    # Visualize the start state. y, x = dyn.decode_state(start_state)
     fig, ax = plt.subplots()
     im = ax.imshow(empty_map, cmap=cmap, vmin=0, vmax=len(d_raw))
     cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
