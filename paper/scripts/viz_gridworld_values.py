@@ -29,7 +29,11 @@ def main(pkl_path: pathlib.Path):
     paper_plot_dir = get_paper_plot_dir()
     dyn: GridWorld
     dag_nodes: list[DAGNode]
+
     d_raw: dict[str, np.ndarray]
+    dict_actions: dict[int, np.ndarray]
+    dict_GU_actions: dict[int, np.ndarray]
+
     dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = load_discrete_sol(
         pkl_path
     )
@@ -38,6 +42,9 @@ def main(pkl_path: pathlib.Path):
     task_source = extras["task_source"]
     d_raw = extras["d_raw"]
     map_num = extras["map_num"]
+
+    # Re-process the source to save a dag for convenience.
+    to_dag(task_source, ir_filename=paper_plot_dir / f"{map_num}_ir", dag_filename=paper_plot_dir / f"{map_num}_dag")
 
     print(d_raw.keys())
 
@@ -54,6 +61,17 @@ def main(pkl_path: pathlib.Path):
         "B": "B",
         "K": ":key:",
         "D": ":door:",
+        # -------
+        # "action_0": "⋅",
+        # "action_1": "→",
+        # "action_2": "←",
+        # "action_3": "↓",
+        # "action_4": "↑",
+        "action_0": "⋅",
+        "action_1": "↑",
+        "action_2": "↓",
+        "action_3": "→",
+        "action_4": "←",
     }
 
     key_tmp = list(d_raw.keys())[0]
@@ -98,11 +116,25 @@ def main(pkl_path: pathlib.Path):
 
         value_im = dict_vars[dag_id].reshape(dyn.shape)
 
+        # Construct a dict of the optimal actions.
+        action_dict = dict_actions[dag_id]
+        d_actions = {}
+        for action_idx in range(dyn.n_actions):
+            is_action: np.ndarray = action_dict == action_idx
+            is_action = is_action.reshape(dyn.shape)
+
+            # Only show actions where value is positive.
+            is_action = is_action & (value_im > 0.0)
+
+            d_actions[f"action_{action_idx}"] = is_action
+
         fig, ax = plt.subplots(figsize=figsize, dpi=400)
         norm = CenteredNorm()
         im = ax.imshow(value_im, cmap=cmap, alpha=0.9, origin="lower", vmin=-1, vmax=1)
         cbar = fig.colorbar(im, ax=ax)
-        annotate_cell(d_raw, label_dict, ax)
+        annotate_cell(d_raw, label_dict, ax, offset=np.array([0.28, 0.28]), size_data=0.3, fontsize=10)
+
+        annotate_cell(d_actions, label_dict, ax)
 
         ax.set_xticks(np.arange(w + 1) - 0.5)
         ax.set_yticks(np.arange(h + 1) - 0.5)
@@ -116,7 +148,14 @@ def main(pkl_path: pathlib.Path):
         plt.close(fig)
 
 
-def annotate_cell(d_raw: dict[str, np.ndarray], label_dict: dict[str, str], ax: plt.Axes):
+def annotate_cell(
+    d_raw: dict[str, np.ndarray],
+    label_dict: dict[str, str],
+    ax: plt.Axes,
+    fontsize: int = 20,
+    size_data: float = 0.8,
+    offset: np.ndarray = np.array([0.0, 0.0]),
+):
     for k, v in d_raw.items():
         if k not in label_dict:
             continue
@@ -127,8 +166,8 @@ def annotate_cell(d_raw: dict[str, np.ndarray], label_dict: dict[str, str], ax: 
         for x, y in zip(xs, ys):
             if is_emoji:
                 plot_emoji(
-                    np.array([x, y]),
-                    size_data=0.8,
+                    np.array([x, y]) + offset,
+                    size_data=size_data,
                     emoji_str=label_dict[k],
                     size=512,
                     ax=ax,
@@ -136,11 +175,11 @@ def annotate_cell(d_raw: dict[str, np.ndarray], label_dict: dict[str, str], ax: 
                 )
             else:
                 ax.text(
-                    x,
-                    y,
+                    x + offset[0],
+                    y + offset[1],
                     label_dict[k],
                     color="black",
-                    fontsize=20,
+                    fontsize=fontsize,
                     ha="center",
                     va="center",
                 )

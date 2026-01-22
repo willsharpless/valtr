@@ -36,6 +36,7 @@ class MinTimeRollout:
 
         Tp1_states = [state]
         T_actions = []
+        T_curnode_idxs = []
 
         GU_index_dict: dict[DAGId, int] = {}
 
@@ -210,8 +211,10 @@ class MinTimeRollout:
             state = state_new
             Tp1_states.append(state)
             T_actions.append(action)
+            T_curnode_idxs.append(cur_node_id)
 
         Tp1_states = np.array(Tp1_states)
         T_actions = np.array(T_actions)
+        T_curnode_idxs = np.array(T_curnode_idxs)
 
-        return Tp1_states, T_actions
+        return Tp1_states, T_actions, T_curnode_idxs

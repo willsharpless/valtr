@@ -411,7 +411,7 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
 
     # ----------------------------
     rollouter = MinTimeRollout(dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
-    Tp1_states, T_actions = rollouter.rollout(start_state, max_steps=30)
+    Tp1_states, T_actions, T_curnode_idxs = rollouter.rollout(start_state, max_steps=30)
 
     logger.info("dyn.shape: {}".format(dyn.shape))
 
@@ -450,7 +450,7 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
         y, x = dyn.decode_state(state)
         state_dot.set_data([x], [y])
 
-        kk_text.set_text(f"Step {kk: 3}")
+        kk_text.set_text(f"Step {kk: 3} | Node {T_curnode_idxs[kk]}")
 
         return [state_dot, kk_text]
 
