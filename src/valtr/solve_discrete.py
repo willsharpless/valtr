@@ -1,19 +1,19 @@
 import functools as ft
-import jax
 import pathlib
 import pickle
 from typing import NamedTuple
 
 import ipdb
+import jax
 import numpy as np
 import tqdm
 from dvi.dynamics.discrete import DiscreteDyn
 from dvi.gen_solver import (FixedPointGUSolver, avoid_update_rule_with_actions, make_solve_fn_with_actions,
-                            reach_avoid_update_rule_with_actions)
+                            reach_avoid_update_rule_with_actions, reach_update_rule_with_actions)
 from loguru import logger
 
-from valtr.reachability import (DAGGU, DAGAvoid, DagBuilder, DAGId, DAGMaxN, DAGMinN, DAGNegate, DAGNode, DAGReachAvoid,
-                                DAGVar)
+from valtr.reachability import (DAGAvoid, DagBuilder, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN, DAGNegate,
+                                DAGNode, DAGReachAvoid, DAGVar, DAGReach)
 
 
 def solve_discrete(
@@ -61,6 +61,14 @@ def solve_discrete(
                 solve_fn = make_solve_fn_with_actions(dyn, update_rule, n_updates=dyn.n_states)
                 dict_vars[dag_id], dict_actions[dag_id] = solve_fn(s_v0, **kwargs)
 
+            case DAGReach(reach=reach):
+                arg_reach = dict_vars[reach]
+                s_v0 = arg_reach
+                kwargs = dict(s_r=arg_reach)
+                update_rule = reach_update_rule_with_actions(gamma)
+                solve_fn = make_solve_fn_with_actions(dyn, update_rule, n_updates=dyn.n_states)
+                dict_vars[dag_id], dict_actions[dag_id] = solve_fn(s_v0, **kwargs)
+
             case DAGAvoid(avoid=avoid):
                 # Note: the avoid is a stay since we are maximizing the value.
                 arg_avoid = dict_vars[avoid]
@@ -74,10 +82,30 @@ def solve_discrete(
                 solve_fn = make_solve_fn_with_actions(dyn, update_rule, n_updates=dyn.n_states)
                 dict_vars[dag_id], dict_actions[dag_id] = solve_fn(s_v0, **kwargs)
 
-            case DAGGU(args=args):
-                U_args = [[dict_vars[q], dict_vars[r]] for q, r in args]
+            case DAGGUMinN(args=args):
+                U_args = []
+                for arg in args:
+                    node = dag_nodes[arg]
+                    assert isinstance(node, DAGGUSingle)
+                    U_args.append([dict_vars[node.avoid], dict_vars[node.reach]])
+
                 out = FixedPointGUSolver().solve(dyn, U_args, n_iters=3, gamma=gamma)
                 dict_vars[dag_id], dict_actions[dag_id], dict_GU_vars[dag_id], dict_GU_actions[dag_id] = out
+
+                for ii, arg_dag_id in enumerate(args):
+                    dict_vars[arg_dag_id] = dict_GU_vars[dag_id][ii]
+                    dict_actions[arg_dag_id] = dict_GU_actions[dag_id][ii]
+
+            case DAGGUSingle(reach=reach, avoid=avoid):
+                # We let the parent handle this.
+                pass
+
+            # case DAGGU(args=args):
+            #     U_args = [[dict_vars[q], dict_vars[r]] for q, r in args]
+            #     out = FixedPointGUSolver().solve(dyn, U_args, n_iters=3, gamma=gamma)
+            #     dict_vars[dag_id], dict_actions[dag_id], dict_GU_vars[dag_id], dict_GU_actions[dag_id] = out
+            case _:
+                raise NotImplementedError(f"Unknown DAG node type: {type(node)}")
 
         # # Visualize.
         # import matplotlib.pyplot as plt

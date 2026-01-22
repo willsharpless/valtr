@@ -1,3 +1,5 @@
+import pathlib
+
 import cyclopts
 import ipdb
 import matplotlib.pyplot as plt
@@ -7,9 +9,9 @@ from loguru import logger
 from matplotlib.animation import FuncAnimation
 from matplotlib.colors import ListedColormap
 
-from valtr.gridworld_utils import parse_rooms, GridWorldDriftFn
+from valtr.gridworld_utils import GridWorldDriftFn, parse_rooms
 from valtr.mintime_rollout import MinTimeRollout
-from valtr.solve_discrete import solve_discrete
+from valtr.solve_discrete import load_discrete_sol, save_discrete_sol, solve_discrete
 from valtr.valtr import to_dag
 
 app = cyclopts.App()
@@ -58,7 +60,29 @@ MAP4 = """
 ###########
 """
 
-MAP_NUM = 4
+MAP5 = """
+   D    
+ A #    
+   #    
+#### # B
+     #  
+ K ###  
+   #    
+   #    
+"""
+
+MAP6 = """
+     A  
+        
+  ...b  
+C ....  
+  ....  
+  ..a.  
+        
+    B   
+"""
+
+MAP_NUM = 6
 
 
 def get_rooms():
@@ -113,6 +137,25 @@ def get_rooms():
             "w": np.where(d_raw["#"], 1, -1),
         }
         return dyn, d
+    elif MAP_NUM == 5:
+        dyn, d_raw = parse_rooms(MAP5)
+        d = {
+            "A": np.where(d_raw["A"], 1, -1),
+            "B": np.where(d_raw["B"], 1, -1),
+            "D": np.where(d_raw["D"], 1, -1),
+            "K": np.where(d_raw["K"], 1, -1),
+            "w": np.where(d_raw["#"], 1, -1),
+        }
+        return dyn, d
+    elif MAP_NUM == 6:
+        dyn, d_raw = parse_rooms(MAP6)
+        d = {
+            "A": np.where(d_raw["a"] | d_raw["A"], 1, -1),
+            "B": np.where(d_raw["b"] | d_raw["B"], 1, -1),
+            "C": np.where(d_raw["C"], 1, -1),
+            "q": np.where(d_raw["."] | d_raw["a"] | d_raw["b"], 1, -1),
+        }
+        return dyn, d
     else:
         raise NotImplementedError("")
 
@@ -122,7 +165,13 @@ def get_rooms():
 
 
 @app.default()
-def main(view_pdf: bool = False, gamma: float | None = None):
+def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, resolve: bool = False):
+    global MAP_NUM
+    MAP_NUM = room
+
+    results_dir = pathlib.Path("plots_discrete")
+    results_dir.mkdir(exist_ok=True)
+
     if MAP_NUM == 1:
         # MAP1
         # TASK_SOURCE = "!d1 U k1"
@@ -141,6 +190,10 @@ def main(view_pdf: bool = False, gamma: float | None = None):
     elif MAP_NUM == 4:
         # TASK_SOURCE = "F A && F B && G( !w )"
         TASK_SOURCE = "G F A && G F B && G( !w )"
+    elif MAP_NUM == 5:
+        TASK_SOURCE = "F A && F B && !D U K && G( !w )"
+    elif MAP_NUM == 6:
+        TASK_SOURCE = "F( C && F G ( (q U (A && q )) && (q U (B && q )) ) )"
     else:
         raise ValueError("Invalid MAP_NUM")
 
@@ -175,11 +228,20 @@ def main(view_pdf: bool = False, gamma: float | None = None):
         d_raw = parse_rooms(MAP3)[1]
         d_raw_drift = parse_rooms(MAP3_DRIFT)[1]
         d_raw = d_raw_drift | d_raw
+    elif MAP_NUM == 6:
+        _, d_raw = parse_rooms(MAP6)
+
+        # d_raw["q"] = d_raw["."] | d_raw["a"] | d_raw["b"]
+        d_raw["q"] = d_raw["."]
+        d_raw["A"] = d_raw["a"] | d_raw["A"]
+        d_raw["B"] = d_raw["b"] | d_raw["B"]
+        del d_raw["a"], d_raw["b"], d_raw["."]
     else:
-        map_str = [None, MAP1, MAP2, MAP3, MAP4][MAP_NUM]
+        map_str = [None, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6][MAP_NUM]
         _, d_raw = parse_rooms(map_str)
 
-    empty_map = np.zeros_like(d_raw["#"])
+    key_tmp = list(d_raw.keys())[0]
+    empty_map = np.zeros_like(d_raw[key_tmp])
     for ii, (k, v) in enumerate(d_raw.items()):
         empty_map = np.where(v, ii, empty_map)
 
@@ -222,9 +284,19 @@ def main(view_pdf: bool = False, gamma: float | None = None):
 
     # -------------------------------------------
     # Solve.
-    dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
-        dyn, dag_nodes, dict_predicates, gamma=gamma
-    )
+    sol_pkls_dir = pathlib.Path("sol_pkls")
+    sol_pkls_dir.mkdir(exist_ok=True)
+    pkl_path = sol_pkls_dir / "rooms_discrete_{}_gamma{}_sol.pkl".format(MAP_NUM, gamma)
+
+    if resolve or not pkl_path.exists():
+        dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
+            dyn, dag_nodes, dict_predicates, gamma=gamma
+        )
+
+        # Save the solution.
+        save_discrete_sol(pkl_path, dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+
+    dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = load_discrete_sol(pkl_path)
 
     # ---------------------------------
     # Visualize the final value function.
@@ -305,12 +377,16 @@ def main(view_pdf: bool = False, gamma: float | None = None):
     if MAP_NUM == 4:
         # start_state = dyn.encode_state((2, 5))
         start_state = dyn.encode_state((2, 7))
+    elif MAP_NUM == 6:
+        start_state = dyn.encode_state((7, 2))
     else:
         rng = np.random.default_rng(seed=12345)
         start_state = rng.choice(feasible_states)
         # start_state = dyn.encode_state((2, 4))
 
-    # Visualize the start state. y, x = dyn.decode_state(start_state)
+    # Visualize the start state.
+    y, x = dyn.decode_state(start_state)
+
     fig, ax = plt.subplots()
     im = ax.imshow(empty_map, cmap=cmap, vmin=0, vmax=len(d_raw))
     cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
@@ -368,7 +444,7 @@ def main(view_pdf: bool = False, gamma: float | None = None):
         return [state_dot, kk_text]
 
     anim = FuncAnimation(fig, update_fn, n_frames, init_fn, blit=True)
-    anim.save("rooms_discrete_rollout.mp4", fps=5, dpi=200)
+    anim.save(results_dir / f"map{MAP_NUM}.mp4", fps=5, dpi=200)
 
     logger.info("Done!")
 

@@ -5,7 +5,7 @@ from dvi.dynamics.gridworld import GridWorld
 
 
 def parse_rooms(s: str):
-    s = s.strip()
+    s = s.strip("\n")
 
     # Figure out how many rows and columns.
     lines = s.split("\n")
