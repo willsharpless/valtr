@@ -16,7 +16,7 @@ from valtr.mintime_rollout import MinTimeRollout
 from valtr.print_dag import dag_node_to_str
 from valtr.reachability import DAGNode
 from valtr.solve_discrete import load_discrete_sol, save_discrete_sol, solve_discrete
-from valtr.util.cmap import get_BuRd_smooth, get_BuRd_trunc
+from valtr.util.cmap import get_BuRd_hue_smooth, get_BuRd_smooth, get_BuRd_trunc
 from valtr.util.emoji import TwemojiSVGSource, plot_emoji
 from valtr.util.path_util import get_paper_plot_dir
 from valtr.valtr import to_dag
@@ -117,13 +117,19 @@ def main(pkl_path: pathlib.Path):
 
     # -------------------------------------------------
     # Visualize the value functions for each temporal node.
-    cmap = get_BuRd_smooth().reversed()
+    # cmap = get_BuRd_hue_smooth().reversed()
+    cmap = get_BuRd_hue_smooth().reversed()
 
     for dag_id, dag_node in enumerate(dag_nodes):
         if not dag_node.is_temporal():
             continue
 
         value_im = dict_vars[dag_id].reshape(dyn.shape)
+
+        # # Cheat a bit by making the positive values stretch out over a larger range. Same for negative values.
+        # pos_lo = value_im[value_im > 0].min()
+        # pos_lo_new = pos_lo * 0.8
+        # value_im[value_im > 0] = (value_im[value_im > 0] - pos_lo) / (1.0 - pos_lo) * (1.0 - pos_lo_new) + pos_lo_new
 
         # Construct a dict of the optimal actions.
         action_dict = dict_actions[dag_id]

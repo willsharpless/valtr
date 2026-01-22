@@ -29,6 +29,17 @@ def get_BuRd_smooth():
     return sdf_cm
 
 
+def get_BuRd_hue_smooth():
+    blue = hsl2hex([0.57, 0.5, 0.55])
+    light_blue = hsl2hex([0.4, 1.0, 0.9])
+
+    red = hsl2hex([0.028, 0.62, 0.59])
+    light_red = hsl2hex([0.2, 1.0, 0.95])
+
+    sdf_cm = LinearSegmentedColormap.from_list("SDF", [(0, blue), (0.5, light_blue), (0.5, light_red), (1, red)], N=256)
+    return sdf_cm
+
+
 def get_BuRd_trunc(trunc_frac: float = 0.2):
     """Get only the middle part of the BuRd colormap. trunc_frac should be in [0, 1]. 0 recovers the full cmap."""
     sdf_cm = get_BuRd()
