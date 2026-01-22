@@ -236,7 +236,7 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
         d_raw["q"] = d_raw["."]
         d_raw["A"] = d_raw["a"] | d_raw["A"]
         d_raw["B"] = d_raw["b"] | d_raw["B"]
-        del d_raw["a"], d_raw["b"], d_raw["."]
+        # del d_raw["a"], d_raw["b"], d_raw["."]
     else:
         _, d_raw = parse_rooms(map_str)
 
@@ -450,7 +450,10 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
         y, x = dyn.decode_state(state)
         state_dot.set_data([x], [y])
 
-        kk_text.set_text(f"Step {kk: 3} | Node {T_curnode_idxs[kk]}")
+        if kk < len(T_curnode_idxs):
+            kk_text.set_text(f"Step {kk: 3} | Node {T_curnode_idxs[kk]}")
+        else:
+            kk_text.set_text(f"Step {kk: 3}")
 
         return [state_dot, kk_text]
 

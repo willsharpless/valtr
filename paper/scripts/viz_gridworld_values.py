@@ -38,6 +38,10 @@ def main(pkl_path: pathlib.Path):
         pkl_path
     )
 
+    # TODO: The actions for GU require some post-processing.
+    #  Start with the actions for the 1st GUSingle. Do a long enough rollout, then relabel the actions according to the
+    #  actual actions.
+
     h, w = dyn.shape
     task_source = extras["task_source"]
     d_raw = extras["d_raw"]
@@ -55,10 +59,15 @@ def main(pkl_path: pathlib.Path):
         "#": to_rgba("C3"),
         "K": to_rgba("C1", alpha=0.8),
         "D": to_rgba("C1", alpha=0.8),
+        # ------------
+        "q": to_rgba("C2", alpha=0.7),
+        "a": to_rgba("C2", alpha=0.7),
+        "b": to_rgba("C2", alpha=0.7),
     }
     label_dict = {
         "A": "A",
         "B": "B",
+        "C": "C",
         "K": ":key:",
         "D": ":door:",
         # -------
@@ -83,7 +92,7 @@ def main(pkl_path: pathlib.Path):
         # empty_map = np.where(v, ii, empty_map)
 
     cmap = plt.get_cmap("tab20", len(d_raw))
-    colors = cmap.colors
+    # colors = cmap.colors
 
     # --------------------------------------------
 
@@ -108,7 +117,7 @@ def main(pkl_path: pathlib.Path):
 
     # -------------------------------------------------
     # Visualize the value functions for each temporal node.
-    cmap = get_BuRd_smooth()
+    cmap = get_BuRd_smooth().reversed()
 
     for dag_id, dag_node in enumerate(dag_nodes):
         if not dag_node.is_temporal():
