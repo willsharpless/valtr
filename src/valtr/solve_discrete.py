@@ -13,7 +13,7 @@ from dvi.gen_solver import (FixedPointGUSolver, avoid_update_rule_with_actions, 
 from loguru import logger
 
 from valtr.reachability import (DAGAvoid, DagBuilder, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN, DAGNegate,
-                                DAGNode, DAGReachAvoid, DAGVar, DAGReach)
+                                DAGNode, DAGReach, DAGReachAvoid, DAGVar)
 
 
 def solve_discrete(
@@ -136,6 +136,7 @@ class DiscreteSol(NamedTuple):
     dict_actions: dict[DAGId, np.ndarray]
     dict_GU_vars: dict[DAGId, np.ndarray]
     dict_GU_actions: dict[DAGId, np.ndarray]
+    extras: dict | None
 
 
 def save_discrete_sol(
@@ -147,6 +148,7 @@ def save_discrete_sol(
     dict_actions: dict[DAGId, np.ndarray],
     dict_GU_vars: dict[DAGId, np.ndarray],
     dict_GU_actions: dict[DAGId, np.ndarray],
+    extras: dict = None,
 ):
     out_dict = {
         "dyn_ma": dyn_ma,
@@ -156,6 +158,7 @@ def save_discrete_sol(
         "dict_actions": jax.device_get(dict_actions),
         "dict_GU_vars": jax.device_get(dict_GU_vars),
         "dict_GU_actions": jax.device_get(dict_GU_actions),
+        "extras": extras,
     }
     with open(pkl_path, "wb") as f:
         pickle.dump(out_dict, f)
@@ -174,7 +177,8 @@ def load_discrete_sol(pkl_path: pathlib.Path):
     dict_actions = in_dict["dict_actions"]
     dict_GU_vars = in_dict["dict_GU_vars"]
     dict_GU_actions = in_dict["dict_GU_actions"]
+    extras = in_dict.get("extras", None)
 
     logger.success("Loaded discrete solution from {}".format(pkl_path))
 
-    return DiscreteSol(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+    return DiscreteSol(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras)

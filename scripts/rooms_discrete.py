@@ -224,6 +224,7 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
     # Visualize the map.
     # Use a different color for each symbol.
 
+    map_str = [None, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6][MAP_NUM]
     if MAP_NUM == 3:
         d_raw = parse_rooms(MAP3)[1]
         d_raw_drift = parse_rooms(MAP3_DRIFT)[1]
@@ -237,7 +238,6 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
         d_raw["B"] = d_raw["b"] | d_raw["B"]
         del d_raw["a"], d_raw["b"], d_raw["."]
     else:
-        map_str = [None, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6][MAP_NUM]
         _, d_raw = parse_rooms(map_str)
 
     key_tmp = list(d_raw.keys())[0]
@@ -294,9 +294,20 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
         )
 
         # Save the solution.
-        save_discrete_sol(pkl_path, dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+        extras = {
+            "task_source": TASK_SOURCE,
+            "dict_predicates": dict_predicates,
+            "gamma": gamma,
+            "d_raw": d_raw,
+            "map_num": MAP_NUM,
+        }
+        save_discrete_sol(
+            pkl_path, dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras=extras
+        )
 
-    dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = load_discrete_sol(pkl_path)
+    dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = load_discrete_sol(
+        pkl_path
+    )
 
     # ---------------------------------
     # Visualize the final value function.
