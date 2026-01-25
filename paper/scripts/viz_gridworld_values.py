@@ -21,8 +21,8 @@ from valtr.util.emoji import TwemojiSVGSource, plot_emoji
 from valtr.util.path_util import get_paper_plot_dir
 from valtr.valtr import to_dag
 
+plt.style.use("seaborn-v0_8-darkgrid")
 app = cyclopts.App()
-
 
 @app.default()
 def main(pkl_path: pathlib.Path):
@@ -65,18 +65,21 @@ def main(pkl_path: pathlib.Path):
         "b": to_rgba("C2", alpha=0.7),
     }
     label_dict = {
-        "A": "A",
-        "B": "B",
-        "C": "C",
-        "K": ":key:",
-        "D": ":door:",
+        "A": "a",
+        "B": "b",
+        "C": "c",
+        # "K": ":key:",
+        # "D": ":door:",
+        "K": "k",
+        "D": "d",
+        "#": "w",
         # -------
         # "action_0": "⋅",
         # "action_1": "→",
         # "action_2": "←",
         # "action_3": "↓",
         # "action_4": "↑",
-        "action_0": "⋅",
+        "action_0": ".",
         "action_1": "↑",
         "action_2": "↓",
         "action_3": "→",
@@ -146,7 +149,7 @@ def main(pkl_path: pathlib.Path):
         fig, ax = plt.subplots(figsize=figsize, dpi=400)
         norm = CenteredNorm()
         im = ax.imshow(value_im, cmap=cmap, alpha=0.9, origin="lower", vmin=-1, vmax=1)
-        cbar = fig.colorbar(im, ax=ax)
+        # cbar = fig.colorbar(im, ax=ax)
         annotate_cell(d_raw, label_dict, ax, offset=np.array([0.28, 0.28]), size_data=0.3, fontsize=10)
 
         annotate_cell(d_actions, label_dict, ax)
@@ -155,11 +158,15 @@ def main(pkl_path: pathlib.Path):
         ax.set_yticks(np.arange(h + 1) - 0.5)
         ax.tick_params(axis="both", which="both", length=0, labelbottom=False, labelleft=False)
         # ax.set_title(dag_node_to_str(dag_nodes, dag_id))
-        ax.set_title(f"DAG Node {dag_id}")
+        # ax.set_title(f"DAG Node {dag_id}")
+
+        ## Add a black line around the whole plot
 
         node_type = type(dag_node).__name__[3:]
         fig_path = paper_plot_dir / f"{map_num}_node_{dag_id}_{node_type}.pdf"
+        fig_path_png = paper_plot_dir / f"{map_num}_node_{dag_id}_{node_type}.png"
         fig.savefig(fig_path, bbox_inches="tight", pad_inches=1e-2)
+        fig.savefig(fig_path_png, bbox_inches="tight", pad_inches=1e-2)
         plt.close(fig)
 
 

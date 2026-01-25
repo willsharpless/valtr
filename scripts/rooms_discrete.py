@@ -14,6 +14,8 @@ from valtr.mintime_rollout import MinTimeRollout
 from valtr.solve_discrete import load_discrete_sol, save_discrete_sol, solve_discrete
 from valtr.valtr import to_dag
 
+plt.style.use("seaborn-v0_8-darkgrid")
+
 app = cyclopts.App()
 
 MAP1 = """
@@ -248,23 +250,51 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
     tick_locs = np.arange(len(d_raw)) + 0.5
 
     fig, ax = plt.subplots()
+    # cmap = plt.get_cmap("seaborn", len(d_raw))
     cmap = plt.get_cmap("tab20", len(d_raw))
     colors = cmap.colors
 
-    # Get the index of " " in the keys to set it to white.
+    # Get the index of " " in the keys to set it to blank.
     if " " in d_raw:
         space_idx = list(d_raw.keys()).index(" ")
-        colors[space_idx] = np.array([1.0, 1.0, 1.0, 1.0])
+        colors[space_idx] = np.array([1.0, 1.0, 1.0, 0.0])
+
+    if "A" in d_raw:
+        space_idx = list(d_raw.keys()).index("A")
+        colors[space_idx] = np.array([77/255, 114/255, 176/255, 1.0])
+
+    if "B" in d_raw:
+        space_idx = list(d_raw.keys()).index("B")
+        colors[space_idx] = np.array([85/255, 168/255, 104/255, 1.0])
+
+    if "C" in d_raw:
+        space_idx = list(d_raw.keys()).index("C")
+        colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0])
+
+    if "K" in d_raw:
+        space_idx = list(d_raw.keys()).index("K")
+        colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0])
+
+    if "D" in d_raw:
+        space_idx = list(d_raw.keys()).index("D")
+        colors[space_idx] = np.array([147/255, 120/255, 96/255, 1.0])
+
+    if "#" in d_raw:
+        space_idx = list(d_raw.keys()).index("#")
+        # colors[space_idx] = np.array([220/255, 100/255, 120/255, 0.7])
+        colors[space_idx] = np.array([140/255, 114/255, 179/255, 0.7])
 
     cmap = ListedColormap(colors)
 
-    im = ax.imshow(empty_map, cmap=cmap, vmin=0, vmax=len(d_raw))
+    im = ax.imshow(empty_map, cmap=cmap, vmin=0, vmax=len(d_raw), alpha=0.8, origin="lower")
     cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
     cbar.ax.set_yticklabels(list(d_raw.keys()))
     ax.set_title("Map visualization")
-    ax.set_xticks(np.arange(w + 1) - 0.5)
-    ax.set_yticks(np.arange(h + 1) - 0.5)
+    # Set ticks with blank labels
+    ax.set_xticks(np.arange(w + 1) - 0.5, [''] * (w + 1))
+    ax.set_yticks(np.arange(h + 1) - 0.5, [''] * (h + 1))
     fig.savefig("rooms_discrete.pdf")
+    fig.savefig("rooms_discrete.png")
     plt.close(fig)
 
     # # --------------------------
@@ -324,7 +354,7 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
 
     #     value
     ax = axes[1]
-    im = ax.imshow(dict_vars[dag_root].reshape(dyn.shape), vmin=-1, vmax=1)
+    im = ax.imshow(dict_vars[dag_root].reshape(dyn.shape), vmin=-1, vmax=1, cmap='viridis')
     ax.set_xticks(np.arange(w + 1) - 0.5)
     ax.set_yticks(np.arange(h + 1) - 0.5)
     cbar = fig.colorbar(im, ax=ax)

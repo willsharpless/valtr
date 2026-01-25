@@ -1,5 +1,7 @@
 results/
 
+/paper/plots*
+
 # COPILOT wrote these:
 
 # Byte-compiled / optimized / DLL files
