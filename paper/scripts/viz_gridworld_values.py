@@ -67,7 +67,7 @@ def main(pkl_path: pathlib.Path):
     label_dict = {
         "A": "a",
         "B": "b",
-        "C": "c",
+        "g": "g",
         # "K": ":key:",
         # "D": ":door:",
         "K": "k",
@@ -148,7 +148,7 @@ def main(pkl_path: pathlib.Path):
 
         fig, ax = plt.subplots(figsize=figsize, dpi=400)
         norm = CenteredNorm()
-        im = ax.imshow(value_im, cmap=cmap, alpha=0.9, origin="lower", vmin=-1, vmax=1)
+        im = ax.imshow(value_im, cmap=cmap, origin="lower", vmin=-1, vmax=1)
         # cbar = fig.colorbar(im, ax=ax)
         annotate_cell(d_raw, label_dict, ax, offset=np.array([0.28, 0.28]), size_data=0.3, fontsize=10)
 

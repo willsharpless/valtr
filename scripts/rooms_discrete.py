@@ -77,7 +77,7 @@ MAP6 = """
      A  
         
   ...b  
-C ....  
+g ....  
   ....  
   ..a.  
         
@@ -89,7 +89,7 @@ MAP7 = """
  .b  .b 
  ..  .. 
  ..  a.B
- ..C .. 
+ ..g .. 
  ..  .. 
  a.  .. 
         
@@ -167,7 +167,7 @@ def get_rooms():
         d = {
             "A": np.where(d_raw["a"] | d_raw["A"], 1, -1),
             "B": np.where(d_raw["b"] | d_raw["B"], 1, -1),
-            "C": np.where(d_raw["C"], 1, -1),
+            "g": np.where(d_raw["g"], 1, -1),
             "q": np.where(d_raw["."] | d_raw["a"] | d_raw["b"], 1, -1),
         }
         return dyn, d
@@ -208,9 +208,9 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
     elif MAP_NUM == 5:
         TASK_SOURCE = "F A && F B && !D U K && G( !w )"
     elif MAP_NUM == 6:
-        TASK_SOURCE = "F( C && F G ( (q U (A && q )) && (q U (B && q )) ) )"
+        TASK_SOURCE = "F( g && F G ( (q U (A && q )) && (q U (B && q )) ) )"
     elif MAP_NUM == 7:
-        TASK_SOURCE = "(!q U C) && F( C && F G ( (q U (A && q )) && (q U (B && q )) ) )"
+        TASK_SOURCE = "(!q U g) && F( g && F G ( (q U (A && q )) && (q U (B && q )) ) )"
     else:
         raise ValueError("Invalid MAP_NUM")
 
@@ -282,8 +282,8 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
         space_idx = list(d_raw.keys()).index("B")
         colors[space_idx] = np.array([85/255, 168/255, 104/255, 1.0])
 
-    if "C" in d_raw:
-        space_idx = list(d_raw.keys()).index("C")
+    if "g" in d_raw:
+        space_idx = list(d_raw.keys()).index("g")
         colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0])
 
     if "K" in d_raw:
