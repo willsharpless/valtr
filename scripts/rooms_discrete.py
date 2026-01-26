@@ -84,10 +84,23 @@ C ....
     B   
 """
 
+MAP7 = """
+ A      
+ .b  .b 
+ ..  .. 
+ ..  a.B
+ ..C .. 
+ ..  .. 
+ a.  .. 
+        
+"""
+
+
 MAP_NUM = 6
 
 
 def get_rooms():
+    map_str = [None, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6, MAP7][MAP_NUM]
     if MAP_NUM == 1:
         s = MAP1
         dyn, d_raw = parse_rooms(s)
@@ -149,8 +162,8 @@ def get_rooms():
             "w": np.where(d_raw["#"], 1, -1),
         }
         return dyn, d
-    elif MAP_NUM == 6:
-        dyn, d_raw = parse_rooms(MAP6)
+    elif MAP_NUM == 6 or MAP_NUM == 7:
+        dyn, d_raw = parse_rooms(map_str)
         d = {
             "A": np.where(d_raw["a"] | d_raw["A"], 1, -1),
             "B": np.where(d_raw["b"] | d_raw["B"], 1, -1),
@@ -196,6 +209,8 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
         TASK_SOURCE = "F A && F B && !D U K && G( !w )"
     elif MAP_NUM == 6:
         TASK_SOURCE = "F( C && F G ( (q U (A && q )) && (q U (B && q )) ) )"
+    elif MAP_NUM == 7:
+        TASK_SOURCE = "(!q U C) && F( C && F G ( (q U (A && q )) && (q U (B && q )) ) )"
     else:
         raise ValueError("Invalid MAP_NUM")
 
@@ -226,13 +241,13 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
     # Visualize the map.
     # Use a different color for each symbol.
 
-    map_str = [None, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6][MAP_NUM]
+    map_str = [None, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6, MAP7][MAP_NUM]
     if MAP_NUM == 3:
         d_raw = parse_rooms(MAP3)[1]
         d_raw_drift = parse_rooms(MAP3_DRIFT)[1]
         d_raw = d_raw_drift | d_raw
-    elif MAP_NUM == 6:
-        _, d_raw = parse_rooms(MAP6)
+    elif MAP_NUM == 6 or MAP_NUM == 7:
+        _, d_raw = parse_rooms(map_str)
 
         # d_raw["q"] = d_raw["."] | d_raw["a"] | d_raw["b"]
         d_raw["q"] = d_raw["."]
@@ -317,6 +332,7 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
     sol_pkls_dir = pathlib.Path("sol_pkls")
     sol_pkls_dir.mkdir(exist_ok=True)
     pkl_path = sol_pkls_dir / "rooms_discrete_{}_gamma{}_sol.pkl".format(MAP_NUM, gamma)
+    # ipdb.set_trace()
 
     if resolve or not pkl_path.exists():
         dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
@@ -418,7 +434,7 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
     if MAP_NUM == 4:
         # start_state = dyn.encode_state((2, 5))
         start_state = dyn.encode_state((2, 7))
-    elif MAP_NUM == 6:
+    elif MAP_NUM == 6 or MAP_NUM == 7:
         start_state = dyn.encode_state((7, 2))
     else:
         rng = np.random.default_rng(seed=12345)

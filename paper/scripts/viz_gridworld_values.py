@@ -161,6 +161,9 @@ def main(pkl_path: pathlib.Path):
         # ax.set_title(f"DAG Node {dag_id}")
 
         ## Add a black line around the whole plot
+        for spine in ax.spines.values():
+            spine.set_edgecolor("black")
+            spine.set_linewidth(1.5)
 
         node_type = type(dag_node).__name__[3:]
         fig_path = paper_plot_dir / f"{map_num}_node_{dag_id}_{node_type}.pdf"
