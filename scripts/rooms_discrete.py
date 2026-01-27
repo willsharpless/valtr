@@ -286,6 +286,10 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
         space_idx = list(d_raw.keys()).index("g")
         colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0])
 
+    if "C" in d_raw:
+        space_idx = list(d_raw.keys()).index("C")
+        colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0])
+
     if "K" in d_raw:
         space_idx = list(d_raw.keys()).index("K")
         colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0])
@@ -297,7 +301,20 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
     if "#" in d_raw:
         space_idx = list(d_raw.keys()).index("#")
         # colors[space_idx] = np.array([220/255, 100/255, 120/255, 0.7])
-        colors[space_idx] = np.array([140/255, 114/255, 179/255, 0.7])
+        colors[space_idx] = np.array([140/255, 114/255, 179/255, 0.3])
+
+    if "1" in d_raw:
+        space_idx = list(d_raw.keys()).index("1")
+        # muted red
+        colors[space_idx] = np.array([0.8,0.4,0.4, 1.0])
+
+    if "2" in d_raw:
+        space_idx = list(d_raw.keys()).index("2")
+        colors[space_idx] = np.array([147/255, 120/255, 96/255, 0.7])
+
+    if "^" in d_raw:
+        space_idx = list(d_raw.keys()).index("^")
+        colors[space_idx] = np.array([0.8,0.4,0.4, 1.0])
 
     cmap = ListedColormap(colors)
 
