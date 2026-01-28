@@ -18,6 +18,15 @@ plt.style.use("seaborn-v0_8-darkgrid")
 
 app = cyclopts.App()
 
+MAP0 = """
+#########
+# A#    #
+# ## ## #
+#    #B #
+#########
+"""
+# called 1 in vdppo code
+
 MAP1 = """
 #############
 #C  2 A 1   #
@@ -101,6 +110,15 @@ MAP_NUM = 6
 
 def get_rooms():
     map_str = [None, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6, MAP7][MAP_NUM]
+    if MAP_NUM == 0:
+        s = MAP0
+        dyn, d_raw = parse_rooms(s)
+        d = {
+            "A": np.where(d_raw["A"], 1, -1),
+            "B": np.where(d_raw["B"], 1, -1),
+            "w": np.where(d_raw["#"], 1, -1),
+        }
+        return dyn, d
     if MAP_NUM == 1:
         s = MAP1
         dyn, d_raw = parse_rooms(s)
@@ -187,7 +205,9 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
     results_dir = pathlib.Path("plots_discrete")
     results_dir.mkdir(exist_ok=True)
 
-    if MAP_NUM == 1:
+    if MAP_NUM == 0:
+        TASK_SOURCE = "F A && F B && G( !w )"
+    elif MAP_NUM == 1:
         # MAP1
         # TASK_SOURCE = "!d1 U k1"
         # TASK_SOURCE = "(!d1 U k1) && G( !w )"
@@ -241,7 +261,7 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
     # Visualize the map.
     # Use a different color for each symbol.
 
-    map_str = [None, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6, MAP7][MAP_NUM]
+    map_str = [MAP0, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6, MAP7][MAP_NUM]
     if MAP_NUM == 3:
         d_raw = parse_rooms(MAP3)[1]
         d_raw_drift = parse_rooms(MAP3_DRIFT)[1]
