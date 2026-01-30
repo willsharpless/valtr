@@ -558,7 +558,7 @@ SYM_RA = "ReachAvoid"
 SYM_A = "Avoid"
 
 
-def dag_to_str(builder: DagBuilder, rid: DAGId) -> str:
+def dag_to_str(nodes: list[DAGNode], rid: DAGId) -> str:
     """
     Convert a DAG node to a Unicode logical expression string.
     Ensures parentheses so ambiguity is avoided.
@@ -570,7 +570,7 @@ def dag_to_str(builder: DagBuilder, rid: DAGId) -> str:
         if i in cache:
             return cache[i]
 
-        node = builder.nodes[i]
+        node = nodes[i]
         match node:
 
             case DAGConst(value=v):
