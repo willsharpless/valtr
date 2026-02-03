@@ -79,6 +79,13 @@ class DAGMinN(DAGNode):
     def children(self) -> List[DAGId]:
         return list(self.args)
 
+@frozen
+class DAGMinGuard(DAGNode):
+    temporal_arg: DAGId
+    nontemporal_arg: DAGId
+
+    def children(self) -> List[DAGId]:
+        return [self.temporal_arg, self.nontemporal_arg]
 
 @frozen
 class DAGMaxN(DAGNode):
@@ -189,6 +196,9 @@ class DagBuilder:
             return args[0]
         else:
             return self._get(("MinN", s), DAGMinN(s))
+    
+    def min_guard(self, temporal_arg: DAGId, nontemporal_arg: DAGId) -> DAGId:
+        return self._get(("MinGuard", temporal_arg, nontemporal_arg), DAGMinGuard(temporal_arg, nontemporal_arg))
 
     def max_n(self, args: Iterable[DAGId]) -> DAGId:
         s = tuple(sorted(set(args)))
