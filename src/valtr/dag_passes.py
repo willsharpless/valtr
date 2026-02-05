@@ -3,7 +3,7 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 import graphviz
 import ipdb
 
-from valtr.reachability import (DAGAvoid, DagBuilder, DAGConst, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN,
+from valtr.reachability import (DAGAvoid, DagBuilder, DAGConst, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN, DAGMinGuard,
                                 DAGNegate, DAGNode, DAGReach, DAGReachAvoid, DAGVar)
 
 
@@ -71,6 +71,11 @@ class DagRewriter:
             case DAGGUMinN(args=args):
                 new_args = [self.visit(a) for a in args]
                 out = self.dst.GU_min_n(new_args)
+            
+            case DAGMinGuard(temporal_arg=temporal_arg, nontemporal_arg=nontemporal_arg):
+                new_temporal_arg = self.visit(temporal_arg)
+                new_nontemporal_arg = self.visit(nontemporal_arg)
+                out = self.dst.min_guard(temporal_arg=new_temporal_arg, nontemporal_arg=new_nontemporal_arg)
 
             case _:
                 raise AssertionError(f"Unhandled DAG node: {type(n).__name__}")
@@ -458,6 +463,43 @@ class PassRAToR(DagRewriter):
         # self.memo[i] = out
         return out
 
+class PassToMinGuard(DagRewriter):
+    """
+    Orgnaize the mins by splitting the nodes into either temporal nodes and non-temporal nodes.
+    """
+
+    def visit(self, rid: DAGId) -> DAGId:
+        i = rid
+        if i in self.memo:
+            return self.memo[i]
+        n = self.src.nodes[i]
+
+        match n:
+            case DAGMinN(args=args):
+                temporal_args = []
+                nontemporal_args = []
+                for a_id in args:
+                    a_node = self.src.nodes[a_id]
+                    if a_node.is_temporal():
+                        temporal_args.append(self.visit(a_id))
+                    else:
+                        nontemporal_args.append(self.visit(a_id))
+
+                # Create MinGuard node if there is at exactly one temporal and at least one non-temporal argument.
+                if len(temporal_args) == 1 and len(nontemporal_args) >= 1:
+                    temporal_arg = temporal_args[0]
+                    nontemporal_arg = self.dst.min_n(nontemporal_args)
+                    out = self.dst.min_guard(temporal_arg=temporal_arg, nontemporal_arg=nontemporal_arg)
+                    self.changed = True
+                else:
+                    # Rebuild normally.
+                    rebuilt_args = temporal_args + nontemporal_args
+                    out = self.dst.min_n(rebuilt_args)
+            case _:
+                out = super().visit(rid)
+
+        self.memo[i] = out
+        return out
 
 class PassKeepReachable(DagRewriter):
     """

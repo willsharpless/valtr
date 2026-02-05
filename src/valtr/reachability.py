@@ -79,6 +79,13 @@ class DAGMinN(DAGNode):
     def children(self) -> List[DAGId]:
         return list(self.args)
 
+@frozen
+class DAGMinGuard(DAGNode):
+    temporal_arg: DAGId
+    nontemporal_arg: DAGId
+
+    def children(self) -> List[DAGId]:
+        return [self.temporal_arg, self.nontemporal_arg]
 
 @frozen
 class DAGMaxN(DAGNode):
@@ -189,6 +196,9 @@ class DagBuilder:
             return args[0]
         else:
             return self._get(("MinN", s), DAGMinN(s))
+    
+    def min_guard(self, temporal_arg: DAGId, nontemporal_arg: DAGId) -> DAGId:
+        return self._get(("MinGuard", temporal_arg, nontemporal_arg), DAGMinGuard(temporal_arg, nontemporal_arg))
 
     def max_n(self, args: Iterable[DAGId]) -> DAGId:
         s = tuple(sorted(set(args)))
@@ -370,9 +380,43 @@ def get_and_args_list(node: IRNode, node_id: IRId) -> list[IRId]:
         case _:
             return [node_id]
 
+def lower_ir_to_dag_notransform(ir_nodes: list[IRNode], root: IRId, dag: DagBuilder | None = None) -> DAGId:
+    """Just translate the IR structure directly to DAG structure without any transformations."""
+    root_node = ir_nodes[int(root)]
+
+    match root_node:
+        case ConstBool(value=v):
+            return dag.const(v)
+        case Var(name=s):
+            return dag.var(s)
+        case Unary(kind=UnaryIROpKind.NOT, arg=arg, span=_):
+            kid = lower_ir_to_dag_notransform(ir_nodes, arg, dag)
+            return dag.negate(kid)
+        case Nary(kind=NaryKind.AND, args=args, span=_):
+            kids = [lower_ir_to_dag_notransform(ir_nodes, a, dag) for a in args]
+            return dag.min_n(kids)
+        case Nary(kind=NaryKind.OR, args=args, span=_):
+            kids = [lower_ir_to_dag_notransform(ir_nodes, a, dag) for a in args]
+            return dag.max_n(kids)
+        case TemporalBinary(kind=BinaryIROpKind.UNTIL, left=left, right=right, interval=iv, span=_):
+            left = lower_ir_to_dag_notransform(ir_nodes, left, dag)
+            right = lower_ir_to_dag_notransform(ir_nodes, right, dag)
+            return dag.reachavoid(reach=right, stay=left)
+        case TemporalUnary(kind=kind, arg=arg, interval=iv, span=_):
+            arg_dag = lower_ir_to_dag_notransform(ir_nodes, arg, dag)
+            match kind:
+                case UnaryIROpKind.GLOBALLY:
+                    return dag.avoid(arg_dag)
+                case UnaryIROpKind.FINALLY:
+                    return dag.reach(arg_dag)
+                case _:
+                    raise LoweringError(f"Unsupported temporal unary op: {kind}")
+        case _:
+            raise LoweringError(f"Unsupported IR node type in lowering: {type(root_node).__name__}")
+
 
 def lower_ir_to_dag(
-    irb: IRBuilder, root: IRId, dag: DagBuilder | None = None, nested: bool = False
+    irb: IRBuilder, root: IRId, dag: DagBuilder | None = None, nested: bool = False, transform=True
 ) -> tuple[DagBuilder, DAGId]:
     """
     AND_i G ( q_i U r_i )  AND  AND_j ( q_j U r_j )  AND  G q_G
@@ -383,6 +427,13 @@ def lower_ir_to_dag(
 
     AND is min, OR is max
     """
+    if dag is None:
+        dag = DagBuilder()
+
+    if not transform:
+        dag_id = lower_ir_to_dag_notransform(irb.nodes, root, dag=dag)
+        return dag, dag_id
+
     root_node = irb.nodes[root]
     root_arg_ids = get_and_args_list(root_node, root)
 
@@ -558,7 +609,7 @@ SYM_RA = "ReachAvoid"
 SYM_A = "Avoid"
 
 
-def dag_to_str(builder: DagBuilder, rid: DAGId) -> str:
+def dag_to_str(nodes: list[DAGNode], rid: DAGId) -> str:
     """
     Convert a DAG node to a Unicode logical expression string.
     Ensures parentheses so ambiguity is avoided.
@@ -570,7 +621,7 @@ def dag_to_str(builder: DagBuilder, rid: DAGId) -> str:
         if i in cache:
             return cache[i]
 
-        node = builder.nodes[i]
+        node = nodes[i]
         match node:
 
             case DAGConst(value=v):

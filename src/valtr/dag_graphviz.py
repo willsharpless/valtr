@@ -3,7 +3,7 @@ from typing import Iterable, List, Optional, Set
 import graphviz
 
 from valtr.reachability import (DAGAvoid, DagBuilder, DAGConst, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN,
-                                DAGNegate, DAGNode, DAGReachAvoid, DAGVar)
+                                DAGMinGuard, DAGNegate, DAGNode, DAGReachAvoid, DAGVar)
 
 
 def _reachable(builder: DagBuilder, roots: Iterable[int] | int) -> Set[int]:
@@ -31,7 +31,7 @@ def _label_for(i: int, node: DAGNode) -> str:
             op = f"Var {name}"
         case DAGNegate(arg=_):
             op = f"NEG."
-        case DAGMinN(args=_):
+        case DAGMinN(args=_) | DAGMinGuard(temporal_args=_, nontemporal_args=_):
             op = f"MIN"
         case DAGMaxN(args=_):
             op = f"MAX"
@@ -77,6 +77,7 @@ def visualize_dag(
         DAGConst: ("#95a5a6", "ellipse"),
         DAGVar: ("#FFFFFF", "ellipse"),
         DAGMinN: ("#61655D", "box"),
+        DAGMinGuard: ("#61655D", "box"),
         DAGMaxN: ("#E9E0C4", "box"),
         DAGReachAvoid: ("#1B5B93", "diamond"),
         DAGAvoid: ("#CD3A3A", "hexagon"),
