@@ -5,8 +5,8 @@ import tqdm
 from dvi.dynamics.discrete import DiscreteDyn
 from loguru import logger
 
-from valtr.reachability import (DAGAvoid, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN, DAGNode, DAGReachAvoid,
-                                has_temporal_children, DAGReach)
+from valtr.reachability import (DAGAvoid, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN, DAGNode, DAGReach,
+                                DAGReachAvoid, has_temporal_children)
 
 
 class MinTimeRollout:
@@ -90,13 +90,17 @@ class MinTimeRollout:
 
                                 # There should only be one temporal child under the min node.
                                 temporal_idxs = [
-                                    child_idx for child_idx in reach_min_node.args if dag_nodes[child_idx].is_temporal()
+                                    child_idx
+                                    for child_idx in reach_min_node.args
+                                    if dag_nodes[child_idx].is_temporal() or isinstance(dag_nodes[child_idx], DAGGUMinN)
                                 ]
                                 assert len(temporal_idxs) == 1
                                 temporal_idx = temporal_idxs[0]
 
                                 non_temporal_idxs = [
-                                    child_idx for child_idx in reach_min_node.args if not dag_nodes[child_idx].is_temporal()
+                                    child_idx
+                                    for child_idx in reach_min_node.args
+                                    if not dag_nodes[child_idx].is_temporal()
                                 ]
 
                                 non_temporal_values = np.array([self.dict_vars[ii][state] for ii in non_temporal_idxs])
@@ -109,7 +113,9 @@ class MinTimeRollout:
                                 else:
                                     # Otherwise, go to the temporal child.
                                     if cur_node_id == temporal_idx:
-                                        logger.error("cur_node_id: {}, temporal_idx: {}".format(cur_node_id, temporal_idx))
+                                        logger.error(
+                                            "cur_node_id: {}, temporal_idx: {}".format(cur_node_id, temporal_idx)
+                                        )
                                         ipdb.set_trace()
 
                                     cur_node_id = temporal_idx

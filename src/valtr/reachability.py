@@ -4,7 +4,6 @@ from typing import Dict, Iterable, List, NamedTuple, NewType, Optional, Set, Tup
 import graphviz
 import ipdb
 from attrs import define, field, frozen
-
 from valtr.ir import (Binary, BinaryIROpKind, ConstBool, IRId, IRNode, Nary, NaryKind, TemporalBinary, TemporalUnary,
                       Unary, UnaryIROpKind, Var)
 from valtr.ir_builder import IRBuilder
@@ -79,6 +78,7 @@ class DAGMinN(DAGNode):
     def children(self) -> List[DAGId]:
         return list(self.args)
 
+
 @frozen
 class DAGMinGuard(DAGNode):
     temporal_arg: DAGId
@@ -86,6 +86,7 @@ class DAGMinGuard(DAGNode):
 
     def children(self) -> List[DAGId]:
         return [self.temporal_arg, self.nontemporal_arg]
+
 
 @frozen
 class DAGMaxN(DAGNode):
@@ -196,7 +197,7 @@ class DagBuilder:
             return args[0]
         else:
             return self._get(("MinN", s), DAGMinN(s))
-    
+
     def min_guard(self, temporal_arg: DAGId, nontemporal_arg: DAGId) -> DAGId:
         return self._get(("MinGuard", temporal_arg, nontemporal_arg), DAGMinGuard(temporal_arg, nontemporal_arg))
 
@@ -379,6 +380,7 @@ def get_and_args_list(node: IRNode, node_id: IRId) -> list[IRId]:
             return list(args_)
         case _:
             return [node_id]
+
 
 def lower_ir_to_dag_notransform(ir_nodes: list[IRNode], root: IRId, dag: DagBuilder | None = None) -> DAGId:
     """Just translate the IR structure directly to DAG structure without any transformations."""
@@ -946,11 +948,15 @@ def get_node_parent_dict(nodes: list[DAGNode], root_id: DAGId) -> dict[DAGId, DA
     return parent_dict
 
 
-def has_temporal_children(node_id: DAGId, nodes: list[DAGNode]) -> bool:
+def has_temporal_children(node_id: DAGId, nodes: list[DAGNode], include_self: bool = False) -> bool:
     """
     Recursively check if a DAG node has any temporal children
     """
     node = nodes[int(node_id)]
+
+    if include_self and node.is_temporal():
+        return True
+
     for child_id in node.children():
         child_node = nodes[child_id]
         if child_node.is_temporal():
@@ -958,3 +964,25 @@ def has_temporal_children(node_id: DAGId, nodes: list[DAGNode]) -> bool:
         if has_temporal_children(child_id, nodes):
             return True
     return False
+
+
+def get_guard_node_id(node_id: DAGId, nodes: list[DAGNode]) -> DAGId | None:
+    """Return the node if it is non-temporal. If it is temporal, it should be min(non-temporal, temporal).
+    Return the non-temporal part as the guard."""
+    node = nodes[int(node_id)]
+    if not has_temporal_children(node_id, nodes):
+        return node_id
+    elif isinstance(node, DAGMinN):
+        non_temporal_parts = [arg for arg in node.args if not has_temporal_children(arg, nodes, include_self=True)]
+        temporal_parts = [arg for arg in node.args if has_temporal_children(arg, nodes, include_self=True)]
+        if len(temporal_parts) > 1:
+            raise ValueError("Expected at most one temporal part in min")
+        if len(non_temporal_parts) > 1:
+            raise ValueError("Expected at most one non-temporal part in min")
+        if len(temporal_parts) == 0:
+            raise ValueError("Expected at least one temporal part in min")
+        if len(non_temporal_parts) == 0:
+            return None
+        return non_temporal_parts[0]
+    else:
+        raise ValueError("Expected temporal node to be a min")

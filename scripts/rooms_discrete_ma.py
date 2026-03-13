@@ -164,7 +164,7 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
 
     # ---------------------------------
     rollouter = MinTimeRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
-    Tp1_states, T_actions = rollouter.rollout(start_state, max_steps=100)
+    Tp1_states, T_actions, T_curnode_idxs = rollouter.rollout(start_state, max_steps=100)
 
     # Visualize the rollout by animating the path and saving as mp4.
     n_frames = len(Tp1_states)
