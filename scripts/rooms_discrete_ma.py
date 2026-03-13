@@ -126,10 +126,16 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
         dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
             dyn_ma, dag_nodes, dict_predicates, gamma=gamma
         )
+        extras = {
+            "task_source": TASK_SOURCE,
+            "dict_predicates": dict_predicates,
+            "gamma": gamma,
+            "d_raw": d_raw,
+            # "map_num": MAP_NUM,
+        }
+        save_discrete_sol(pkl_path, dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras=extras)
 
-        save_discrete_sol(pkl_path, dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
-
-    dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = load_discrete_sol(pkl_path)
+    dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = load_discrete_sol(pkl_path)
 
     # ---------------------------------
     rng = np.random.default_rng(seed=12345)
