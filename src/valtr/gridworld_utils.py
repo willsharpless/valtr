@@ -23,7 +23,9 @@ def parse_rooms(s: str):
 
             d[c][ii, jj] = True
 
-    shape = (height, width)
+    d = {k: v.T for k, v in d.items()}
+
+    shape = (width, height)
     drift_fn = None
     dyn = GridWorld(shape, drift_fn)
 
