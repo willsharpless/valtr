@@ -2,9 +2,11 @@ import ipdb
 import jax.numpy as jnp
 import numpy as np
 from dvi.dynamics.gridworld import GridWorld
+import einops as ei
+from dvi.dynamics.gridworld_timed import GridWorldTimed
 
 
-def parse_rooms(s: str):
+def parse_rooms(s: str, maxtime: int | None = None):
     s = s.strip("\n")
 
     # Figure out how many rows and columns.
@@ -19,15 +21,33 @@ def parse_rooms(s: str):
 
         for jj, c in enumerate(l):
             if c not in d:
-                d[c] = np.zeros((height, width), dtype=bool)
+                if maxtime is None:
+                    d[c] = np.zeros((height, width), dtype=bool)
+                else:
+                    d[c] = np.zeros((height, width, maxtime + 1), dtype=bool)
 
-            d[c][ii, jj] = True
+            if maxtime is None:
+                d[c][ii, jj] = True
+            else:
+                d[c][ii, jj, :] = True
 
-    d = {k: v.T for k, v in d.items()}
+    if maxtime is not None:
+        # Create a predicate that is true at t=0.
+        k = "t0"
+        d[k] = np.zeros((height, width, maxtime + 1), dtype=bool)
+        d[k][:, :, 0] = True
+
+        # Flip the first 2 dims.
+        d = {k: ei.rearrange(v, "x y T -> y x T") for k, v in d.items()}
+    else:
+        d = {k: v.T for k, v in d.items()}
 
     shape = (width, height)
     drift_fn = None
-    dyn = GridWorld(shape, drift_fn)
+    if maxtime is None:
+        dyn = GridWorld(shape, drift_fn)
+    else:
+        dyn = GridWorldTimed(shape, maxtime, drift_fn)
 
     return dyn, d
 
