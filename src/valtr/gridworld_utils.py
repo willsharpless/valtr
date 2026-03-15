@@ -32,10 +32,11 @@ def parse_rooms(s: str, maxtime: int | None = None):
                 d[c][ii, jj, :] = True
 
     if maxtime is not None:
-        # Create a predicate that is true at t=0.
-        k = "t0"
-        d[k] = np.zeros((height, width, maxtime + 1), dtype=bool)
-        d[k][:, :, 0] = True
+        # Create a predicate that is true for every time.
+        for kk in range(maxtime + 1):
+            k = f"Tle{kk}"
+            d[k] = np.zeros((height, width, maxtime + 1), dtype=bool)
+            d[k][:, :, :kk + 1] = True
 
         # Flip the first 2 dims.
         d = {k: ei.rearrange(v, "x y T -> y x T") for k, v in d.items()}

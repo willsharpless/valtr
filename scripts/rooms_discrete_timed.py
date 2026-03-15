@@ -22,26 +22,26 @@ app = cyclopts.App()
 
 MAP = """
 #############
-#############
-#############
-### A#    ###
-### ## ## ###
-###    #B ###
-#############
+###        ##
+###  #    ###
+###       ###
+### A     ###
+###       ###
+###       ###
 #############
 #############
 """
 
-TMAX = 10
+TMAX = 20
 
 def get_rooms():
     s = MAP
     dyn, d_raw = parse_rooms(s, maxtime=TMAX)
     d = {
         "A": np.where(d_raw["A"], 1, -1),
-        "B": np.where(d_raw["B"], 1, -1),
+        # "B": np.where(d_raw["B"], 1, -1),
         "w": np.where(d_raw["#"], 1, -1),
-        "t0": np.where(d_raw["t0"], 1, -1)
+        "Tle8": np.where(d_raw["Tle8"], 1, -1)
     }
     return dyn, d
 
@@ -52,7 +52,7 @@ def main():
     results_dir.mkdir(exist_ok=True)
 
     # TASK_SOURCE = "F A && F B && G( !w )"
-    TASK_SOURCE = "F(A && !t0) && G( !w )"
+    TASK_SOURCE = "F(A && Tle8) && G( !w )"
 
     logger.info("Generating the value tree DAG from logic...")
     print(f"Input task logic: {TASK_SOURCE}")
@@ -70,10 +70,15 @@ def main():
     # Rename.
     d_raw["w"] = d_raw.pop("#")
 
+    # Remove all keys starting with "Tle"
+    k: str
+    d_raw = {k: v for k,v in d_raw.items() if not k.startswith("Tle")}
+
     key_tmp = list(d_raw.keys())[0]
-    empty_map = np.zeros_like(d_raw[key_tmp])
+    # logger.debug(f"d_raw shape: {d_raw[key_tmp].shape}")
+    empty_map = np.zeros((h, w))
     for ii, (k, v) in enumerate(d_raw.items()):
-        empty_map = np.where(v, ii, empty_map)
+        empty_map = np.where(v[:, :, -1], ii, empty_map)
 
     tick_locs = np.arange(len(d_raw)) + 0.5
 
@@ -90,85 +95,88 @@ def main():
         ax_.set_xticks(np.arange(h + 1) - 0.5, minor=True)
         ax_.set_yticks(np.arange(w + 1) - 0.5, minor=True)
 
-    # -------------------------------------------
-    # Visualize the value functions at each timeslice.
-
-    T_Vroot = dict_vars[dag_root].reshape(dyn.shape)
-
-    nrow = 5
-    figsize = np.array([8, 3 * nrow])
-    fig, axes = plt.subplots(nrow, figsize=figsize, layout="constrained")
-    for ii, ax in enumerate(axes):
-        setup_ax(ax)
-        im = ax.imshow(T_Vroot[:, :, ii].T, cmap="turbo", vmin=-1, vmax=1)
-        cbar = fig.colorbar(im, ax=ax)
-        ax.set_title(f"t={ii}")
-
-    fig_path = results_dir / "augment_time.pdf"
-    fig.savefig(fig_path, bbox_inches="tight", pad_inches=1e-2)
-    plt.close(fig)
-    logger.success(f"Saved to {fig_path}")
-
-    # ----------------------------
-    # Start at the center.
-    state = dyn.encode_state((5, 6, TMAX), mode="raise")
-
-    # a_nom = dyn.str_to_action("L")
+    # # -------------------------------------------
+    # # Visualize the value functions at each timeslice.
     #
-    # Tp1_state = [state]
+    # T_Vroot = dict_vars[dag_root].reshape(dyn.shape)
     #
-    # safety_filter = SafetyFilter(dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+    # nrow = 5
+    # figsize = np.array([8, 3 * nrow])
+    # fig, axes = plt.subplots(nrow, figsize=figsize, layout="constrained")
+    # for ii, ax in enumerate(axes):
+    #     setup_ax(ax)
+    #     im = ax.imshow(T_Vroot[:, :, ii].T, cmap="turbo", vmin=-1, vmax=1)
+    #     cbar = fig.colorbar(im, ax=ax)
+    #     ax.set_title(f"t={ii}")
     #
-    # # Rollout safety filter.
-    # for kk in range(10):
-    #     a_safe = safety_filter.filter_action(state, a_nom)
-    #     state = dyn.step(state, a_safe)
-    #     Tp1_state.append(state)
-    #
-    # # -----------------------------------
-    # # Visualize.
-    # cmap = plt.get_cmap("tab20", len(d_raw))
-    # colors = cmap.colors
-    # if " " in d_raw:
-    #     space_idx = list(d_raw.keys()).index(" ")
-    #     colors[space_idx] = np.array([1.0, 1.0, 1.0, 0.0])
-    # if "w" in d_raw:
-    #     space_idx = list(d_raw.keys()).index("w")
-    #     colors[space_idx] = np.array([140/255, 114/255, 179/255, 0.3])
-    #
-    # cmap = ListedColormap(colors)
-    #
-    # T_x, T_y = [], []
-    # for state in Tp1_state:
-    #     x, y = dyn.decode_state(state, which=np)
-    #     T_y.append(y)
-    #     T_x.append(x)
-    #
-    # T_state_xy = np.stack([T_x, T_y], axis=1)
-    # print("State:")
-    # print(T_state_xy)
-    #
-    # fig, ax = plt.subplots()
-    # im = ax.imshow(empty_map.T, cmap=cmap, vmin=0, vmax=len(d_raw))
-    # cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
-    # cbar.ax.set_yticklabels(list(d_raw.keys()))
-    #
-    # setup_ax(ax)
-    # lim = 0.2
-    # T_offset = np.linspace(-lim, lim, num=20)[:len(T_x)]
-    #
-    # T_x = T_x + T_offset
-    # T_y = T_y - T_offset
-    #
-    # ax.plot(T_x, T_y, marker="o", color="C1")
-    # ax.plot(T_x[0], T_y[0], marker="s", color="C1")
-    #
-    # ax.set_title(r"$G(\neg w)$")
-    #
-    # fig_path = results_dir / "run_safety_filter.pdf"
+    # fig_path = results_dir / "augment_time.pdf"
     # fig.savefig(fig_path, bbox_inches="tight", pad_inches=1e-2)
     # plt.close(fig)
     # logger.success(f"Saved to {fig_path}")
+
+    # ----------------------------
+    # Start at the center.
+    state = dyn.encode_state((7, 5, 0), mode="raise")
+
+    a_nom = dyn.str_to_action("U")
+
+    Tp1_state = [state]
+
+    safety_filter = SafetyFilter(dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+
+    # Rollout safety filter.
+    for kk in range(20):
+        a_safe = safety_filter.filter_action(state, a_nom)
+        state = dyn.step(state, a_safe)
+        Tp1_state.append(state)
+
+    # -----------------------------------
+    # Visualize.
+    cmap = plt.get_cmap("tab20", len(d_raw))
+    colors = cmap.colors
+    if " " in d_raw:
+        space_idx = list(d_raw.keys()).index(" ")
+        colors[space_idx] = np.array([1.0, 1.0, 1.0, 0.0])
+    if "w" in d_raw:
+        space_idx = list(d_raw.keys()).index("w")
+        colors[space_idx] = np.array([140/255, 114/255, 179/255, 0.3])
+
+    cmap = ListedColormap(colors)
+
+    T_x, T_y = [], []
+    for state in Tp1_state:
+        x, y, _ = dyn.decode_state(state, which=np)
+        T_y.append(y)
+        T_x.append(x)
+    T_x = np.array(T_x)
+    T_y = np.array(T_y)
+
+    T_state_xy = np.stack([T_x, T_y], axis=1)
+    print("State:")
+    print(T_state_xy)
+
+    fig, ax = plt.subplots()
+    im = ax.imshow(empty_map.T, cmap=cmap, vmin=0, vmax=len(d_raw))
+    cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
+    cbar.ax.set_yticklabels(list(d_raw.keys()))
+
+    setup_ax(ax)
+    lim = 0.3
+    T_offset = np.linspace(-lim, lim, num=max(20, len(T_x)))[:len(T_x)]
+
+    T_x = T_x + T_offset
+    T_y = T_y - T_offset
+
+    ax.plot(T_x, T_y, lw=0.2, ms=1, marker="o", color="C1")
+    ax.plot(T_x[0], T_y[0], marker="s", color="C1")
+
+    # ax.set_title(r"$G(\neg w)$")
+    ax.set_title(r"$F_{[0, 8]} A$ && $G(\neg w)$")
+
+    fig_path = results_dir / "run_safety_filter_timed.pdf"
+    fig.savefig(fig_path, bbox_inches="tight", pad_inches=1e-2)
+    plt.close(fig)
+    logger.success(f"Saved to {fig_path}")
 
 
 if __name__ == "__main__":
