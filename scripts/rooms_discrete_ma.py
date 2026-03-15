@@ -7,12 +7,16 @@ import numpy as np
 from dvi.dynamics.gridworld_ma import GridWorldMA, ma_collision_predicate, rew_to_ma
 from loguru import logger
 from matplotlib.animation import FuncAnimation
-from matplotlib.colors import ListedColormap
+from matplotlib.colors import BoundaryNorm, ListedColormap
+from matplotlib.colors import to_rgba
+from matplotlib.patches import FancyArrowPatch
 
 from valtr.gridworld_utils import GridWorldDriftFn, parse_rooms
 from valtr.mintime_rollout import MinTimeRollout
 from valtr.solve_discrete import load_discrete_sol, save_discrete_sol, solve_discrete
 from valtr.valtr import to_dag
+
+plt.style.use("seaborn-v0_8-darkgrid")
 
 app = cyclopts.App()
 
@@ -38,58 +42,172 @@ app = cyclopts.App()
 # #######
 # """
 
+# MAP = """
+# #########################
+# #     ####              #
+# #  AA ####   ####       #
+# #  AA ####   ####   BB  #
+# #     ####   ####   BB  #
+# #            ####       #
+# #  ######   ######   ####
+# #  ######   ######   ####
+# #   ##             #    #
+# #  ###  ###    #######  #
+# #  ###  ### FF #######  #
+# #           FF          #
+# # #### ##               #
+# # #### ##        #####  #
+# #      ##    #   #####  #
+# #  EE  #######   ###### #
+# #  EE  #######   ###### #
+# #                ###### #
+# #  ####   CC            #
+# #  ####   CC   ######   #
+# #   ##         ######   #
+# #  #######   #######    #
+# #  #######   #######    #
+# #                       #
+# #########################
+# """
+
 MAP = """
-###############
-# K           #
-#           BB#
-#           BB#
-#vv   ####    #
-#AA<  ####    #
-#AA<          #
-######DDD######
-#AA        >BB#
-#AA        >BB#
-#   ##      ^^#
-#   ##        #
-#     CC      #
-#     CC      #
-###############
+################
+#     B####    #
+# ###          #
+# #s   ## FF   #
+# #       FF   #
+#   EE       # #
+#   EE ####### #
+#      ####### #
+#              #
+# ###     CC   #
+# ###     CC   #
+#  #  A        #
+# #######   s###
+# #######   ####
+#              #
+################
 """
 
-TASK_SOURCE = "G F r1 && G F r2 && G F r3 && (!d U k) && G(!w) && G(!collide)"
+# TASK_SOURCE = "G F r1 && G F r2 && G F r3 && (!d U k) && G(!w) && G(!collide)"
+# TASK_SOURCE = "F r1 && F r2 && G F r3 && G F r4 && F G r5 && G(!w) && G(!collide)"
+TASK_SOURCE = "F r1 && F r2 && G F r4 && G F r3 && G F r5 && G(!w) && G(!collide)"
 # TASK_SOURCE = "G(!w) && G(!collide)"
+
+
+def draw_room_map(fig, ax, empty_map, cmap, d_raw, w, h, alpha: float = 0.5):
+    fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+    ax.set_position([0, 0, 1, 1])
+    im = ax.imshow(empty_map, cmap=cmap, vmin=0, vmax=len(d_raw), alpha=alpha, origin="lower")
+    # cbar = fig.colorbar(im, ax=ax, ticks=np.arange(len(d_raw)) + 0.5)
+    # cbar.ax.set_yticklabels(list(d_raw.keys()))
+    ax.set_xticks(np.arange(w + 1) - 0.5)
+    ax.set_yticks(np.arange(h + 1) - 0.5)
+    # ax.grid(color="white", linestyle="-", linewidth=1., alpha=0.3)
+    ax.set_xlim(-0.5, w - 0.5)
+    ax.set_ylim(-0.5, h - 0.5)
+    ax.margins(0)
+    ax.tick_params(labelbottom=False, labelleft=False)
+    ax.set_aspect("equal")
+    ax.set_autoscale_on(False)
+    return im
 
 
 @app.default()
 def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = False):
     dyn, d_raw = parse_rooms(MAP)
+    empty_mask = np.zeros_like(d_raw["#"], dtype=bool)
+    get_mask = lambda key: d_raw.get(key, empty_mask)
     d = {
-        "r1": np.where(d_raw["A"], 1, -1),
-        "r2": np.where(d_raw["B"], 1, -1),
-        "r3": np.where(d_raw["C"], 1, -1),
-        "k": np.where(d_raw["K"], 1, -1),
-        "d": np.where(d_raw["D"], 1, -1),
-        "w": np.where(d_raw["#"], 1, -1),
+        "r1": np.where(get_mask("A"), 1, -1),
+        "r2": np.where(get_mask("B"), 1, -1),
+        "r3": np.where(get_mask("C"), 1, -1),
+        "r4": np.where(get_mask("E"), 1, -1),
+        "r5": np.where(get_mask("F"), 1, -1),
+        "r6": np.where(get_mask("G"), 1, -1),
+        "k": np.where(get_mask("K"), 1, -1),
+        "d": np.where(get_mask("D"), 1, -1),
+        "w": np.where(get_mask("#"), 1, -1),
         # Just for convenience.
-        "<": np.where(d_raw["<"], 1, -1),
-        ">": np.where(d_raw[">"], 1, -1),
-        "^": np.where(d_raw["^"], 1, -1),
+        "<": np.where(get_mask("<"), 1, -1),
+        ">": np.where(get_mask(">"), 1, -1),
+        "^": np.where(get_mask("^"), 1, -1),
     }
-    dyn.drift_fn = GridWorldDriftFn(d_raw, force=False)
+    if any(key in d_raw for key in ("<", ">", "^", "v")):
+        dyn.drift_fn = GridWorldDriftFn(d_raw, force=False)
     # ------------------------------
 
     h, w = dyn.shape
     empty_map = np.zeros_like(d_raw["#"])
+    space_idx = list(d_raw.keys()).index(" ") if " " in d_raw else 0
     for ii, (k, v) in enumerate(d_raw.items()):
-        empty_map = np.where(v, ii, empty_map)
-    tick_locs = np.arange(len(d_raw)) + 0.5
-    cmap = plt.get_cmap("tab20", len(d_raw))
+        if k == "s":
+            empty_map = np.where(v, space_idx, empty_map)
+        else:
+            empty_map = np.where(v, ii, empty_map)
+    cmap = plt.get_cmap("tab10", len(d_raw))
+    base_colors = np.array(cmap.colors, copy=True)
     colors = cmap.colors
 
     # Get the index of " " in the keys to set it to white.
     if " " in d_raw:
-        space_idx = list(d_raw.keys()).index(" ")
-        colors[space_idx] = np.array([1.0, 1.0, 1.0, 1.0])
+        colors[space_idx] = np.array([1.0, 1.0, 1.0, 0.0])
+
+    if "s" in d_raw:
+        s_idx = list(d_raw.keys()).index("s")
+        colors[s_idx] = colors[space_idx]
+
+    if "A" in d_raw:
+        space_idx = list(d_raw.keys()).index("A")
+        # colors[space_idx] = np.array([77/255, 114/255, 176/255, 1.0]) # muted royal blue
+        colors[space_idx] = np.array([140/255, 114/255, 179/255, 1.0]) # muted purple
+
+    if "B" in d_raw:
+        space_idx = list(d_raw.keys()).index("B")
+        # colors[space_idx] = np.array([85/255, 168/255, 104/255, 1.0]) # muted green
+        colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0]) # muted orange
+
+    if "C" in d_raw:
+        space_idx = list(d_raw.keys()).index("C")
+        # colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0]) # muted orange
+        colors[space_idx] = np.array([77/255, 114/255, 176/255, 1.0]) # muted royal blue
+
+    if "E" in d_raw:
+        space_idx = list(d_raw.keys()).index("E")
+        colors[space_idx] = np.array([85/255, 168/255, 104/255, 1.0]) # muted green
+
+    if "F" in d_raw:
+        space_idx = list(d_raw.keys()).index("F")
+        colors[space_idx] = np.array([0.8, 0.4, 0.4, 1.0]) # muted red
+
+    if "K" in d_raw:
+        space_idx = list(d_raw.keys()).index("K")
+        colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0]) # muted orange
+
+    if "D" in d_raw:
+        space_idx = list(d_raw.keys()).index("D")
+        colors[space_idx] = np.array([147/255, 120/255, 96/255, 1.0]) # muted brown
+
+    if "#" in d_raw:
+        # import seaborn as sns
+
+        space_idx = list(d_raw.keys()).index("#")
+        # colors[space_idx] = np.array([220/255, 100/255, 120/255, 0.7]) # dark pink
+        # colors[space_idx] = np.array([140/255, 114/255, 179/255, 0.3]) # muted purple
+        colors[space_idx] = np.array([0.33714769, 0.41920711, 0.54334937, 1.0]) # charcoal gray
+        # palette = sns.dark_palette("#79C")
+        # sns_color = palette[-3] # -2 kinda good but need to change blue if so
+        # colors[space_idx, :3] = sns_color
+        # colors[space_idx, 3] = 0.8
+
+    if "1" in d_raw:
+        space_idx = list(d_raw.keys()).index("1")
+        colors[space_idx] = np.array([0.8, 0.4, 0.4, 1.0]) # muted red
+
+    if "2" in d_raw:
+        space_idx = list(d_raw.keys()).index("2")
+        colors[space_idx] = np.array([147/255, 120/255, 96/255, 0.7]) # muted brown
+
 
     cmap = ListedColormap(colors)
 
@@ -112,6 +230,9 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
         "r1": rew_to_ma(dict_predicates["r1"], dyn_ma.n_agents, "max"),
         "r2": rew_to_ma(dict_predicates["r2"], dyn_ma.n_agents, "max"),
         "r3": rew_to_ma(dict_predicates["r3"], dyn_ma.n_agents, "max"),
+        "r4": rew_to_ma(dict_predicates["r4"], dyn_ma.n_agents, "max"),
+        "r5": rew_to_ma(dict_predicates["r5"], dyn_ma.n_agents, "max"),
+        "r6": rew_to_ma(dict_predicates["r6"], dyn_ma.n_agents, "max"),
         "k": rew_to_ma(dict_predicates["k"], dyn_ma.n_agents, "max"),
         "d": rew_to_ma(dict_predicates["d"], dyn_ma.n_agents, "max"),
         "w": rew_to_ma(dict_predicates["w"], dyn_ma.n_agents, "max"),
@@ -142,6 +263,49 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
 
     value = dict_vars[dag_root]
 
+    # Visualize the root-node value with the other agent fixed at selected positions.
+    if "s" in d_raw and np.any(d_raw["s"]):
+        fixed_positions = [tuple(pos) for pos in np.argwhere(d_raw["s"])]
+    else:
+        fixed_positions = [(4, 4), (11, 11)]
+    fig_values, axes_values = plt.subplots(1, len(fixed_positions), figsize=(6 * len(fixed_positions), 5), layout="constrained")
+    if len(fixed_positions) == 1:
+        axes_values = [axes_values]
+
+    root_value_maps = []
+    for fixed_pos in fixed_positions:
+        value_map = np.full(dyn.shape, np.nan, dtype=float)
+        for y in range(h):
+            for x in range(w):
+                if d_raw["#"][y, x]:
+                    continue
+                joint_state = int(dyn_ma.encode_from_tups([(y, x), fixed_pos]))
+                value_map[y, x] = float(value[joint_state])
+        root_value_maps.append(value_map)
+
+    finite_values = np.concatenate([value_map[np.isfinite(value_map)] for value_map in root_value_maps])
+    vmin = float(finite_values.min()) if finite_values.size else -1.0
+    vmax = float(finite_values.max()) if finite_values.size else 1.0
+
+    for ax_value, fixed_pos, value_map in zip(axes_values, fixed_positions, root_value_maps):
+        im_values = ax_value.imshow(value_map, cmap="viridis", vmin=vmin, vmax=vmax, origin="lower")
+        ax_value.set_xticks(np.arange(w + 1) - 0.5)
+        ax_value.set_yticks(np.arange(h + 1) - 0.5)
+        ax_value.grid(color="k", linestyle="-", linewidth=0.5, alpha=0.3)
+        ax_value.set_xlim(-0.5, w - 0.5)
+        ax_value.set_ylim(-0.5, h - 0.5)
+        ax_value.margins(0)
+        ax_value.tick_params(labelbottom=False, labelleft=False)
+        ax_value.set_aspect("equal")
+        ax_value.set_autoscale_on(False)
+        fixed_y, fixed_x = fixed_pos
+        ax_value.plot([fixed_x], [fixed_y], marker="o", color="C1", ms=7, linestyle="None")
+        ax_value.set_title(f"Root value | agent 2 fixed at {fixed_pos}")
+
+    fig_values.colorbar(im_values, ax=axes_values, fraction=0.046, pad=0.04)
+    fig_values.savefig("rooms_discrete_ma_root_values.png", dpi=200, bbox_inches="tight")
+    plt.close(fig_values)
+
     feasible_states = np.where(value >= 0)[0]
     logger.info("Num feasible states: {}".format(len(feasible_states)))
 
@@ -151,7 +315,9 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
 
     # If possible, choose an initial state where none of the agents start on the key.
     # start_state = dyn_ma.encode_from_tups([(3, 3), (3, 5), (7, 5)])
-    start_state = dyn_ma.encode_from_tups([(3, 8), (6, 6)])
+    # start_state = dyn_ma.encode_from_tups([(1, 1), (14, 14)])
+    # start_state = dyn_ma.encode_from_tups([(13, 3), (14, 1)])
+    start_state = dyn_ma.encode_from_tups([(3, 3), (12, 12)])
     # start_state = dyn_ma.encode_from_tups([(6, 6)])
     if start_state is not None and value[start_state] >= 0:
         logger.info("Using hardcoded start state.")
@@ -168,14 +334,10 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
 
     # Visualize the rollout by animating the path and saving as mp4.
     n_frames = len(Tp1_states)
-    fig, ax = plt.subplots()
+    fig_anim, ax_anim = plt.subplots(frameon=False)
 
     # Visualize the map again.
-    im = ax.imshow(empty_map, cmap=cmap, vmin=0, vmax=len(d_raw), alpha=0.5, origin="lower")
-    cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
-    cbar.ax.set_yticklabels(list(d_raw.keys()))
-    ax.set_xticks(np.arange(w + 1) - 0.5)
-    ax.set_yticks(np.arange(h + 1) - 0.5)
+    draw_room_map(fig_anim, ax_anim, empty_map, cmap, d_raw, w, h, alpha=0.5)
 
     # --- Multi-agent: one dot per agent ---
     n_agents = dyn_ma.n_agents
@@ -183,14 +345,14 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
 
     agent_dots = []
     for i in range(n_agents):
-        (dot,) = ax.plot([], [], marker="o", color=agent_colors[i], ms=5, linestyle="None")
+        (dot,) = ax_anim.plot([], [], marker="o", color=agent_colors[i], ms=5, linestyle="None")
         agent_dots.append(dot)
 
-    kk_text = ax.text(
+    kk_text = ax_anim.text(
         0.02,
         0.98,
         "",
-        transform=ax.transAxes,
+        transform=ax_anim.transAxes,
         verticalalignment="top",
         horizontalalignment="left",
         color="white",
@@ -218,9 +380,66 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
 
         return agent_dots + [kk_text]
 
-    anim = FuncAnimation(fig, update_fn, n_frames, init_fn, blit=True)
+    anim = FuncAnimation(fig_anim, update_fn, n_frames, init_fn, blit=True)
     anim.save("rooms_discrete_rollout_multiagent.mp4", fps=5, dpi=200)
+    plt.close(fig_anim)
 
+    # Save a still image with the first part of the path and one arrow per transition.
+    fig_still, ax_still = plt.subplots(frameon=False, figsize=(4, 4))
+    draw_room_map(fig_still, ax_still, empty_map, cmap, d_raw, w, h, alpha=0.5)
+
+    steps_to_plot = 50
+    n_plot_steps = min(steps_to_plot, len(Tp1_states))
+    Tp1_states_plot = Tp1_states[:n_plot_steps]
+    T_curnode_idxs_plot = T_curnode_idxs[: max(n_plot_steps - 1, 0)]
+
+    decoded_joint_states = np.array([dyn_ma.decode_joint_state(int(joint_state)) for joint_state in Tp1_states_plot])
+    node_cmap = plt.get_cmap("tab20", max(len(dag_nodes), 1))
+    unique_node_ids = np.unique(T_curnode_idxs_plot)
+
+    for i in range(n_agents):
+        agent_state_traj = decoded_joint_states[:, i]
+        coords = np.array([dyn_ma.base.decode_state(int(state)) for state in agent_state_traj])
+        ys = coords[:, 0]
+        xs = coords[:, 1]
+        color = agent_colors[i]
+
+        ax_still.plot(xs, ys, color=color, linewidth=1.5, alpha=0.6, zorder=4)
+        for step_idx in range(len(xs) - 1):
+            start = np.array([xs[step_idx], ys[step_idx]], dtype=float)
+            end = np.array([xs[step_idx + 1], ys[step_idx + 1]], dtype=float)
+            delta = end - start
+            if np.allclose(delta, 0.0):
+                continue
+            node_color = node_cmap(int(T_curnode_idxs_plot[step_idx]))
+            edge_rgba = to_rgba(color, alpha=0.3)
+            face_rgba = to_rgba(node_color, alpha=1.0)
+            direction = delta / np.linalg.norm(delta)
+            shrink = 0.08 * direction
+            arrow = FancyArrowPatch(
+                posA=tuple(start + shrink),
+                posB=tuple(end - shrink),
+                arrowstyle="-|>",
+                mutation_scale=12,
+                linewidth=0.5,
+                # edgecolor=edge_rgba,
+                facecolor=face_rgba,
+                zorder=5,
+            )
+            ax_still.add_patch(arrow)
+        ax_still.plot(xs[0], ys[0], marker="o", color=color, ms=6, zorder=6)
+        ax_still.plot(xs[-1], ys[-1], marker="s", color=color, ms=5, zorder=6)
+
+    # if len(unique_node_ids) > 0:
+    #     node_norm = BoundaryNorm(np.arange(len(dag_nodes) + 1) - 0.5, node_cmap.N)
+    #     sm = plt.cm.ScalarMappable(cmap=node_cmap, norm=node_norm)
+    #     sm.set_array([])
+    #     cbar = fig_still.colorbar(sm, ax=ax_still, ticks=unique_node_ids, fraction=0.046, pad=0.04)
+    #     cbar.ax.set_ylabel("Value tree node")
+
+    # ax_still.set_title(f"Multi-agent rollout paths (first {n_plot_steps} states)")
+    fig_still.savefig("rooms_discrete_rollout_multiagent_paths.png", dpi=200, pad_inches=0)
+    plt.close(fig_still)
 
 if __name__ == "__main__":
     with ipdb.launch_ipdb_on_exception():
