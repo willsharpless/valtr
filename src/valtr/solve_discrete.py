@@ -12,8 +12,8 @@ from dvi.gen_solver import (FixedPointGUSolver, avoid_update_rule_with_actions, 
                             reach_avoid_update_rule_with_actions, reach_update_rule_with_actions)
 from loguru import logger
 
-from valtr.reachability import (DAGAvoid, DagBuilder, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN, DAGNegate,
-                                DAGNode, DAGReach, DAGReachAvoid, DAGVar)
+from valtr.reachability import (DAGAvoid, DagBuilder, DAGConst, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN,
+                                DAGNegate, DAGNode, DAGReach, DAGReachAvoid, DAGVar)
 
 
 def solve_discrete(
@@ -104,6 +104,10 @@ def solve_discrete(
             #     U_args = [[dict_vars[q], dict_vars[r]] for q, r in args]
             #     out = FixedPointGUSolver().solve(dyn, U_args, n_iters=3, gamma=gamma)
             #     dict_vars[dag_id], dict_actions[dag_id], dict_GU_vars[dag_id], dict_GU_actions[dag_id] = out
+            case DAGConst(value=value):
+                # True is inf, False is -inf.
+                float_val = np.inf if value else -np.inf
+                dict_vars[dag_id] = np.full((dyn.n_states,), fill_value=float_val, dtype=np.float32)
             case _:
                 raise NotImplementedError(f"Unknown DAG node type: {type(node)}")
 

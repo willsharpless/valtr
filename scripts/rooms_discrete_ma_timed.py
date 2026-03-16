@@ -4,8 +4,10 @@ import cyclopts
 import ipdb
 import matplotlib.pyplot as plt
 import numpy as np
-from dvi.dynamics.gridworld_ma import GridWorldMA, ma_collision_predicate, rew_to_ma
+from dvi.dynamics.gridworld import GridWorld
+from dvi.dynamics.gridworld_ma import GridWorldMA, flat_totimed, ma_collision_predicate, rew_to_ma
 from dvi.dynamics.gridworld_ma_timed import GridWorldMATimed
+from dvi.dynamics.gridworld_timed import GridWorldTimed
 from loguru import logger
 from matplotlib.animation import FuncAnimation
 from matplotlib.colors import ListedColormap
@@ -30,9 +32,25 @@ MAP = """
  K          .
 """
 
-TASK_SOURCE = "(!D U K) && (!s U (v && g)) && F G s && G F S && G F W && G(!w) && G(!collide) && F (C || T)"
+# TASK_SOURCE = "(!D U K) && (!s U (v && g)) && F G s && G F S && G F W && G(!w) && G(!collide) && F (C || T)"
+
+TAIL = "(!w) U G( ( (site && !w) U (site && !w && S)) && ( (site && !w) U (site && !w && W)) )"
+
+# The following are equivalent.
+# TASK_SOURCE = "F G site && G F S && G F W && F (C || T) & G(!w)"
+# TASK_SOURCE = "(!w) U( (C || T) && {} )".format(TAIL)
+
+# The following are equivalent.
+# TASK_SOURCE = "(!s U (v && g)) && F G site && G F S && G F W && F (C || T) & G(!w)"
+# TASK_SOURCE = "(!w && !site) U( ((C || T) && ( (!w && !site) U ( v && g && ({}) ) ) ) || (v && g && !w U( (C || T) && ({}) ) ) )".format(
+#     TAIL, TAIL
+# )
+TASK_SOURCE = "(!w && !site) U( ((C || T) && ( (!w && !site) U ( g && ({}) ) ) ) || ( g && !w U( (C || T) && ({}) ) ) )".format(
+    TAIL, TAIL
+)
 
 TMAX = 100
+
 
 @app.default()
 def main(gamma: float | None = None, resolve: bool = False):
@@ -43,33 +61,42 @@ def main(gamma: float | None = None, resolve: bool = False):
     dyn, d_raw = parse_rooms(MAP, TMAX, ignore=".")
     logger.debug("Parsing... Done!")
 
+    dyn_untimed = dyn
+    if isinstance(dyn, GridWorldTimed):
+        dyn_untimed = GridWorld((dyn.shape[0], dyn.shape[1]), dyn.drift_fn)
+
     logger.debug("Creating GridWorldMA")
-    dyn_ma_ = GridWorldMA(dyn, n_agents=2)
+    dyn_ma_ = GridWorldMA(dyn_untimed, n_agents=2)
     logger.debug("Creating GridWorldMATimed")
     dyn_ma = GridWorldMATimed(dyn_ma_, t_max=TMAX)
 
     collide_dist = 1.0  # Diagonal is safe, but not adjacent.
     d = {
-        "C": np.where(d_raw["C"], 1, -1),
-        "T": np.where(d_raw["T"], 1, -1),
+        "C": np.where(d_raw["C"], 1, -1)[:, :, -1],
+        "T": np.where(d_raw["T"], 1, -1)[:, :, -1],
         #
-        "S": np.where(d_raw["S"], 1, -1),
-        "W": np.where(d_raw["W"], 1, -1),
+        "S": np.where(d_raw["S"], 1, -1)[:, :, -1],
+        "W": np.where(d_raw["W"], 1, -1)[:, :, -1],
         #
-        "s": np.where(d_raw["s"] | d_raw["S"] | d_raw["W"], 1, -1),
+        "site": np.where(d_raw["s"] | d_raw["S"] | d_raw["W"], 1, -1)[:, :, -1],
         #
-        "K": np.where(d_raw["K"], 1, -1),
-        "D": np.where(d_raw["D"], 1, -1),
-        "w": np.where(d_raw["#"], 1, -1),
-        "collide": ma_collision_predicate(dyn_ma_, collide_dist, t_max=TMAX),
+        "v": np.where(d_raw["v"], 1, -1)[:, :, -1],
+        "g": np.where(d_raw["g"], 1, -1)[:, :, -1],
+        #
+        "K": np.where(d_raw["K"], 1, -1)[:, :, -1],
+        "D": np.where(d_raw["D"], 1, -1)[:, :, -1],
+        "w": np.where(d_raw["#"], 1, -1)[:, :, -1],
     }
+    # Everything in d should be 2d.
+    for k, v in d.items():
+        assert v.ndim == 2
 
     h, w, _ = dyn.shape
     logger.debug("dyn.shape: {}".format(dyn.shape))
 
     d_raw_viz = d_raw.copy()
     # Remove all keys starting with "Tle"
-    d_raw_viz = {k: v for k,v in d_raw_viz.items() if not k.startswith("Tle")}
+    d_raw_viz = {k: v for k, v in d_raw_viz.items() if not k.startswith("Tle")}
 
     empty_map = np.zeros((h, w))
     for ii, (k, v) in enumerate(d_raw_viz.items()):
@@ -87,15 +114,35 @@ def main(gamma: float | None = None, resolve: bool = False):
 
     # ------------------------------
 
+    dict_predicates_unflat = d
+    d_flat = {k: v.flatten() for k, v in dict_predicates_unflat.items()}
+
+    logger.debug("dict predicates...")
     dict_predicates = {
-        "C": rew_to_ma(d["C"], dyn_ma.n_agents, "max"),
+        "C": flat_totimed(rew_to_ma(d_flat["C"], dyn_ma.n_agents, mode=0), t_max=TMAX),
+        "T": flat_totimed(rew_to_ma(d_flat["T"], dyn_ma.n_agents, mode=0), t_max=TMAX),
+        #
+        "S": flat_totimed(rew_to_ma(d_flat["S"], dyn_ma.n_agents, mode=1), t_max=TMAX),
+        "W": flat_totimed(rew_to_ma(d_flat["W"], dyn_ma.n_agents, mode=1), t_max=TMAX),
+        #
+        "site": flat_totimed(rew_to_ma(d_flat["site"], dyn_ma.n_agents, mode=1), t_max=TMAX),
+        #
+        "v": flat_totimed(rew_to_ma(d_flat["v"], dyn_ma.n_agents, mode=1), t_max=TMAX),
+        "g": flat_totimed(rew_to_ma(d_flat["g"], dyn_ma.n_agents, mode=1), t_max=TMAX),
+        #
+        "w": flat_totimed(rew_to_ma(d_flat["w"], dyn_ma.n_agents, "min"), t_max=TMAX),
+        #
+        "collide": ma_collision_predicate(dyn_ma_, collide_dist, t_max=TMAX),
+    }
+    for k, v in dict_predicates.items():
+        assert v.ndim == 1 and v.shape[0] == dyn_ma.n_states, f"Predicate {k} has wrong shape {v.shape}"
 
     # -----------------------------
     # Visualize.
     def setup_ax(ax_: plt.Axes):
         ax_.set_aspect("equal")
-        ax_.grid(which='major', visible=False)
-        ax_.grid(which='minor', visible=True)
+        ax_.grid(which="major", visible=False)
+        ax_.grid(which="minor", visible=True)
 
         ax_.set_xticks(np.arange(h + 1) - 0.5, minor=True)
         ax_.set_yticks(np.arange(w + 1) - 0.5, minor=True)
@@ -111,6 +158,105 @@ def main(gamma: float | None = None, resolve: bool = False):
     fig.savefig(fig_path, bbox_inches="tight", pad_inches=1e-2)
     plt.close(fig)
     logger.success(f"Saved to {fig_path}")
+
+    # -----------------------------
+    # Decompose.
+    value_tree_dag, dag_root = to_dag(
+        TASK_SOURCE, ir_filename="rooms_discrete_ma_ir", dag_filename="rooms_discrete_ma_dag"
+    )
+    dag_nodes = value_tree_dag.nodes
+
+    # -----------------------------
+    # Solve.
+    pkl_path = results_dir / "rooms_discrete_ma_timed_sol.pkl"
+
+    if resolve or not pkl_path.exists():
+        dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
+            dyn_ma, dag_nodes, dict_predicates, gamma=gamma
+        )
+        extras = {
+            "task_source": TASK_SOURCE,
+            "dict_predicates": dict_predicates,
+            "gamma": gamma,
+            "d_raw": d_raw,
+        }
+        save_discrete_sol(
+            pkl_path, dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras=extras
+        )
+
+    dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = load_discrete_sol(
+        pkl_path
+    )
+
+    # ---------------------------------
+    rng = np.random.default_rng(seed=12345)
+    T_value = dict_vars[dag_root]
+    value = T_value.reshape((dyn_ma_.n_states, TMAX + 1))[:, 0]  # Should start at the initial time.
+    feasible_states = np.where(value >= 0)[0]
+    logger.info("Num feasible states: {}".format(len(feasible_states)))
+
+    start_state_untimed = rng.choice(feasible_states)
+    start_state = dyn_ma.encode_timed_state(start_state_untimed, t=0)
+
+    # -----------------------------
+    rollouter = MinTimeRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+    Tp1_states, T_actions, T_curnode_idxs = rollouter.rollout(start_state, max_steps=100)
+
+    # Visualize the rollout by animating the path and saving as mp4.
+    n_frames = len(Tp1_states)
+    fig, ax = plt.subplots()
+
+    # Visualize the map again.
+    im = ax.imshow(empty_map.T, cmap=cmap, vmin=0, vmax=len(d_raw_viz), alpha=0.5)
+    cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
+    cbar.ax.set_yticklabels(list(d_raw_viz.keys()))
+    setup_ax(ax)
+
+    # --- Multi-agent: one dot per agent ---
+    n_agents = dyn_ma.n_agents
+    agent_colors = ["C0", "C1", "C2"]
+
+    agent_dots = []
+    for i in range(n_agents):
+        (dot,) = ax.plot([], [], marker="o", color=agent_colors[i], ms=5, linestyle="None")
+        agent_dots.append(dot)
+
+    kk_text = ax.text(
+        0.02,
+        0.98,
+        "",
+        transform=ax.transAxes,
+        verticalalignment="top",
+        horizontalalignment="left",
+        color="white",
+        fontsize=8,
+        bbox=dict(facecolor="black", alpha=0.5, pad=2),
+    )
+
+    def init_fn():
+        # Return all animated artists
+        return agent_dots + [kk_text]
+
+    def update_fn(kk: int) -> list[plt.Artist]:
+        joint_state = Tp1_states[kk]
+
+        # Decode joint state -> per-agent single-agent states (N,)
+        agent_states_flat, tt = dyn_ma.decode_timed_state(joint_state, which=np)
+        agent_states = dyn_ma_.decode_joint_state(agent_states_flat)  # (N,)
+
+        # Update each agent dot
+        for i in range(n_agents):
+            s_i = int(agent_states[i])  # safe for matplotlib
+            x, y = dyn_untimed.decode_state(s_i)  # (y, x) for your gridworld
+            agent_dots[i].set_data([x], [y])
+
+        kk_text.set_text(f"Step {kk: 3}")
+
+        return agent_dots + [kk_text]
+
+    anim = FuncAnimation(fig, update_fn, n_frames, init_fn, blit=True)
+    anim.save("rooms_discrete_rollout_multiagent.mp4", fps=5, dpi=200)
+
 
 if __name__ == "__main__":
     with ipdb.launch_ipdb_on_exception():

@@ -4,6 +4,7 @@ from typing import Dict, Iterable, List, NamedTuple, NewType, Optional, Set, Tup
 import graphviz
 import ipdb
 from attrs import define, field, frozen
+
 from valtr.ir import (Binary, BinaryIROpKind, ConstBool, IRId, IRNode, Nary, NaryKind, TemporalBinary, TemporalUnary,
                       Unary, UnaryIROpKind, Var)
 from valtr.ir_builder import IRBuilder
@@ -417,11 +418,25 @@ def lower_ir_to_dag_notransform(ir_nodes: list[IRNode], root: IRId, dag: DagBuil
             raise LoweringError(f"Unsupported IR node type in lowering: {type(root_node).__name__}")
 
 
+def oswin_fix(irb: IRBuilder, root: IRId, dag: DagBuilder | None = None) -> tuple[DagBuilder, DAGId]:
+    root_node = irb.nodes[root]
+    match root_node:
+        case Nary(kind=NaryKind.OR, args=args, span=_):
+            dag_args = []
+            for ir_arg in args:
+                _, dag_arg = lower_ir_to_dag(irb, ir_arg, dag=dag, nested=True)
+                dag_args.append(dag_arg)
+            dag_id = dag.max_n(dag_args)
+            return dag, dag_id
+        case _:
+            raise ValueError("Shouldn't have gotten here. This is patch for OR.")
+
+
 def lower_ir_to_dag(
     irb: IRBuilder, root: IRId, dag: DagBuilder | None = None, nested: bool = False, transform=True
 ) -> tuple[DagBuilder, DAGId]:
     """
-    AND_i G ( q_i U r_i )  AND  AND_j ( q_j U r_j )  AND  G q_G
+    nontemporal AND AND_i G ( q_i U r_i )  AND  AND_j ( q_j U r_j )  AND  G q_G
 
     => q_tilde U r_tilde
         q_tilde = q_j AND q_G AND ( q_i OR r_i )
@@ -437,6 +452,18 @@ def lower_ir_to_dag(
         return dag, dag_id
 
     root_node = irb.nodes[root]
+
+    # ---------------------------------------------------------------
+    # Ugly hack to handle U( ... || ... )
+    match root_node:
+        case Nary(kind=NaryKind.OR, args=args, span=_):
+            assert nested, "Top-level must contain only UNTIL/GLOBALLY unless nested, got OR"
+            return oswin_fix(irb, root, dag)
+        case _:
+            pass
+
+    # ---------------------------------------------------------------
+
     root_arg_ids = get_and_args_list(root_node, root)
 
     # 1: Extract the top-level AND arguments, separate it into the GU, U and G parts.
@@ -478,6 +505,10 @@ def lower_ir_to_dag(
                 else:
                     dag_arg = lower_bool_leaf_expr_to_dag(irb, dag, node_id)
                     outside_args.append(dag_arg)
+            case Nary(kind=NaryKind.OR, args=args, span=_):
+                assert nested, "Top-level must contain only UNTIL/GLOBALLY unless nested, got OR"
+                dag_prop = lower_bool_leaf_expr_to_dag(irb, dag, node_id)
+                outside_args.append(dag_prop)
             case _:
                 raise LoweringError(f"Top-level must contain only UNTIL/GLOBALLY, got {type(node).__name__}")
 
@@ -549,7 +580,7 @@ def lower_ir_to_dag_(
         # r_j AND V_{without j}
         try:
             r_j = lower_bool_leaf_expr_to_dag(irb, dag, node.right)
-        except LoweringError:
+        except LoweringError as e:
             _, r_j = lower_ir_to_dag(irb, node.right, dag=dag, nested=True)
 
         U_args_without_j = [node for ii, node in enumerate(U_args) if ii != jj]
