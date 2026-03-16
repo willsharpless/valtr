@@ -43,6 +43,9 @@ class MinTimeRollout:
         for kk in tqdm.trange(max_steps):
             cycle_start_GU_idx = None
 
+            if kk >= 52:
+                logger.debug(f"kk={kk}")
+
             # Traverse the tree until we reach a temporal operator.
             while True:
                 node = dag_nodes[cur_node_id]
@@ -148,7 +151,12 @@ class MinTimeRollout:
 
                         next_GU_index = (cur_GU_index + 1) % len(args)
                         value_next_GU = self.dict_GU_vars[cur_node_id][next_GU_index][state_new]
-                        stay_current_GU_node = (r_value < value_next_GU) and (r_value < current_value)
+
+                        # Switch if min(r, value_next_GU) >= current_value.
+                        # stay_current_GU_node = (r_value < value_next_GU) and (r_value < current_value)
+                        # stay_current_GU_node = (r_value < value_next_GU) and (r_value < current_value)
+                        switch_GU_node = jnp.minimum(r_value, value_next_GU) >= current_value
+                        stay_current_GU_node = not switch_GU_node
 
                         # If all three values are equal, then it means that:
                         # 1) We have reached the highest possible value for this reach target
@@ -157,26 +165,31 @@ class MinTimeRollout:
                         # If it cycles, execute the current action and then move to the next GU arg (upon which the same
                         # thing will happen again).
                         same_value = (r_value == value_next_GU) and (r_value == current_value)
-                        # action_curr_str = self.dyn.action_to_str(action_curr)
+                        action_curr_str = self.dyn.action_to_str(action_curr)
 
-                        # logger.info(
-                        #     "Cur Node: {} | Cur GU idx: {} | r_value: {} | value_next_GU: {} | current_value: {} | "
-                        #     "stay: {} | action_curr: {}".format(
-                        #         cur_node_id,
-                        #         cur_GU_index,
-                        #         r_value,
-                        #         value_next_GU,
-                        #         current_value,
-                        #         stay_current_GU_node,
-                        #         action_curr_str,
-                        #     )
-                        # )
+                        logger.info(
+                            "kk={} | Cur Node: {} | Cur GU idx: {} | r_value: {} | value_next_GU: {} | current_value: {} | "
+                            "stay: {} | action_curr: {}".format(
+                                kk,
+                                cur_node_id,
+                                cur_GU_index,
+                                r_value,
+                                value_next_GU,
+                                current_value,
+                                stay_current_GU_node,
+                                action_curr_str,
+                            )
+                        )
 
                         if same_value:
                             if cycle_start_GU_idx is None:
                                 cycle_start_GU_idx = cur_GU_index
                             elif cycle_start_GU_idx == cur_GU_index:
-                                logger.info("Detected cycle on GU args at index {}".format(cur_GU_index))
+                                logger.info(
+                                    "Cycle start at GU idx {}, detected cycle on GU args at index {}".format(
+                                        cycle_start_GU_idx, cur_GU_index
+                                    )
+                                )
                                 # We have cycled through all GU args. Execute the current action and move to next GU arg.
                                 GU_index_dict[cur_node_id] = next_GU_index
                                 break
