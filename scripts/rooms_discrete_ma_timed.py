@@ -35,19 +35,19 @@ MAP = """
 # TASK_SOURCE = "(!D U K) && (!s U (v && g)) && F G s && G F S && G F W && G(!w) && G(!collide) && F (C || T)"
 
 TAIL = "(!w) U G( ( (site && !w) U (site && !w && S)) && ( (site && !w) U (site && !w && W)) )"
+# TAIL2 = "F G( !w && ( site U (site && S)) && ( site U (site && W)) )"
 
 # The following are equivalent.
 # TASK_SOURCE = "F G site && G F S && G F W && F (C || T) & G(!w)"
 # TASK_SOURCE = "(!w) U( (C || T) && {} )".format(TAIL)
 
 # The following are equivalent.
-# TASK_SOURCE = "(!s U (v && g)) && F G site && G F S && G F W && F (C || T) & G(!w)"
+# TASK_SOURCE = "(!s U v) && (!s U g) && F G site && G F S && G F W && F (C || T) & G(!w)"
 # TASK_SOURCE = "(!w && !site) U( ((C || T) && ( (!w && !site) U ( v && g && ({}) ) ) ) || (v && g && !w U( (C || T) && ({}) ) ) )".format(
 #     TAIL, TAIL
 # )
-TASK_SOURCE = "(!w && !site) U( ((C || T) && ( (!w && !site) U ( g && ({}) ) ) ) || ( g && !w U( (C || T) && ({}) ) ) )".format(
-    TAIL, TAIL
-)
+# TASK_SOURCE = "(!site U v) && (!site U g) && ({}) && F (C || T) && G(!w)".format(TAIL2)
+TASK_SOURCE = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(TAIL)
 
 TMAX = 100
 
