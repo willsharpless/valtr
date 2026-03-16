@@ -71,7 +71,6 @@ def main():
     d_raw["w"] = d_raw.pop("#")
 
     # Remove all keys starting with "Tle"
-    k: str
     d_raw = {k: v for k,v in d_raw.items() if not k.startswith("Tle")}
 
     key_tmp = list(d_raw.keys())[0]

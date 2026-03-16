@@ -6,8 +6,12 @@ import einops as ei
 from dvi.dynamics.gridworld_timed import GridWorldTimed
 
 
-def parse_rooms(s: str, maxtime: int | None = None):
+def parse_rooms(s: str, maxtime: int | None = None, ignore: str|None = None):
     s = s.strip("\n")
+
+    if ignore is not None:
+        for c in ignore:
+            s = s.replace(c, "")
 
     # Figure out how many rows and columns.
     lines = s.split("\n")
