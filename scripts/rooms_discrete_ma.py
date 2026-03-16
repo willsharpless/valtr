@@ -4,7 +4,7 @@ import cyclopts
 import ipdb
 import matplotlib.pyplot as plt
 import numpy as np
-from dvi.dynamics.gridworld_ma import GridWorldMA, ma_collision_predicate, rew_to_ma
+from dvi.dynamics.gridworld_ma import GridWorldMA, ma_collision_predicate, rew_to_ma, ma_distance_predicate
 from loguru import logger
 from matplotlib.animation import FuncAnimation
 from matplotlib.colors import BoundaryNorm, ListedColormap
@@ -70,20 +70,39 @@ app = cyclopts.App()
 # #########################
 # """
 
+# MAP = """
+# ################
+# #     B####    #
+# # ###          #
+# # #s   ## FF   #
+# # #       FF   #
+# #   EE       # #
+# #   EE ####### #
+# #      ####### #
+# #              #
+# # ###     CC   #
+# # ###     CC   #
+# #  #  A        #
+# # #######   s###
+# # #######   ####
+# #              #
+# ################
+# """
+
 MAP = """
 ################
 #     B####    #
 # ###          #
-# #s   ## FF   #
+# #    ## FF   #
 # #       FF   #
 #   EE       # #
 #   EE ####### #
-#      ####### #
-#              #
+#   s  ####### #
+#    s         #
 # ###     CC   #
 # ###     CC   #
 #  #  A        #
-# #######   s###
+# #######    ###
 # #######   ####
 #              #
 ################
@@ -91,7 +110,8 @@ MAP = """
 
 # TASK_SOURCE = "G F r1 && G F r2 && G F r3 && (!d U k) && G(!w) && G(!collide)"
 # TASK_SOURCE = "F r1 && F r2 && G F r3 && G F r4 && F G r5 && G(!w) && G(!collide)"
-TASK_SOURCE = "F r1 && F r2 && G F r4 && G F r3 && G F r5 && G(!w) && G(!collide)"
+# TASK_SOURCE = "F r1 && F r2 && G F r4 && G F r3 && G F r5 && G(!w) && G(!collide)"
+TASK_SOURCE = "F r1 && F r2 && G F r4 && G F r3 && G F r5 && G(!w) && G(!collide) && G(!distant)"
 # TASK_SOURCE = "G(!w) && G(!collide)"
 
 
@@ -237,6 +257,7 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
         "d": rew_to_ma(dict_predicates["d"], dyn_ma.n_agents, "max"),
         "w": rew_to_ma(dict_predicates["w"], dyn_ma.n_agents, "max"),
         "collide": ma_collision_predicate(dyn_ma, collide_dist),
+        "distant": ma_distance_predicate(dyn_ma, 2*collide_dist),
     }
 
     # -------------------------------------------
@@ -314,11 +335,13 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
     logger.info("Num feasible states (where not on key): {}".format(len(feasible_states_good)))
 
     # If possible, choose an initial state where none of the agents start on the key.
-    # start_state = dyn_ma.encode_from_tups([(3, 3), (3, 5), (7, 5)])
-    # start_state = dyn_ma.encode_from_tups([(1, 1), (14, 14)])
-    # start_state = dyn_ma.encode_from_tups([(13, 3), (14, 1)])
-    start_state = dyn_ma.encode_from_tups([(3, 3), (12, 12)])
-    # start_state = dyn_ma.encode_from_tups([(6, 6)])
+    if 's' in d_raw and np.any(d_raw['s']): # parse from MAP at 's'
+        start_states = [tuple(pos) for pos in np.argwhere(d_raw['s'])][:2]
+        start_state = dyn_ma.encode_from_tups(start_states)
+    else: # hardcode
+        # start_state = dyn_ma.encode_from_tups([(3, 3), (3, 5), (7, 5)])
+        start_state = dyn_ma.encode_from_tups([(3, 3), (12, 12)])
+        # start_state = dyn_ma.encode_from_tups([(6, 6)])
     if start_state is not None and value[start_state] >= 0:
         logger.info("Using hardcoded start state.")
     else:
@@ -396,12 +419,24 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
     decoded_joint_states = np.array([dyn_ma.decode_joint_state(int(joint_state)) for joint_state in Tp1_states_plot])
     node_cmap = plt.get_cmap("tab20", max(len(dag_nodes), 1))
     unique_node_ids = np.unique(T_curnode_idxs_plot)
+    offset_radius = 0.14
+    if n_agents == 1:
+        agent_plot_offsets = np.zeros((1, 2))
+    elif n_agents == 2:
+        agent_plot_offsets = offset_radius * np.array([
+            [1.0, 1.0],
+            [-1.0, -1.0],
+        ]) / np.sqrt(2.0)
+    else:
+        offset_angles = np.linspace(np.pi / 4.0, np.pi / 4.0 + 2.0 * np.pi, n_agents, endpoint=False)
+        agent_plot_offsets = offset_radius * np.column_stack((np.cos(offset_angles), np.sin(offset_angles)))
 
     for i in range(n_agents):
         agent_state_traj = decoded_joint_states[:, i]
         coords = np.array([dyn_ma.base.decode_state(int(state)) for state in agent_state_traj])
-        ys = coords[:, 0]
-        xs = coords[:, 1]
+        offset_x, offset_y = agent_plot_offsets[i]
+        ys = coords[:, 0] + offset_y
+        xs = coords[:, 1] + offset_x
         color = agent_colors[i]
 
         ax_still.plot(xs, ys, color=color, linewidth=1.5, alpha=0.6, zorder=4)
