@@ -74,16 +74,16 @@ app = cyclopts.App()
 # ################
 # #     B####    #
 # # ###          #
-# # #s   ## FF   #
+# # #    ## FF   #
 # # #       FF   #
 # #   EE       # #
 # #   EE ####### #
-# #      ####### #
-# #              #
+# #   s  ####### #
+# #    s         #
 # # ###     CC   #
 # # ###     CC   #
 # #  #  A        #
-# # #######   s###
+# # #######    ###
 # # #######   ####
 # #              #
 # ################
@@ -91,27 +91,27 @@ app = cyclopts.App()
 
 MAP = """
 ################
-#     B####    #
-# ###          #
-# #    ## FF   #
-# #       FF   #
-#   EE       # #
-#   EE ####### #
-#   s  ####### #
-#    s         #
-# ###     CC   #
-# ###     CC   #
-#  #  A        #
-# #######    ###
-# #######   ####
+#............# #
+#.##.#.##.##.# #
+#.#....#..FF.d #
+#.EE.#....FF.d #
+#.EE.###.....# #
+#............# #
+#####dddd##### #
 #              #
+# g #    ##  ###
+#######       K#
+#     #  #     #
+#  #  #  ### ###
+#s #  #  #     #
+# s#     # AAA #
 ################
 """
 
 # TASK_SOURCE = "G F r1 && G F r2 && G F r3 && (!d U k) && G(!w) && G(!collide)"
 # TASK_SOURCE = "F r1 && F r2 && G F r3 && G F r4 && F G r5 && G(!w) && G(!collide)"
 # TASK_SOURCE = "F r1 && F r2 && G F r4 && G F r3 && G F r5 && G(!w) && G(!collide)"
-TASK_SOURCE = "F r1 && F r2 && G F r4 && G F r3 && G F r5 && G(!w) && G(!collide) && G(!distant)"
+TASK_SOURCE = "(!site U gear) && G F saw && G F wood && (!d U k) && G(!w) && G(!collide) && G(!distant)"
 # TASK_SOURCE = "G(!w) && G(!collide)"
 
 
@@ -142,9 +142,10 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
         "r1": np.where(get_mask("A"), 1, -1),
         "r2": np.where(get_mask("B"), 1, -1),
         "r3": np.where(get_mask("C"), 1, -1),
-        "r4": np.where(get_mask("E"), 1, -1),
-        "r5": np.where(get_mask("F"), 1, -1),
-        "r6": np.where(get_mask("G"), 1, -1),
+        "saw": np.where(get_mask("E"), 1, -1),
+        "wood": np.where(get_mask("F"), 1, -1),
+        "gear": np.where(get_mask("g"), 1, -1),
+        "site": np.where(get_mask("."), 1, -1),
         "k": np.where(get_mask("K"), 1, -1),
         "d": np.where(get_mask("D"), 1, -1),
         "w": np.where(get_mask("#"), 1, -1),
@@ -173,6 +174,12 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
     if " " in d_raw:
         colors[space_idx] = np.array([1.0, 1.0, 1.0, 0.0])
 
+    if "." in d_raw:
+        space_idx = list(d_raw.keys()).index(".")
+        # colors[space_idx] = np.array([1.0, 1.0, 1.0, 0.0])
+        # colors[space_idx] = np.array([77/255, 114/255, 176/255, 0.3]) # muted royal blue
+        colors[space_idx] = np.array([227/255, 197/255, 87/255, 0.5]) # muted yellow
+
     if "s" in d_raw:
         s_idx = list(d_raw.keys()).index("s")
         colors[s_idx] = colors[space_idx]
@@ -185,12 +192,12 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
     if "B" in d_raw:
         space_idx = list(d_raw.keys()).index("B")
         # colors[space_idx] = np.array([85/255, 168/255, 104/255, 1.0]) # muted green
-        colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0]) # muted orange
+        # colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0]) # muted orange
+        colors[space_idx] = np.array([147/255, 120/255, 96/255, 1.0]) # muted brown
 
     if "C" in d_raw:
         space_idx = list(d_raw.keys()).index("C")
-        # colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0]) # muted orange
-        colors[space_idx] = np.array([77/255, 114/255, 176/255, 1.0]) # muted royal blue
+        colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0]) # muted orange
 
     if "E" in d_raw:
         space_idx = list(d_raw.keys()).index("E")
@@ -204,9 +211,14 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
         space_idx = list(d_raw.keys()).index("K")
         colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0]) # muted orange
 
-    if "D" in d_raw:
-        space_idx = list(d_raw.keys()).index("D")
-        colors[space_idx] = np.array([147/255, 120/255, 96/255, 1.0]) # muted brown
+    if "d" in d_raw:
+        space_idx = list(d_raw.keys()).index("d")
+        colors[space_idx] = np.array([0.05, 0.05, 0.05, 1.0]) # dark grey
+
+    if "g" in d_raw:
+        space_idx = list(d_raw.keys()).index("g")
+        # colors[space_idx] = np.array([227/255, 197/255, 87/255, 1.0]) # muted yellow
+        colors[space_idx] = np.array([77/255, 114/255, 176/255, 1.]) # muted royal blue
 
     if "#" in d_raw:
         # import seaborn as sns
@@ -250,9 +262,10 @@ def main(view_pdf: bool = False, gamma: float | None = None, resolve: bool = Fal
         "r1": rew_to_ma(dict_predicates["r1"], dyn_ma.n_agents, "max"),
         "r2": rew_to_ma(dict_predicates["r2"], dyn_ma.n_agents, "max"),
         "r3": rew_to_ma(dict_predicates["r3"], dyn_ma.n_agents, "max"),
-        "r4": rew_to_ma(dict_predicates["r4"], dyn_ma.n_agents, "max"),
-        "r5": rew_to_ma(dict_predicates["r5"], dyn_ma.n_agents, "max"),
-        "r6": rew_to_ma(dict_predicates["r6"], dyn_ma.n_agents, "max"),
+        "saw": rew_to_ma(dict_predicates["saw"], dyn_ma.n_agents, "min"),
+        "wood": rew_to_ma(dict_predicates["wood"], dyn_ma.n_agents, "min"),
+        "gear": rew_to_ma(dict_predicates["gear"], dyn_ma.n_agents, "max"),
+        "site": rew_to_ma(dict_predicates["site"], dyn_ma.n_agents, "max"),
         "k": rew_to_ma(dict_predicates["k"], dyn_ma.n_agents, "max"),
         "d": rew_to_ma(dict_predicates["d"], dyn_ma.n_agents, "max"),
         "w": rew_to_ma(dict_predicates["w"], dyn_ma.n_agents, "max"),
