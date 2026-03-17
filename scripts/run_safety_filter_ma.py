@@ -47,7 +47,8 @@ MAP = """
 TAIL = "(!w) U G( ( (site && !w) U (site && !w && S)) && ( (site && !w) U (site && !w && W)) )"
 TASK_SOURCE = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(TAIL)
 
-AG1_GOAL = "C"
+# AG1_GOAL = "C"
+AG1_GOAL = "T"
 TASK_SOURCE_AG1 = f"(!w && !collide) U {AG1_GOAL}"
 
 TASK_SOURCE_AG2 = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({})".format(TAIL)
