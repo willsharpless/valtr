@@ -25,6 +25,7 @@ from matplotlib.patches import FancyArrowPatch
 
 from valtr.gridworld_utils import GridWorldDriftFn, parse_rooms
 from valtr.mintime_rollout import MinTimeRollout
+from valtr.filtered_rollout import FilteredRollout
 from valtr.solve_discrete import load_discrete_sol, save_discrete_sol, solve_discrete
 from valtr.valtr import to_dag
 
@@ -337,7 +338,8 @@ def main(gamma: float | None = None, resolve: bool = False):
         plt.close(fig)
         return
 
-    rollouter = MinTimeRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+    # rollouter = MinTimeRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+    rollouter = FilteredRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
     Tp1_states, T_actions, T_curnode_idxs = rollouter.rollout(start_state, max_steps=100)
 
     n_frames = len(Tp1_states)
