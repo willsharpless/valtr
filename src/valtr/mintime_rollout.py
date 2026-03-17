@@ -43,9 +43,6 @@ class MinTimeRollout:
         for kk in tqdm.trange(max_steps):
             cycle_start_GU_idx = None
 
-            if kk >= 52:
-                logger.debug(f"kk={kk}")
-
             # Traverse the tree until we reach a temporal operator.
             while True:
                 node = dag_nodes[cur_node_id]
@@ -155,7 +152,7 @@ class MinTimeRollout:
                         # Switch if min(r, value_next_GU) >= current_value.
                         # stay_current_GU_node = (r_value < value_next_GU) and (r_value < current_value)
                         # stay_current_GU_node = (r_value < value_next_GU) and (r_value < current_value)
-                        switch_GU_node = jnp.minimum(r_value, value_next_GU) >= current_value
+                        switch_GU_node = r_value >= current_value
                         stay_current_GU_node = not switch_GU_node
 
                         # If all three values are equal, then it means that:
@@ -164,13 +161,16 @@ class MinTimeRollout:
                         # It is possible that all GU args have the same value, in which case this will cycle.
                         # If it cycles, execute the current action and then move to the next GU arg (upon which the same
                         # thing will happen again).
-                        same_value = (r_value == value_next_GU) and (r_value == current_value)
+                        # same_value = (r_value == value_next_GU) and (r_value == current_value)
                         action_curr_str = self.dyn.action_to_str(action_curr)
 
+                        state_str = self.dyn.decode_timed_state(state, which=np)
+
                         logger.info(
-                            "kk={} | Cur Node: {} | Cur GU idx: {} | r_value: {} | value_next_GU: {} | current_value: {} | "
+                            "kk={} | state: {} | Cur Node: {} | Cur GU idx: {} | r_value: {} | value_next_GU: {} | current_value: {} | "
                             "stay: {} | action_curr: {}".format(
                                 kk,
+                                state_str,
                                 cur_node_id,
                                 cur_GU_index,
                                 r_value,
@@ -181,7 +181,11 @@ class MinTimeRollout:
                             )
                         )
 
-                        if same_value:
+                        if current_value == -1:
+                            ipdb.set_trace()
+
+                        # if same_value:
+                        if not stay_current_GU_node:
                             if cycle_start_GU_idx is None:
                                 cycle_start_GU_idx = cur_GU_index
                             elif cycle_start_GU_idx == cur_GU_index:

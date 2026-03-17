@@ -1,4 +1,7 @@
 import pathlib
+import functools as ft
+import jax
+import jax.numpy as jnp
 
 import cyclopts
 import ipdb
@@ -16,6 +19,7 @@ from valtr.gridworld_utils import GridWorldDriftFn, parse_rooms
 from valtr.mintime_rollout import MinTimeRollout
 from valtr.solve_discrete import load_discrete_sol, save_discrete_sol, solve_discrete
 from valtr.valtr import to_dag
+from matplotlib.collections import LineCollection
 
 plt.style.use("seaborn-v0_8-darkgrid")
 
@@ -49,7 +53,9 @@ TAIL = "(!w) U G( ( (site && !w) U (site && !w && S)) && ( (site && !w) U (site 
 # TASK_SOURCE = "(!site U v) && (!site U g) && ({}) && F (C || T) && G(!w)".format(TAIL2)
 TASK_SOURCE = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(TAIL)
 
-TMAX = 100
+# TASK_SOURCE = "G( (site U (site && S) ) && (site U (site && W) ) )"
+
+TMAX = 50
 
 
 @app.default()
@@ -68,7 +74,7 @@ def main(gamma: float | None = None, resolve: bool = False):
     logger.debug("Creating GridWorldMA")
     dyn_ma_ = GridWorldMA(dyn_untimed, n_agents=2)
     logger.debug("Creating GridWorldMATimed")
-    dyn_ma = GridWorldMATimed(dyn_ma_, t_max=TMAX)
+    dyn_ma = GridWorldMATimed(dyn_ma_, t_max=TMAX, freeze_at_t_max=False)
 
     collide_dist = 1.0  # Diagonal is safe, but not adjacent.
     d = {
@@ -198,6 +204,51 @@ def main(gamma: float | None = None, resolve: bool = False):
     start_state_untimed = rng.choice(feasible_states)
     start_state = dyn_ma.encode_timed_state(start_state_untimed, t=0)
 
+    # node_id = 14
+    # node_id = 7
+    node_id = None
+
+    if node_id is not None:
+        # -----------------------------
+        def get_value_at_agent1_state(s_: int, t: int):
+            joint_state_ = dyn_ma_.encode_joint_state([joint_state[0], s_], which=jnp)
+            timed_state_ = dyn_ma.encode_timed_state(joint_state_, t)
+            return jnp.array(dict_vars[node_id])[timed_state_]
+
+        def get_value_at_time(t: int):
+            out = jax.vmap(ft.partial(get_value_at_agent1_state, t=t))(np.arange(dyn_untimed.n_states))
+            assert out.shape == (dyn_untimed.n_states,)
+            out = out.reshape(dyn_untimed.shape)
+            return out
+
+        joint_state_flat_untimed = 6979
+        joint_state = dyn_ma_.decode_joint_state(joint_state_flat_untimed)
+
+        T_values = jax.vmap(get_value_at_time)(np.arange(TMAX + 1))
+        assert T_values.shape == (TMAX + 1, *dyn_untimed.shape)
+
+        # Visualize the value function for node_id at different time steps.
+        steps_to_viz = [0, 1, 2, TMAX - 2, TMAX-1, TMAX]
+        # steps_to_viz = [0, 1, 50, 51, 52, 53, 54, 55, 56, TMAX-1, TMAX]
+        nrow = len(steps_to_viz)
+        figsize = np.array([8, 3 * nrow])
+        fig, axes = plt.subplots(nrow, figsize=figsize, layout="constrained")
+        for ii, ax in enumerate(axes):
+            t = steps_to_viz[ii]
+            ax.imshow(empty_map.T, cmap=cmap, vmin=0, vmax=len(d_raw_viz), alpha=0.5)
+
+            # im = ax.imshow(T_values[t].T, cmap="coolwarm", vmin=-1, vmax=1, alpha=0.2)
+            mask1 = np.ma.array(T_values[t].T <= 0.0, T_values[t].T)
+            outline_mask_cells(ax, mask1, inset=0.12, color="red", linewidth=1.2, origin="upper")
+
+            ax.set_title(f"Value at time {t}")
+            fig.colorbar(im, ax=ax)
+            setup_ax(ax)
+        fig_path = results_dir / "ma_timed_values.pdf"
+        fig.savefig(fig_path, bbox_inches="tight", pad_inches=1e-2)
+        plt.close(fig)
+        exit(0)
+
     # -----------------------------
     rollouter = MinTimeRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
     Tp1_states, T_actions, T_curnode_idxs = rollouter.rollout(start_state, max_steps=100)
@@ -257,6 +308,72 @@ def main(gamma: float | None = None, resolve: bool = False):
     anim = FuncAnimation(fig, update_fn, n_frames, init_fn, blit=True)
     anim.save("rooms_discrete_rollout_multiagent.mp4", fps=5, dpi=200)
 
+def outline_mask_cells(
+    ax,
+    mask,
+    inset=0.08,
+    color="k",
+    linewidth=1.5,
+    origin="upper",
+):
+    """
+    Draw inset outlines around all True cells in a 2D boolean mask.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axes to draw on.
+    mask : 2D array-like of bool
+        True where a cell should be outlined.
+    inset : float, default 0.08
+        Inset from each cell edge, in cell units. Must be between 0 and 0.5.
+    color : matplotlib color, default 'k'
+        Outline color.
+    linewidth : float, default 1.5
+        Width of outline lines.
+    origin : {'upper', 'lower'}, default 'upper'
+        Match the origin used by imshow.
+    """
+    mask = np.asarray(mask, dtype=bool)
+    if mask.ndim != 2:
+        raise ValueError("mask must be a 2D array")
+    if not (0 <= inset < 0.5):
+        raise ValueError("inset must satisfy 0 <= inset < 0.5")
+
+    nrows, ncols = mask.shape
+    segments = []
+
+    for r in range(nrows):
+        for c in range(ncols):
+            if not mask[r, c]:
+                continue
+
+            # imshow cell bounds:
+            # x in [c-0.5, c+0.5], y in [r-0.5, r+0.5]
+            x0 = c - 0.5 + inset
+            x1 = c + 0.5 - inset
+
+            if origin == "upper":
+                y0 = r - 0.5 + inset
+                y1 = r + 0.5 - inset
+            elif origin == "lower":
+                y0 = r - 0.5 + inset
+                y1 = r + 0.5 - inset
+            else:
+                raise ValueError("origin must be 'upper' or 'lower'")
+
+            # top
+            segments.append([(x0, y0), (x1, y0)])
+            # right
+            segments.append([(x1, y0), (x1, y1)])
+            # bottom
+            segments.append([(x1, y1), (x0, y1)])
+            # left
+            segments.append([(x0, y1), (x0, y0)])
+
+    lc = LineCollection(segments, colors=color, linewidths=linewidth)
+    ax.add_collection(lc)
+    return lc
 
 if __name__ == "__main__":
     with ipdb.launch_ipdb_on_exception():
