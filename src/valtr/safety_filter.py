@@ -204,11 +204,11 @@ class SafetyFilter:
         # Safety filtering logic: if nominal action is safe, then take it. Otherwise, take the optimal action.
         value_next_nom = self.dict_vars[self.cur_node_id][state_next_nom]
 
-        dyn: GridWorld = self.dyn
-        decoded_state = [int(n) for n in dyn.decode_state(state, np)]
-        action_str = dyn.action_to_str(a_nom)
-        decoded_nextstate = [int(n) for n in dyn.decode_state(state_next_nom)]
-        logger.debug(f"{decoded_state} ({action_str}) -> {decoded_nextstate}. nom_value = {value_next_nom}")
+        # dyn: GridWorld = self.dyn
+        # decoded_state = [int(n) for n in dyn.decode_state(state, np)]
+        # action_str = dyn.action_to_str(a_nom)
+        # decoded_nextstate = [int(n) for n in dyn.decode_state(state_next_nom)]
+        # logger.debug(f"{decoded_state} ({action_str}) -> {decoded_nextstate}. nom_value = {value_next_nom}")
 
         if value_next_nom >= 0:
             return a_nom

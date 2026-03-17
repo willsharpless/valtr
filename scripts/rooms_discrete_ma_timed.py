@@ -8,7 +8,8 @@ import ipdb
 import matplotlib.pyplot as plt
 import numpy as np
 from dvi.dynamics.gridworld import GridWorld
-from dvi.dynamics.gridworld_ma import GridWorldMA, flat_totimed, ma_collision_predicate, rew_to_ma
+from dvi.dynamics.gridworld_ma import GridWorldMA, flat_totimed, ma_collision_predicate, rew_to_ma, \
+    ma_distance_predicate
 from dvi.dynamics.gridworld_ma_timed import GridWorldMATimed
 from dvi.dynamics.gridworld_timed import GridWorldTimed
 from loguru import logger
@@ -51,9 +52,11 @@ TAIL = "(!w) U G( ( (site && !w) U (site && !w && S)) && ( (site && !w) U (site 
 #     TAIL, TAIL
 # )
 # TASK_SOURCE = "(!site U v) && (!site U g) && ({}) && F (C || T) && G(!w)".format(TAIL2)
-TASK_SOURCE = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(TAIL)
+# TASK_SOURCE = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(TAIL)
 
 # TASK_SOURCE = "G( (site U (site && S) ) && (site U (site && W) ) )"
+
+TASK_SOURCE = "G( leash && !collide )"
 
 TMAX = 50
 
@@ -139,6 +142,7 @@ def main(gamma: float | None = None, resolve: bool = False):
         "w": flat_totimed(rew_to_ma(d_flat["w"], dyn_ma.n_agents, "min"), t_max=TMAX),
         #
         "collide": ma_collision_predicate(dyn_ma_, collide_dist, t_max=TMAX),
+        "leash": ma_distance_predicate(dyn_ma_, 3, t_max=TMAX)
     }
     for k, v in dict_predicates.items():
         assert v.ndim == 1 and v.shape[0] == dyn_ma.n_states, f"Predicate {k} has wrong shape {v.shape}"
