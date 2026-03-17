@@ -38,8 +38,10 @@ class SafetyFilter:
         self.dict_GU_actions = dict_GU_actions
         # ---------------
         self.cur_node_id = self.dag_root
+        self.cycle_start_GU_idx = None
+        self.GU_index_dict: dict[DAGId, int] = {}
 
-    def filter_action(self, state: StateInt, a_nom: ActionInt, preference_fn: PreferenceFn | None = None) -> ActionInt:
+    def filter_action(self, state: StateInt, a_nom: ActionInt, preference_fn: PreferenceFn | None = None, which=jnp) -> ActionInt:
         dag_nodes = self.dag_nodes
 
         state_next_nom = self.dyn.step(state, a_nom)
@@ -125,72 +127,57 @@ class SafetyFilter:
                         # If no temporal children, then execute the action associated with the reach node.
                         break
                 case DAGGUMinN(args=args):
-                    raise NotImplementedError("")
                     args: list[DAGId]
                     if len(args) == 1:
                         logger.info("GU with one argument")
                         # Only one argument, execute its action
                         break
 
-                    if cur_node_id not in GU_index_dict:
-                        GU_index_dict[cur_node_id] = 0
+                    if self.cur_node_id not in self.GU_index_dict:
+                        self.GU_index_dict[self.cur_node_id] = 0
 
                     # GU is a "leaf node", we just need to cycle through its arguments.
-                    cur_GU_index = GU_index_dict[cur_node_id]
+                    cur_GU_index = self.GU_index_dict[self.cur_node_id]
                     GU_single_node = self.dag_nodes[args[cur_GU_index]]
                     assert isinstance(GU_single_node, DAGGUSingle)
                     cur_q_idx, cur_r_idx = GU_single_node.avoid, GU_single_node.reach
                     r_value = self.dict_vars[cur_r_idx][state]
 
                     # Get the value of the NEXT state for the NEXT GU arg.
-                    action_dict = self.dict_GU_actions[cur_node_id][cur_GU_index]
-                    action_curr = action_dict[state]
-                    state_new = self.dyn.step(state, action_curr, which=which)
+                    action_dict = self.dict_GU_actions[self.cur_node_id][cur_GU_index]
+                    # action_curr = action_dict[state]
+                    # state_new = self.dyn.step(state, action_curr, which=which)
 
                     next_GU_index = (cur_GU_index + 1) % len(args)
-                    value_next_GU = self.dict_GU_vars[cur_node_id][next_GU_index][state_new]
-                    stay_current_GU_node = (r_value < value_next_GU) and (r_value < current_value)
+                    # value_next_GU = self.dict_GU_vars[self.cur_node_id][next_GU_index][state_new]
 
-                    # If all three values are equal, then it means that:
-                    # 1) We have reached the highest possible value for this reach target
-                    # 2) We can reach the next GU arg equally well.
-                    # It is possible that all GU args have the same value, in which case this will cycle.
-                    # If it cycles, execute the current action and then move to the next GU arg (upon which the same
-                    # thing will happen again).
-                    same_value = (r_value == value_next_GU) and (r_value == current_value)
-                    # action_curr_str = self.dyn.action_to_str(action_curr)
+                    # Switch if min(r, value_next_GU) >= current_value.
+                    switch_GU_node = r_value >= current_value
+                    stay_current_GU_node = not switch_GU_node
 
-                    # logger.info(
-                    #     "Cur Node: {} | Cur GU idx: {} | r_value: {} | value_next_GU: {} | current_value: {} | "
-                    #     "stay: {} | action_curr: {}".format(
-                    #         cur_node_id,
-                    #         cur_GU_index,
-                    #         r_value,
-                    #         value_next_GU,
-                    #         current_value,
-                    #         stay_current_GU_node,
-                    #         action_curr_str,
-                    #     )
-                    # )
-
-                    if same_value:
-                        if cycle_start_GU_idx is None:
-                            cycle_start_GU_idx = cur_GU_index
-                        elif cycle_start_GU_idx == cur_GU_index:
-                            logger.info("Detected cycle on GU args at index {}".format(cur_GU_index))
-                            # We have cycled through all GU args. Execute the current action and move to next GU arg.
-                            GU_index_dict[cur_node_id] = next_GU_index
-                            break
+                    if current_value == -1:
+                        ipdb.set_trace()
 
                     if stay_current_GU_node:
-                        # Stay on the current GU arg if (r_value < value_next_GU) and (r_value < current_value)
-                        # logger.info("Taking action for GU index {} | {}".format(cur_GU_index, action_curr_text))
+                        # We are currently evaluating this node.
                         break
-                    else:
-                        # Otherwise, advance to the next GU arg.
-                        GU_index_dict[cur_node_id] = next_GU_index
-                        # logger.info("Moving to next GU arg: {}".format(next_GU_index))
-                        continue
+
+                    # Check for cycles.
+                    if self.cycle_start_GU_idx is None:
+                        self.cycle_start_GU_idx = cur_GU_index
+                    elif self.cycle_start_GU_idx == cur_GU_index:
+                        logger.info(
+                            "Cycle start at GU idx {}, detected cycle on GU args at index {}".format(
+                                self.cycle_start_GU_idx, cur_GU_index
+                            )
+                        )
+                        # We have cycled through all GU args. Execute the current action and move to next GU arg.
+                        self.GU_index_dict[self.cur_node_id] = next_GU_index
+                        break
+
+                    # Otherwise, advance to the next GU node.
+                    self.GU_index_dict[self.cur_node_id] = next_GU_index
+                    continue
 
                 case DAGAvoid(avoid=avoid):
                     # Avoid shouldn't have any temporal children.
@@ -202,6 +189,7 @@ class SafetyFilter:
                     raise ValueError(f"Unexpected node type: {node}")
 
         # End of while.
+        logger.debug(f"At node {self.cur_node_id} ({self.dag_nodes[self.cur_node_id]})")
 
         # At this point, we have reached a temporal operator. Choose the action associated with this node.
         if action_dict is None:

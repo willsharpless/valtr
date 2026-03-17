@@ -19,6 +19,7 @@ from matplotlib.collections import LineCollection
 from matplotlib.colors import ListedColormap
 
 from valtr.gridworld_utils import GridWorldDriftFn, parse_rooms
+from valtr.mintime_policy import MinTimePolicy
 from valtr.mintime_rollout import MinTimeRollout
 from valtr.safety_filter import SafetyFilter
 from valtr.solve_discrete import load_discrete_sol, save_discrete_sol, solve_discrete
@@ -45,7 +46,56 @@ MAP = """
 TAIL = "(!w) U G( ( (site && !w) U (site && !w && S)) && ( (site && !w) U (site && !w && W)) )"
 TASK_SOURCE = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(TAIL)
 
+AG1_GOAL = "C"
+TASK_SOURCE_AG1 = f"F {AG1_GOAL}"
+
 TMAX = 50
+
+def solve_ag1_policy(gamma: float |None = None, resolve: bool = False):
+    results_dir = pathlib.Path("plots_discrete")
+    results_dir.mkdir(exist_ok=True)
+
+    dyn, d_raw = parse_rooms(MAP, ignore=".")
+
+    dict_predicates_unflat = {
+        "C": np.where(d_raw["C"], 1, -1),
+        "T": np.where(d_raw["T"], 1, -1),
+        "w": np.where(d_raw["#"], 1, -1),
+    }
+
+    value_tree_dag, dag_root = to_dag(TASK_SOURCE_AG1, ir_filename="safety_filter_ma_ag1_ir", dag_filename="safety_filter_ma_ag1_ir_dag")
+    dag_nodes = value_tree_dag.nodes
+    dict_predicates = {k: v.flatten() for k, v in dict_predicates_unflat.items()}
+
+    # Solve.
+    pkl_path = results_dir / f"safety_filter_ma_ag1_{AG1_GOAL}_sol.pkl"
+
+    if resolve or not pkl_path.exists():
+        dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(dyn, dag_nodes, dict_predicates)
+        extras = {
+            "task_source": TASK_SOURCE,
+            "dict_predicates": dict_predicates,
+            "gamma": gamma,
+            "d_raw": d_raw,
+        }
+        save_discrete_sol(
+            pkl_path,
+            dyn,
+            dag_nodes,
+            dag_root,
+            dict_vars,
+            dict_actions,
+            dict_GU_vars,
+            dict_GU_actions,
+            extras=extras,
+        )
+
+    dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = load_discrete_sol(
+        pkl_path
+    )
+
+    pol = MinTimePolicy(dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+    return pol
 
 
 @app.default()
@@ -126,9 +176,18 @@ def main(gamma: float | None = None, resolve: bool = False):
         "w": flat_totimed(rew_to_ma(d_flat["w"], dyn_ma.n_agents, "min"), t_max=TMAX),
         #
         "collide": ma_collision_predicate(dyn_ma_, collide_dist, t_max=TMAX),
-        "leash": ma_collision_predicate(dyn_ma_, 4, t_max=TMAX),
+        "leash": ma_collision_predicate(dyn_ma_, 3, t_max=TMAX),
+        #
+        "Tle30": dyn_ma.tle_predicate(30),
     }
-    dict_predicates["w"] = dict_predicates["w"] | ~dict_predicates["leash"]
+    # Reach everything before Tle30.
+    dict_predicates["C"] = jnp.minimum(dict_predicates["C"], dict_predicates["Tle30"])
+    dict_predicates["T"] = jnp.minimum(dict_predicates["T"], dict_predicates["Tle30"])
+    dict_predicates["v"] = jnp.minimum(dict_predicates["v"], dict_predicates["Tle30"])
+    dict_predicates["g"] = jnp.minimum(dict_predicates["g"], dict_predicates["Tle30"])
+
+    # Make the walls encode all the safety stuff for convenience.
+    dict_predicates["w"] = jnp.stack([dict_predicates["w"], -dict_predicates["leash"], dict_predicates["collide"]], axis=-1).max(-1)
 
     # leash = dict_predicates["leash"]
     # logger.debug("leash min: {}, max: {}".format(leash.min(), leash.max()))
@@ -198,6 +257,8 @@ def main(gamma: float | None = None, resolve: bool = False):
         pkl_path
     )
 
+    pol_ag1 = solve_ag1_policy(gamma=gamma, resolve=resolve)
+
     # -----------------------------
     rng = np.random.default_rng(seed=12345)
     T_value = dict_vars[dag_root]
@@ -210,13 +271,10 @@ def main(gamma: float | None = None, resolve: bool = False):
 
     dyn_ma: GridWorldMATimed
     # a_nom = dyn_ma_.str_to_action("L|.")
-    a_nom = dyn_ma_.str_to_action(".|U")
+    # a_nom = dyn_ma_.str_to_action(".|U")
 
     safety_filter = SafetyFilter(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
 
-    state = start_state
-    Tp1_states = [state]
-    T_hasfiltered = []
 
     def preference_fn(_: StateInt, a_nom_: ActionInt) -> np.ndarray:
         # If agent1 is staying still, then prefer actions where the agent2 action matches a_nom_.
@@ -242,10 +300,32 @@ def main(gamma: float | None = None, resolve: bool = False):
         return costs
 
     # Rollout safety filter.
-    for kk in range(10):
+    state = start_state
+    Tp1_states = [state]
+    T_a_nom = []
+    T_a_filt = []
+    T_hasfiltered = []
+
+    for kk in range(50):
+        logger.debug(f"> kk={kk}")
+
+        state_agents, _ = dyn_ma.decode_timed_state_to_agent(state, which=np)
+        state_ag1 = state_agents[0]
+
+        a_nom_ag1, ag1_isdone = pol_ag1.get_action(state_ag1, which=np, kk=kk)
+        if ag1_isdone:
+            logger.debug("    Agent 1 policy is done. Using no-op.")
+            a_nom_ag1 = dyn_untimed.str_to_action(".")
+
+        a_nom_ag2 = dyn_untimed.str_to_action(".")
+        a_nom = dyn_ma_.encode_joint_action([a_nom_ag1, a_nom_ag2], which=np)
+
         a_safe = safety_filter.filter_action(state, a_nom, preference_fn)
         hasfiltered = a_safe != a_nom
         state = dyn_ma.step(state, a_safe)
+
+        T_a_nom.append(a_nom)
+        T_a_filt.append(a_safe)
         Tp1_states.append(state)
         T_hasfiltered.append(hasfiltered)
 
@@ -253,7 +333,7 @@ def main(gamma: float | None = None, resolve: bool = False):
 
     # ---------------------------------------------------------------------
     # Visualize the rollout by animating the path and saving as mp4.
-    n_frames = len(Tp1_states)
+    n_frames = len(Tp1_states) - 1
     fig, ax = plt.subplots()
 
     # Visualize the map again.
@@ -282,10 +362,23 @@ def main(gamma: float | None = None, resolve: bool = False):
         fontsize=8,
         bbox=dict(facecolor="black", alpha=0.5, pad=2),
     )
+    # Bottom right corner.
+    debug_text = ax.text(
+        0.98,
+        0.02,
+        "",
+        transform=ax.transAxes,
+        verticalalignment="bottom",
+        horizontalalignment="right",
+        color="white",
+        fontsize=8,
+        fontname="DejaVu Sans",
+        bbox=dict(facecolor="black", alpha=0.5, pad=2),
+    )
 
     def init_fn():
         # Return all animated artists
-        return agent_dots + [kk_text]
+        return agent_dots + [kk_text, debug_text]
 
     def update_fn(kk: int) -> list[plt.Artist]:
         joint_state = Tp1_states[kk]
@@ -302,7 +395,12 @@ def main(gamma: float | None = None, resolve: bool = False):
 
         kk_text.set_text(f"Step {kk: 3}")
 
-        return agent_dots + [kk_text]
+        # Show the nominal action and the filtered action.
+        a_nom_str = dyn_ma_.action_to_str(T_a_nom[kk])
+        a_safe_str = dyn_ma_.action_to_str(T_a_filt[kk])
+        debug_text.set_text("Nom : {}\nSafe: {}".format(a_nom_str, a_safe_str))
+
+        return agent_dots + [kk_text, debug_text]
 
     anim = FuncAnimation(fig, update_fn, n_frames, init_fn, blit=True)
     anim.save("safety_filter_ma_rollout.mp4", fps=5, dpi=200)

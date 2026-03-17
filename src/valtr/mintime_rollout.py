@@ -35,7 +35,7 @@ class MinTimeRollout:
         T_curnode_idxs = []
 
         for kk in tqdm.trange(max_steps):
-            action = self.policy.get_action(state, which=which, kk=kk)
+            action, isdone = self.policy.get_action(state, which=which, kk=kk)
 
             # Apply the action to get the next state.
             state_new = self.dyn.step(state, action, which=which)

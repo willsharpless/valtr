@@ -116,11 +116,15 @@ MAP8 = """
 """
 # just for dag
 
-MAP_NUM = 6
+MAP9 = """
+A
+"""
+
+MAP_NUM = 9
 
 
 def get_rooms():
-    map_str = [None, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6, MAP7, MAP8][MAP_NUM]
+    map_str = [None, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6, MAP7, MAP8, MAP9][MAP_NUM]
     if MAP_NUM == 0:
         s = MAP0
         dyn, d_raw = parse_rooms(s)
@@ -200,6 +204,13 @@ def get_rooms():
             "q": np.where(d_raw["."] | d_raw["a"] | d_raw["b"], 1, -1),
         }
         return dyn, d
+    elif MAP_NUM == 9:
+        dyn, d_raw = parse_rooms(MAP9)
+        d = {
+            "A": np.where(d_raw["A"], 1, -1),
+            "B": np.where(d_raw["A"], 1, -1),
+        }
+        return dyn, d
     else:
         raise NotImplementedError("")
 
@@ -244,6 +255,8 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
         TASK_SOURCE = "(!q U g) && F( g && F G ( (q U (A && q )) && (q U (B && q )) ) )"
     elif MAP_NUM == 8:
         TASK_SOURCE = "(!q U g) && G( !w ) && F( g && F G ( (q U (A && q )) && (q U (B && q )) ) )"  # nice dag plot
+    elif MAP_NUM == 9:
+        TASK_SOURCE = "G F A && G F B"
     else:
         raise ValueError("Invalid MAP_NUM")
 
@@ -274,7 +287,7 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
     # Visualize the map.
     # Use a different color for each symbol.
 
-    map_str = [MAP0, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6, MAP7][MAP_NUM]
+    map_str = [MAP0, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6, MAP7, MAP8, MAP9][MAP_NUM]
     if MAP_NUM == 3:
         d_raw = parse_rooms(MAP3)[1]
         d_raw_drift = parse_rooms(MAP3_DRIFT)[1]
