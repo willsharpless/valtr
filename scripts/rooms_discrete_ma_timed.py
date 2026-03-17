@@ -52,11 +52,10 @@ TAIL = "(!w) U G( ( (site && !w) U (site && !w && S)) && ( (site && !w) U (site 
 #     TAIL, TAIL
 # )
 # TASK_SOURCE = "(!site U v) && (!site U g) && ({}) && F (C || T) && G(!w)".format(TAIL2)
-# TASK_SOURCE = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(TAIL)
+TASK_SOURCE = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(TAIL)
 
 # TASK_SOURCE = "G( (site U (site && S) ) && (site U (site && W) ) )"
 
-TASK_SOURCE = "G( leash && !collide )"
 
 TMAX = 50
 
