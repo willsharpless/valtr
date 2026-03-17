@@ -35,7 +35,7 @@ class MinTimePolicy:
         self.cycle_start_GU_idx = None
         self.GU_index_dict: dict[DAGId, int] = {}
 
-    def get_action(self, state: jnp.ndarray, which=jnp, kk: int | None = None) -> tuple[ActionInt, bool]:
+    def get_action(self, state: jnp.ndarray, which=jnp, kk: int | None = None, debug: bool = False) -> tuple[ActionInt, bool]:
         dag_nodes = self.dag_nodes
         cur_node_id = self.cur_node_id
 
@@ -44,11 +44,23 @@ class MinTimePolicy:
         if cur_node_id == len(self.dag_nodes):
             return None, True
 
+        if debug:
+            dyn_ma = self.dyn
+            state_ag1, state_ag2 = dyn_ma.decode_joint_state(state, which=np)
+            state_ag1_tup = [int(n) for n in dyn_ma.base.decode_state(state_ag1)]
+            state_ag2_tup = [int(n) for n in dyn_ma.base.decode_state(state_ag2)]
+            current_value = self.dict_vars[cur_node_id][state]
+            logger.debug("    STATE: cur_node_id={} | val={} | agent1 at {}, agent2 at {}".format(cur_node_id, current_value, state_ag1_tup, state_ag2_tup))
+
         # Traverse the tree until we reach a temporal operator.
         while True:
             node = dag_nodes[cur_node_id]
             current_value = self.dict_vars[cur_node_id][state]
             action_dict = None
+
+            if current_value < 0:
+                logger.warning("Negative value at node {}: {}".format(cur_node_id, current_value))
+                ipdb.set_trace()
 
             match node:
                 case DAGMinN(args=args):
@@ -212,6 +224,13 @@ class MinTimePolicy:
         if action_dict is None:
             action_dict = self.dict_actions[cur_node_id]
         action = action_dict[state]
+
+        if debug:
+            dyn_ma = self.dyn
+            state_ag1, state_ag2 = dyn_ma.decode_joint_state(state, which=np)
+            state_ag1_tup = [int(n) for n in dyn_ma.base.decode_state(state_ag1)]
+            state_ag2_tup = [int(n) for n in dyn_ma.base.decode_state(state_ag2)]
+            logger.debug("    > STATE: cur_node_id={} | action={} | agent1 at {}, agent2 at {}".format(cur_node_id, dyn_ma.action_to_str(action), state_ag1_tup, state_ag2_tup))
 
         if is_done:
             cur_node_id = len(self.dag_nodes)

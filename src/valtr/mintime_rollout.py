@@ -27,7 +27,7 @@ class MinTimeRollout:
         self.dag_root = dag_root
         self.dyn = dyn
 
-    def rollout(self, start_state: int, max_steps: int = 10, quiet: bool = False, which=jnp):
+    def rollout(self, start_state: int, max_steps: int = 10, quiet: bool = False, which=jnp, debug: bool = False):
         state = start_state
 
         Tp1_states = [state]
@@ -35,7 +35,7 @@ class MinTimeRollout:
         T_curnode_idxs = []
 
         for kk in tqdm.trange(max_steps):
-            action, isdone = self.policy.get_action(state, which=which, kk=kk)
+            action, isdone = self.policy.get_action(state, which=which, kk=kk, debug=debug)
 
             if isdone:
                 break

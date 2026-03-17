@@ -48,7 +48,7 @@ TAIL = "(!w) U G( ( (site && !w) U (site && !w && S)) && ( (site && !w) U (site 
 TASK_SOURCE = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(TAIL)
 
 AG1_GOAL = "C"
-TASK_SOURCE_AG1 = f"(!w && !collide && leash) U {AG1_GOAL}"
+TASK_SOURCE_AG1 = f"(!w && !collide) U {AG1_GOAL}"
 
 TASK_SOURCE_AG2 = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({})".format(TAIL)
 
@@ -101,12 +101,12 @@ def solve_ag1_policy(gamma: float |None = None, resolve: bool = False):
         #
         "w": rew_to_ma(d_flat["w"], dyn_ma.n_agents, "max"),
         #
-        "collide": ma_collision_predicate(dyn_ma, collide_dist),
-        "leash": ma_collision_predicate(dyn_ma, 3),
+        "collide": ma_collision_predicate(dyn_ma, collide_dist, norm=1),
+        "leash": ma_collision_predicate(dyn_ma, 3, norm=1),
     }
 
     # Make the walls encode all the safety stuff for convenience.
-    dict_predicates["w"] = jnp.stack([dict_predicates["w"], -dict_predicates["leash"], dict_predicates["collide"]], axis=-1).max(-1)
+    dict_predicates["w"] = jnp.stack([dict_predicates["w"], dict_predicates["collide"]], axis=-1).max(-1)
 
     for k, v in dict_predicates.items():
         assert v.ndim == 1 and v.shape[0] == dyn_ma.n_states, f"Predicate {k} has wrong shape {v.shape}"
@@ -155,11 +155,12 @@ def solve_ag1_policy(gamma: float |None = None, resolve: bool = False):
     h, w = dyn.shape
     empty_map, map_cmap, tick_locs = get_empty_map()
 
-    start_state = dyn_ma.encode_from_tups([(5, 4), (7, 4)])
+    # start_state = dyn_ma.encode_from_tups([(5, 4), (7, 4)])
+    start_state = dyn_ma.encode_from_tups([(11, 3), (9, 5)])
     logger.debug("[ag1] Initial value: {}".format(dict_vars[dag_root][start_state]))
 
     rollouter = MinTimeRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
-    Tp1_states, T_actions, T_curnode_idxs = rollouter.rollout(start_state, max_steps=50)
+    Tp1_states, T_actions, T_curnode_idxs = rollouter.rollout(start_state, max_steps=9, debug=True)
 
     # Visualize the rollout by animating the path and saving as mp4.
     n_frames = len(Tp1_states)
@@ -253,8 +254,8 @@ def solve_ag2_policy(gamma: float |None = None, resolve: bool = False):
         #
         "w": rew_to_ma(d_flat["w"], dyn_ma.n_agents, "min"),
         #
-        "collide": ma_collision_predicate(dyn_ma, collide_dist),
-        "leash": ma_collision_predicate(dyn_ma, 3),
+        "collide": ma_collision_predicate(dyn_ma, collide_dist, norm=1),
+        "leash": ma_collision_predicate(dyn_ma, 3, norm=1),
     }
 
     # Make the walls encode all the safety stuff for convenience.
@@ -369,8 +370,8 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
         #
         "w": flat_totimed(rew_to_ma(d_flat["w"], dyn_ma.n_agents, "min"), t_max=TMAX),
         #
-        "collide": ma_collision_predicate(dyn_ma_, collide_dist, t_max=TMAX),
-        "leash": ma_collision_predicate(dyn_ma_, 3, t_max=TMAX),
+        "collide": ma_collision_predicate(dyn_ma_, collide_dist, t_max=TMAX, norm=1),
+        "leash": ma_collision_predicate(dyn_ma_, 3, t_max=TMAX, norm=1),
         #
         "Tle40": dyn_ma.tle_predicate(40),
     }
@@ -507,21 +508,21 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     T_a_filt = []
     T_hasfiltered = []
 
-    for kk in range(15):
+    for kk in range(80):
         logger.debug(f"> kk={kk}")
 
         s_joint, _ = dyn_ma.decode_timed_state(state, which=np)
         state_ag1, state_ag2 = dyn_ma_.decode_joint_state(s_joint, which=np)
-        state_ag1_tup = dyn_untimed.decode_state(state_ag1)
-        state_ag2_tup = dyn_untimed.decode_state(state_ag2)
+        state_ag1_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag1)]
+        state_ag2_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag2)]
         logger.debug("    Current state: agent1 at {}, agent2 at {}".format(state_ag1_tup, state_ag2_tup))
 
         logger.debug("    Agent 1 policy...")
-        a_nom_ag1_joint, ag1_isdone = pol_ag1.get_action(s_joint, which=np, kk=kk)
+        a_nom_ag1_joint, ag1_isdone = pol_ag1.get_action(s_joint, which=np, kk=kk, debug=True)
         logger.debug("    Agent 1 policy... done!")
         if ag1_isdone:
             logger.debug("    Agent 1 policy is done. Using no-op.")
-            ipdb.set_trace()
+            # ipdb.set_trace()
             a_nom_ag1 = dyn_untimed.str_to_action(".")
         else:
             a_nom_ag1 = dyn_ma_.decode_joint_action(a_nom_ag1_joint, which=np)[0]

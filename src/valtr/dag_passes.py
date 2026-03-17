@@ -537,7 +537,7 @@ class PassAbsorbGU(DagRewriter):
                         case _:
                             other_ids.append(a_id)
 
-                logger.debug(f"[Node %{rid}] Found {len(ra_nodes)} RA nodes, {len(gu_nodes)} GU nodes, {len(other_ids)} other nodes")
+                # logger.debug(f"[Node %{rid}] Found {len(ra_nodes)} RA nodes, {len(gu_nodes)} GU nodes, {len(other_ids)} other nodes")
                 if len(ra_nodes) == 1 and len(gu_nodes) >= 1 and len(other_ids) == 0:
                     _, ra = ra_nodes[0]
                     q1 = self.visit(ra.avoid)
