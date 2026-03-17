@@ -29,18 +29,21 @@ plt.style.use("seaborn-v0_8-darkgrid")
 app = cyclopts.App()
 
 MAP = """
-            .
-            .
-            .
-            .
-            .
-            .
-            .
-            .
+         C  .
+ sss    sss .
+ sSs  v sWs .
+ ssssssssss .
+ ###        .
+ #gD        .
+ ### T      .
+ K          .
 """
 
-TASK_SOURCE = "G( leash && !collide )"
+# TASK_SOURCE = "G( leash && !collide )"
 # TASK_SOURCE = "G( !collide )"
+
+TAIL = "(!w) U G( ( (site && !w) U (site && !w && S)) && ( (site && !w) U (site && !w && W)) )"
+TASK_SOURCE = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(TAIL)
 
 TMAX = 50
 
@@ -64,7 +67,22 @@ def main(gamma: float | None = None, resolve: bool = False):
     dyn_ma = GridWorldMATimed(dyn_ma_, t_max=TMAX, freeze_at_t_max=False)
 
     collide_dist = 1.0  # Diagonal is safe, but not adjacent.
-    d = {}
+    d = {
+        "C": np.where(d_raw["C"], 1, -1)[:, :, -1],
+        "T": np.where(d_raw["T"], 1, -1)[:, :, -1],
+        #
+        "S": np.where(d_raw["S"], 1, -1)[:, :, -1],
+        "W": np.where(d_raw["W"], 1, -1)[:, :, -1],
+        #
+        "site": np.where(d_raw["s"] | d_raw["S"] | d_raw["W"], 1, -1)[:, :, -1],
+        #
+        "v": np.where(d_raw["v"], 1, -1)[:, :, -1],
+        "g": np.where(d_raw["g"], 1, -1)[:, :, -1],
+        #
+        "K": np.where(d_raw["K"], 1, -1)[:, :, -1],
+        "D": np.where(d_raw["D"], 1, -1)[:, :, -1],
+        "w": np.where(d_raw["#"], 1, -1)[:, :, -1],
+    }
 
     h, w, _ = dyn.shape
     logger.debug("dyn.shape: {}".format(dyn.shape))
@@ -94,22 +112,23 @@ def main(gamma: float | None = None, resolve: bool = False):
 
     logger.debug("dict predicates...")
     dict_predicates = {
-        # "C": flat_totimed(rew_to_ma(d_flat["C"], dyn_ma.n_agents, mode=0), t_max=TMAX),
-        # "T": flat_totimed(rew_to_ma(d_flat["T"], dyn_ma.n_agents, mode=0), t_max=TMAX),
-        # #
-        # "S": flat_totimed(rew_to_ma(d_flat["S"], dyn_ma.n_agents, mode=1), t_max=TMAX),
-        # "W": flat_totimed(rew_to_ma(d_flat["W"], dyn_ma.n_agents, mode=1), t_max=TMAX),
-        # #
-        # "site": flat_totimed(rew_to_ma(d_flat["site"], dyn_ma.n_agents, mode=1), t_max=TMAX),
-        # #
-        # "v": flat_totimed(rew_to_ma(d_flat["v"], dyn_ma.n_agents, mode=1), t_max=TMAX),
-        # "g": flat_totimed(rew_to_ma(d_flat["g"], dyn_ma.n_agents, mode=1), t_max=TMAX),
-        # #
-        # "w": flat_totimed(rew_to_ma(d_flat["w"], dyn_ma.n_agents, "min"), t_max=TMAX),
-        # #
+        "C": flat_totimed(rew_to_ma(d_flat["C"], dyn_ma.n_agents, mode=0), t_max=TMAX),
+        "T": flat_totimed(rew_to_ma(d_flat["T"], dyn_ma.n_agents, mode=0), t_max=TMAX),
+        #
+        "S": flat_totimed(rew_to_ma(d_flat["S"], dyn_ma.n_agents, mode=1), t_max=TMAX),
+        "W": flat_totimed(rew_to_ma(d_flat["W"], dyn_ma.n_agents, mode=1), t_max=TMAX),
+        #
+        "site": flat_totimed(rew_to_ma(d_flat["site"], dyn_ma.n_agents, mode=1), t_max=TMAX),
+        #
+        "v": flat_totimed(rew_to_ma(d_flat["v"], dyn_ma.n_agents, mode=1), t_max=TMAX),
+        "g": flat_totimed(rew_to_ma(d_flat["g"], dyn_ma.n_agents, mode=1), t_max=TMAX),
+        #
+        "w": flat_totimed(rew_to_ma(d_flat["w"], dyn_ma.n_agents, "min"), t_max=TMAX),
+        #
         "collide": ma_collision_predicate(dyn_ma_, collide_dist, t_max=TMAX),
         "leash": ma_collision_predicate(dyn_ma_, 4, t_max=TMAX),
     }
+    dict_predicates["w"] = dict_predicates["w"] | ~dict_predicates["leash"]
 
     # leash = dict_predicates["leash"]
     # logger.debug("leash min: {}, max: {}".format(leash.min(), leash.max()))

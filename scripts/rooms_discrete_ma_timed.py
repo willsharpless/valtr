@@ -141,8 +141,10 @@ def main(gamma: float | None = None, resolve: bool = False):
         "w": flat_totimed(rew_to_ma(d_flat["w"], dyn_ma.n_agents, "min"), t_max=TMAX),
         #
         "collide": ma_collision_predicate(dyn_ma_, collide_dist, t_max=TMAX),
-        "leash": ma_distance_predicate(dyn_ma_, 3, t_max=TMAX),
+        "leash": ma_collision_predicate(dyn_ma_, 4, t_max=TMAX),
     }
+    dict_predicates["w"] = dict_predicates["w"] | ~dict_predicates["leash"]
+
     for k, v in dict_predicates.items():
         assert v.ndim == 1 and v.shape[0] == dyn_ma.n_states, f"Predicate {k} has wrong shape {v.shape}"
 
