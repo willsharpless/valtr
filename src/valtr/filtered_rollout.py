@@ -3,22 +3,23 @@ import jax.numpy as jnp
 import numpy as np
 import tqdm
 from dvi.dynamics.discrete import ActionInt, DiscreteDyn
-from loguru import logger
-
 from dvi.dynamics.gridworld import GridWorld
 from dvi.dynamics.gridworld_ma import GridWorldMA
+from loguru import logger
 
 from valtr.reachability import (DAGAvoid, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN, DAGNode, DAGReach,
                                 DAGReachAvoid, has_temporal_children)
-
 from valtr.safety_filter import SafetyFilter
+
 
 class Policy:
     def __call__(self, states: list[int]) -> ActionInt:
         raise NotImplementedError
 
+
 class RandomPolicy(Policy):
     """Policy which takes random actions (mostly for debugging)"""
+
     def __init__(self, dyn: DiscreteDyn, rng: np.random.Generator | None = None):
         self.dyn = dyn
         self.rng = rng if rng else np.random.default_rng()
@@ -27,8 +28,10 @@ class RandomPolicy(Policy):
         del state_history
         return int(self.rng.integers(self.dyn.n_actions))
 
+
 class GridSearchPolicy(Policy):
     """Policy for GridWorld dynamics that prefers least-visited successor states."""
+
     def __init__(self, dyn: GridWorld, rng: np.random.Generator | None = None):
         self.dyn = dyn
         self.rng = rng if rng else np.random.default_rng()
@@ -81,6 +84,7 @@ class GridSearchPolicyMA(Policy):
         candidate_actions = [action for action, score in enumerate(action_scores) if score == best_score]
         return int(self.rng.choice(candidate_actions))
 
+
 def get_preset_nominal_policy(preset: str, dyn: DiscreteDyn) -> Policy:
     if preset == "random":
         return RandomPolicy(dyn)
@@ -91,6 +95,7 @@ def get_preset_nominal_policy(preset: str, dyn: DiscreteDyn) -> Policy:
         return GridSearchPolicy(dyn)
     else:
         raise ValueError(f"Unknown preset nominal policy: {preset}")
+
 
 class FilteredRollout:
     def __init__(
@@ -117,7 +122,7 @@ class FilteredRollout:
         self.nominal_policy = nominal_policy if nominal_policy else get_preset_nominal_policy(preset_nominal, dyn)
         self.filter = SafetyFilter(dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
 
-    def rollout(self, start_state: int, max_steps: int = 10, quiet: bool = False, which=jnp, filter: bool=False):
+    def rollout(self, start_state: int, max_steps: int = 10, quiet: bool = False, which=jnp, filter: bool = False):
         state = start_state
         # cur_node_id = self.dag_root
         # dag_nodes = self.dag_nodes

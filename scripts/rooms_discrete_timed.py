@@ -34,6 +34,7 @@ MAP = """
 
 TMAX = 20
 
+
 def get_rooms():
     s = MAP
     dyn, d_raw = parse_rooms(s, maxtime=TMAX)
@@ -41,7 +42,7 @@ def get_rooms():
         "A": np.where(d_raw["A"], 1, -1),
         # "B": np.where(d_raw["B"], 1, -1),
         "w": np.where(d_raw["#"], 1, -1),
-        "Tle8": np.where(d_raw["Tle8"], 1, -1)
+        "Tle8": np.where(d_raw["Tle8"], 1, -1),
     }
     return dyn, d
 
@@ -71,7 +72,7 @@ def main():
     d_raw["w"] = d_raw.pop("#")
 
     # Remove all keys starting with "Tle"
-    d_raw = {k: v for k,v in d_raw.items() if not k.startswith("Tle")}
+    d_raw = {k: v for k, v in d_raw.items() if not k.startswith("Tle")}
 
     key_tmp = list(d_raw.keys())[0]
     # logger.debug(f"d_raw shape: {d_raw[key_tmp].shape}")
@@ -88,8 +89,8 @@ def main():
     # -------------------------------------------
     def setup_ax(ax_: plt.Axes):
         ax_.set_aspect("equal")
-        ax_.grid(which='major', visible=False)
-        ax_.grid(which='minor', visible=True)
+        ax_.grid(which="major", visible=False)
+        ax_.grid(which="minor", visible=True)
 
         ax_.set_xticks(np.arange(h + 1) - 0.5, minor=True)
         ax_.set_yticks(np.arange(w + 1) - 0.5, minor=True)
@@ -138,7 +139,7 @@ def main():
         colors[space_idx] = np.array([1.0, 1.0, 1.0, 0.0])
     if "w" in d_raw:
         space_idx = list(d_raw.keys()).index("w")
-        colors[space_idx] = np.array([140/255, 114/255, 179/255, 0.3])
+        colors[space_idx] = np.array([140 / 255, 114 / 255, 179 / 255, 0.3])
 
     cmap = ListedColormap(colors)
 
@@ -161,7 +162,7 @@ def main():
 
     setup_ax(ax)
     lim = 0.3
-    T_offset = np.linspace(-lim, lim, num=max(20, len(T_x)))[:len(T_x)]
+    T_offset = np.linspace(-lim, lim, num=max(20, len(T_x)))[: len(T_x)]
 
     T_x = T_x + T_offset
     T_y = T_y - T_offset

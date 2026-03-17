@@ -8,13 +8,8 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 from dvi.dynamics.gridworld import GridWorld
-from dvi.dynamics.gridworld_ma import (
-    GridWorldMA,
-    flat_totimed,
-    ma_collision_predicate,
-    ma_distance_predicate,
-    rew_to_ma,
-)
+from dvi.dynamics.gridworld_ma import (GridWorldMA, flat_totimed, ma_collision_predicate, ma_distance_predicate,
+                                       rew_to_ma)
 from dvi.dynamics.gridworld_ma_timed import GridWorldMATimed
 from dvi.dynamics.gridworld_timed import GridWorldTimed
 from loguru import logger
@@ -23,9 +18,9 @@ from matplotlib.collections import LineCollection
 from matplotlib.colors import ListedColormap, to_rgba
 from matplotlib.patches import FancyArrowPatch
 
+from valtr.filtered_rollout import FilteredRollout
 from valtr.gridworld_utils import GridWorldDriftFn, parse_rooms
 from valtr.mintime_rollout import MinTimeRollout
-from valtr.filtered_rollout import FilteredRollout
 from valtr.solve_discrete import load_discrete_sol, save_discrete_sol, solve_discrete
 from valtr.valtr import to_dag
 
@@ -211,9 +206,7 @@ def main(gamma: float | None = None, resolve: bool = False):
         "distant": flat_totimed(ma_distance_predicate(dyn_ma_, 2 * collide_dist), t_max=TMAX),
     }
     for key, value in dict_predicates.items():
-        assert value.ndim == 1 and value.shape[0] == dyn_ma.n_states, (
-            f"Predicate {key} has wrong shape {value.shape}"
-        )
+        assert value.ndim == 1 and value.shape[0] == dyn_ma.n_states, f"Predicate {key} has wrong shape {value.shape}"
 
     pkl_path = results_dir / "rooms_discrete_ma_timed_was_sol.pkl"
     if resolve or not pkl_path.exists():
@@ -227,7 +220,15 @@ def main(gamma: float | None = None, resolve: bool = False):
             "d_raw": d_raw,
         }
         save_discrete_sol(
-            pkl_path, dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras=extras
+            pkl_path,
+            dyn_ma,
+            dag_nodes,
+            dag_root,
+            dict_vars,
+            dict_actions,
+            dict_GU_vars,
+            dict_GU_actions,
+            extras=extras,
         )
 
     dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = load_discrete_sol(
@@ -312,6 +313,7 @@ def main(gamma: float | None = None, resolve: bool = False):
 
     node_id = None
     if node_id is not None:
+
         def get_value_at_agent1_state(s_: int, t: int):
             joint_state_ = dyn_ma_.encode_joint_state([joint_state[0], s_], which=jnp)
             timed_state_ = dyn_ma.encode_timed_state(joint_state_, t)

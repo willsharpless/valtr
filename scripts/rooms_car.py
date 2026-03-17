@@ -1,4 +1,6 @@
+import copy
 import os
+
 import hj_reachability as hj
 import hj_reachability.dynamics as dynamics
 import ipdb
@@ -8,66 +10,85 @@ import numpy as np
 from loguru import logger
 from matplotlib.colors import CenteredNorm, ListedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-import copy 
+from scipy import integrate as ode
 
+from valtr.control import construct_optimal_path, plot_optimal_path
 from valtr.dag_graphviz import visualize_dag
 from valtr.dag_passes import PassFoldConstBool
 from valtr.ir_builder import IRBuilder
 from valtr.ir_pass import PassCombineGloballySegments, PassFinallyToUntil
 from valtr.lowering import Lowerer
-from valtr.reachability import DAGAvoid, DAGMaxN, DAGMinN, DAGNegate, DAGReachAvoid, DAGVar, dag_to_str, \
-    lower_ir_to_dag, DAGId
+from valtr.reachability import (DAGAvoid, DAGId, DAGMaxN, DAGMinN, DAGNegate, DAGReachAvoid, DAGVar, dag_to_str,
+                                lower_ir_to_dag)
+from valtr.solver_utils import solve_dag_values
 from valtr.tl_lexer import TLLexer
 from valtr.tl_parser import TLParser
 from valtr.util.jax_util import rep_vmap
-from scipy import integrate as ode
-from valtr.solver_utils import solve_dag_values
-from valtr.control import construct_optimal_path, plot_optimal_path
 
-BASE_OUT_DIR = "results/rooms_car" # name for script
-DIR_TAG = "twokey_dense" # name for specific run
-LOAD = False # whether to load existing results
+BASE_OUT_DIR = "results/rooms_car"  # name for script
+DIR_TAG = "twokey_dense"  # name for specific run
+LOAD = False  # whether to load existing results
 
 ## Define the task specification in TL
 # later, we map logic -> target/obstacle (doors, keys, walls, grid limits)
-if 'threekey' in DIR_TAG:
-    TASK_SOURCE = "(!d1 U k1) && (!d2 U k2) && F k3 && G( !w ) && G( g )" # 'threekey'
-elif 'twokey' in DIR_TAG:
-    TASK_SOURCE = "(!d1 U k1) && (!d2 U k2) && G( !w ) && G( g )" # 'twokey'
+if "threekey" in DIR_TAG:
+    TASK_SOURCE = "(!d1 U k1) && (!d2 U k2) && F k3 && G( !w ) && G( g )"  # 'threekey'
+elif "twokey" in DIR_TAG:
+    TASK_SOURCE = "(!d1 U k1) && (!d2 U k2) && G( !w ) && G( g )"  # 'twokey'
 else:
-    TASK_SOURCE = "(!d1 U k1) && G( !w ) && G( g )" # 'onekey'
+    TASK_SOURCE = "(!d1 U k1) && G( !w ) && G( g )"  # 'onekey'
+
 
 ## Define environment dynamics
 class Car(hj.ControlAndDisturbanceAffineDynamics):
-    def __init__(self,
-                 max_acceleration=4.,
-                 max_curvature=4.,
-                 max_position_disturbance=0.,
-                 control_mode="max",
-                 disturbance_mode="min",
-                 control_space=None,
-                 disturbance_space=None):
+    def __init__(
+        self,
+        max_acceleration=4.0,
+        max_curvature=4.0,
+        max_position_disturbance=0.0,
+        control_mode="max",
+        disturbance_mode="min",
+        control_space=None,
+        disturbance_space=None,
+    ):
         if control_space is None:
-            control_space = hj.sets.Box(jnp.array([-max_acceleration, -max_curvature]),
-                                        jnp.array([max_acceleration, max_curvature]))
+            control_space = hj.sets.Box(
+                jnp.array([-max_acceleration, -max_curvature]),
+                jnp.array([max_acceleration, max_curvature]),
+            )
         if disturbance_space is None:
             disturbance_space = hj.sets.Ball(jnp.zeros(2), max_position_disturbance)
         super().__init__(control_mode, disturbance_mode, control_space, disturbance_space)
 
     def open_loop_dynamics(self, state, time):
         _, _, v, q = state
-        return jnp.array([v * jnp.cos(q), v * jnp.sin(q), 0., 0.])
+        return jnp.array([v * jnp.cos(q), v * jnp.sin(q), 0.0, 0.0])
 
     def control_jacobian(self, state, time):
         v = state[2]
-        return jnp.array([[0., 0.], [0., 0.], [1., 0.], [0., v],])
+        return jnp.array(
+            [
+                [0.0, 0.0],
+                [0.0, 0.0],
+                [1.0, 0.0],
+                [0.0, v],
+            ]
+        )
 
     def disturbance_jacobian(self, state, time):
-        return jnp.array([[1., 0.], [0., 1.], [0., 0.], [0., 0.],])
+        return jnp.array(
+            [
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [0.0, 0.0],
+                [0.0, 0.0],
+            ]
+        )
+
 
 def main():
 
-    os.makedirs('results', exist_ok=True)
+    os.makedirs("results", exist_ok=True)
     os.makedirs(BASE_OUT_DIR, exist_ok=True)
     os.makedirs(os.path.join(BASE_OUT_DIR, DIR_TAG), exist_ok=True)
     os.chdir(os.path.join(BASE_OUT_DIR, DIR_TAG))
@@ -79,39 +100,50 @@ def main():
     ## Define the grid
     lbs = np.array([-1.0, 0.0, -0.5, -np.pi])
     ubs = np.array([2.0, 1.0, 2.0, np.pi])
-    grid_pad = np.array([0.2, 0.2, 0., 0.])
+    grid_pad = np.array([0.2, 0.2, 0.0, 0.0])
     grid_nx, grid_ny, grid_nv, grid_nq = 101, 51, 31, 31
     # grid_nx, grid_ny, grid_nv, grid_nq = 51, 21, 31, 31
     # grid_nx, grid_ny, grid_nv, grid_nq = 25, 11, 31, 31 # quick test (sol bleeds thru walls)
 
     grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
-        hj.sets.Box(lbs - grid_pad, ubs + grid_pad), [grid_nx, grid_ny, grid_nv, grid_nq],
-        periodic_dims=3
+        hj.sets.Box(lbs - grid_pad, ubs + grid_pad),
+        [grid_nx, grid_ny, grid_nv, grid_nq],
+        periodic_dims=3,
     )
 
     pos = np.array(grid.states)
     grid_X = pos[:, :, 0, 0, 0]
     grid_Y = pos[:, :, 0, 0, 1]
 
-    grid_dict={"lbs": lbs, "ubs": ubs, "grid_pad": grid_pad, 
-               "grid_nx": grid_nx, "grid_ny": grid_ny,
-               "grid_nv": grid_nv, "grid_nq": grid_nq,
-                "grid": grid, "grid_X": grid_X, "grid_Y": grid_Y, 
-                "grid_slice": np.s_[..., int(grid_nv/2), int(grid_nq/2)]}
+    grid_dict = {
+        "lbs": lbs,
+        "ubs": ubs,
+        "grid_pad": grid_pad,
+        "grid_nx": grid_nx,
+        "grid_ny": grid_ny,
+        "grid_nv": grid_nv,
+        "grid_nq": grid_nq,
+        "grid": grid,
+        "grid_X": grid_X,
+        "grid_Y": grid_Y,
+        "grid_slice": np.s_[..., int(grid_nv / 2), int(grid_nq / 2)],
+    }
 
     ## Define the rooms environment
     rooms_bc_dict = make_rooms(grid_dict)
-    fig_rooms, ax_rooms = plot_rooms(rooms_bc_dict, 
-                                     xmin=lbs[0]-grid_pad[0], 
-                                     xmax=ubs[0]+grid_pad[0], 
-                                     ymin=lbs[1]-grid_pad[1], 
-                                     ymax=ubs[1]+grid_pad[1])
+    fig_rooms, ax_rooms = plot_rooms(
+        rooms_bc_dict,
+        xmin=lbs[0] - grid_pad[0],
+        xmax=ubs[0] + grid_pad[0],
+        ymin=lbs[1] - grid_pad[1],
+        ymax=ubs[1] + grid_pad[1],
+    )
 
     ## Define the system dynamics
     dyn = Car()
     tf = 5.0
     ntimes = 4
-    times = np.linspace(0.0, tf, ntimes+1)
+    times = np.linspace(0.0, tf, ntimes + 1)
     gamma = 0.9999
     # gamma = 1 # no discount -> bad control; just to check best satisfiability
 
@@ -168,7 +200,7 @@ def main():
         np.savez_compressed("value_tree_solution.npz", **{str(k): v for k, v in value_tree_solution.items()})
     else:
         logger.info("Loading presolved value tree ...")
-        value_tree_solution_loaded = np.load("value_tree_solution.npz") 
+        value_tree_solution_loaded = np.load("value_tree_solution.npz")
         value_tree_solution = {}
         for k in value_tree_solution_loaded:
             value_tree_solution[int(k)] = value_tree_solution_loaded[k]
@@ -176,12 +208,28 @@ def main():
     # Plot the final result
     fig_sol = copy.deepcopy(fig_rooms)
     ax_sol = fig_sol.axes[0]
-    im = ax_sol.contourf(grid_X, grid_Y, 
-                         value_tree_solution[dag_root][:, :, int(grid_dict["grid_nv"]/2), int(grid_dict["grid_nq"]/2)], # middle slice
-                        levels=25, cmap="RdBu", norm=CenteredNorm(), alpha=0.8)
-    ln = ax_sol.contour(grid_X, grid_Y, 
-                        value_tree_solution[dag_root][:, :, int(grid_dict["grid_nv"]/2), int(grid_dict["grid_nq"]/2)], # middle slice
-                        levels=0, colors="black", linewidths=2, alpha=0.8)
+    im = ax_sol.contourf(
+        grid_X,
+        grid_Y,
+        value_tree_solution[dag_root][
+            :, :, int(grid_dict["grid_nv"] / 2), int(grid_dict["grid_nq"] / 2)
+        ],  # middle slice
+        levels=25,
+        cmap="RdBu",
+        norm=CenteredNorm(),
+        alpha=0.8,
+    )
+    ln = ax_sol.contour(
+        grid_X,
+        grid_Y,
+        value_tree_solution[dag_root][
+            :, :, int(grid_dict["grid_nv"] / 2), int(grid_dict["grid_nq"] / 2)
+        ],  # middle slice
+        levels=0,
+        colors="black",
+        linewidths=2,
+        alpha=0.8,
+    )
     divider = make_axes_locatable(ax_sol)
     cax = divider.append_axes("right", size="5%", pad=0.05)
     cbar = fig_sol.colorbar(im, cax=cax)
@@ -200,25 +248,25 @@ def main():
     for key, val in value_tree_solution.items():
         value_tree_grads[key] = grid.grad_values(val)
         # value_tree_grads[key] = [grid.grad_values(val[i,...]) for i in range(len(times))]
-        
+
     # Example start point in room3
     # x_start = np.array([0.1, 0.1, 0.5, np.pi/2])
     # x_start = np.array([0.1, 0.1, 0.5, np.pi/4])
-    x_start = np.array([0.1, 0.6, 0.5, 0.])
+    x_start = np.array([0.1, 0.6, 0.5, 0.0])
     t_start = -5.0
     sol, full_dag_path, switch_times = construct_optimal_path(
-        value_tree_dag, 
-        value_tree_solution, 
-        value_tree_grads, 
-        t_start, 
-        x_start, 
-        dag_root, 
-        grid, 
-        dyn, 
-        times=times, 
-        tv=False, 
-        reaching_eps=0., 
-        integration_method='jax'
+        value_tree_dag,
+        value_tree_solution,
+        value_tree_grads,
+        t_start,
+        x_start,
+        dag_root,
+        grid,
+        dyn,
+        times=times,
+        tv=False,
+        reaching_eps=0.0,
+        integration_method="jax",
     )
     dag_ra_path = [i for i in full_dag_path if type(value_tree_dag.nodes[i]) in [DAGReachAvoid, DAGAvoid]]
     print("Optimal path constructed,")
@@ -234,10 +282,12 @@ def main():
     logger.info("Complete.")
     print(f"See ./{BASE_OUT_DIR}/{DIR_TAG}/ for results.")
 
+
 # -------------------------------------------------------------------------------------------
 # -------------------------------------------------------------------------------------------
 
 # Utility functions
+
 
 def sdf_aabb(pt: jnp.ndarray, center: jnp.ndarray, halfw_x: float, halfw_y: float):
     dx = jnp.abs(pt[0] - center[0]) - halfw_x
@@ -248,18 +298,21 @@ def sdf_aabb(pt: jnp.ndarray, center: jnp.ndarray, halfw_x: float, halfw_y: floa
     inside_dist = jnp.maximum(dx, dy)
     return outside_dist + inside_dist
 
+
 def sdf_aabb_blcorner(pt: jnp.ndarray, bl_corner: jnp.ndarray, halfw_x: float, halfw_y: float):
     center = bl_corner + jnp.array([halfw_x, halfw_y])
     return sdf_aabb(pt, center, halfw_x, halfw_y)
 
+
 def sdf_circle(pt: jnp.ndarray, center: jnp.ndarray, radius: float):
     return jnp.linalg.norm(pt - center) - radius
+
 
 def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
 
     lbs, ubs = grid_dict["lbs"], grid_dict["ubs"]
     # grid_pad = grid_dict["grid_pad"]
-    grid_pad = [0,0,0,0] # no pad for sdf computation
+    grid_pad = [0, 0, 0, 0]  # no pad for sdf computation
     grid = grid_dict["grid"]
 
     # SDF for room 1: BL corner at (0, 0), width = height = 1
@@ -288,7 +341,12 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
 
     # wallB is below all three rooms. width=3.0, height=wall_thickness. Centered below the three rooms.
     def sdf_wallB(pt):
-        return sdf_aabb_blcorner(pt, jnp.array([-1.0 - wall_thickness, -wall_thickness]), 1.5 + wall_thickness, wall_thickness / 2)
+        return sdf_aabb_blcorner(
+            pt,
+            jnp.array([-1.0 - wall_thickness, -wall_thickness]),
+            1.5 + wall_thickness,
+            wall_thickness / 2,
+        )
 
     # sdf_wallT is above all three rooms. width=3.0, height=wall_thickness. Centered above the three rooms.
     def sdf_wallT(pt):
@@ -296,19 +354,28 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
 
     # sdf_wallL is to the left of all three rooms. width=wall_thickness, height=1.0. Centered to the left of the three rooms.
     def sdf_wallL(pt):
-        return sdf_aabb_blcorner(pt, jnp.array([-1.0 - wall_thickness, -wall_thickness]), wall_thickness / 2, 0.5 + wall_thickness)
+        return sdf_aabb_blcorner(
+            pt,
+            jnp.array([-1.0 - wall_thickness, -wall_thickness]),
+            wall_thickness / 2,
+            0.5 + wall_thickness,
+        )
 
     def sdf_wallR(pt):
         return sdf_aabb_blcorner(pt, jnp.array([2.0, -wall_thickness]), wall_thickness / 2, 0.5 + wall_thickness)
 
     def sdf_walls(pt):
-        return jnp.min(jnp.array([
-            sdf_wallB(pt),
-            sdf_wallT(pt),
-            sdf_wallL(pt),
-            sdf_wallR(pt),
-        ]))
-    
+        return jnp.min(
+            jnp.array(
+                [
+                    sdf_wallB(pt),
+                    sdf_wallT(pt),
+                    sdf_wallL(pt),
+                    sdf_wallR(pt),
+                ]
+            )
+        )
+
     # sdf for grid limits for all dims
     def sdf_grid_limits(pt):
         sdf_xmin = pt[0] - (lbs[0] + grid_pad[0])
@@ -319,13 +386,21 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
         sdf_vmax = (ubs[2] - grid_pad[2]) - pt[2]
         sdf_qmin = pt[3] - (lbs[3] + grid_pad[3])
         sdf_qmax = (ubs[3] - grid_pad[3]) - pt[3]
-        return jnp.min(jnp.array([
-            sdf_xmin, sdf_xmax,
-            sdf_ymin, sdf_ymax,
-            sdf_vmin, sdf_vmax,
-            sdf_qmin, sdf_qmax,
-        ]))
-        
+        return jnp.min(
+            jnp.array(
+                [
+                    sdf_xmin,
+                    sdf_xmax,
+                    sdf_ymin,
+                    sdf_ymax,
+                    sdf_vmin,
+                    sdf_vmax,
+                    sdf_qmin,
+                    sdf_qmax,
+                ]
+            )
+        )
+
     # Key1 is in room1, Key2 is in room 2, Key3 is in room3.
     def sdf_key1(pt):
         return sdf_circle(pt, jnp.array([0.2, 0.6]), 0.05)
@@ -338,8 +413,8 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
 
     def jit_rep_vmap(fn, rep: int, *args):
         return np.array(rep_vmap(fn, rep=rep)(*args))
-    
-    pos = np.array(grid.states)[:,:,0,0,:2] # only position affects value
+
+    pos = np.array(grid.states)[:, :, 0, 0, :2]  # only position affects value
     bb_sdf_room1 = -jit_rep_vmap(sdf_room1, 2, pos)
     bb_sdf_room2 = -jit_rep_vmap(sdf_room2, 2, pos)
     bb_sdf_room3 = -jit_rep_vmap(sdf_room3, 2, pos)
@@ -352,7 +427,7 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
     bb_sdf_key2 = -jit_rep_vmap(sdf_key2, 2, pos)
     bb_sdf_key3 = -jit_rep_vmap(sdf_key3, 2, pos)
 
-    bb_sdf_grid_limits = jit_rep_vmap(sdf_grid_limits, 4, np.array(grid.states)) # all states affect grid limits
+    bb_sdf_grid_limits = jit_rep_vmap(sdf_grid_limits, 4, np.array(grid.states))  # all states affect grid limits
 
     rooms_bc_dict = {
         "room1": bb_sdf_room1,
@@ -375,8 +450,15 @@ def make_rooms(grid_dict: hj.Grid) -> dict[str, np.ndarray]:
 
     return rooms_bc_dict
 
-def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], xmin: float = -1.2, xmax: float = 2.2, ymin: float = -0.3, ymax: float = 1.2):
-    
+
+def plot_rooms(
+    rooms_bc_dict: dict[str, np.ndarray],
+    xmin: float = -1.2,
+    xmax: float = 2.2,
+    ymin: float = -0.3,
+    ymax: float = 1.2,
+):
+
     def shade_supzero(ax_: plt.Axes, bb_sdf, color, alpha: float = 0.5, label: str = ""):
         # Mask negative values
         masked = np.ma.array(bb_sdf, mask=bb_sdf < 0)
@@ -398,17 +480,17 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], xmin: float = -1.2, xmax: f
     ax_rooms.set_aspect("equal")
 
     # Shade inside the rooms.
-    shade_supzero(ax_rooms, rooms_bc_dict["room1"][:,:,0,0], "C1", alpha=0.3, label="Room 1")
-    shade_supzero(ax_rooms, rooms_bc_dict["room2"][:,:,0,0], "C2", alpha=0.3, label="Room 2")
-    shade_supzero(ax_rooms, rooms_bc_dict["room3"][:,:,0,0], "C4", alpha=0.3, label="Room 3")
+    shade_supzero(ax_rooms, rooms_bc_dict["room1"][:, :, 0, 0], "C1", alpha=0.3, label="Room 1")
+    shade_supzero(ax_rooms, rooms_bc_dict["room2"][:, :, 0, 0], "C2", alpha=0.3, label="Room 2")
+    shade_supzero(ax_rooms, rooms_bc_dict["room3"][:, :, 0, 0], "C4", alpha=0.3, label="Room 3")
 
-    shade_supzero(ax_rooms, rooms_bc_dict["key1"][:,:,0,0], "C1", alpha=0.9, label="Key 1")
-    shade_supzero(ax_rooms, rooms_bc_dict["key2"][:,:,0,0], "C2", alpha=0.9, label="Key 2")
-    shade_supzero(ax_rooms, rooms_bc_dict["key3"][:,:,0,0], "C4", alpha=0.9, label="Key 3")
+    shade_supzero(ax_rooms, rooms_bc_dict["key1"][:, :, 0, 0], "C1", alpha=0.9, label="Key 1")
+    shade_supzero(ax_rooms, rooms_bc_dict["key2"][:, :, 0, 0], "C2", alpha=0.9, label="Key 2")
+    shade_supzero(ax_rooms, rooms_bc_dict["key3"][:, :, 0, 0], "C4", alpha=0.9, label="Key 3")
 
-    shade_supzero(ax_rooms, rooms_bc_dict["door1"][:,:,0,0], "C5", alpha=0.9, label="Door 1")
-    shade_supzero(ax_rooms, rooms_bc_dict["door2"][:,:,0,0], "C6", alpha=0.9, label="Door 2")
-    shade_supzero(ax_rooms, rooms_bc_dict["walls"][:,:,0,0], "k", alpha=0.9, label="Walls")
+    shade_supzero(ax_rooms, rooms_bc_dict["door1"][:, :, 0, 0], "C5", alpha=0.9, label="Door 1")
+    shade_supzero(ax_rooms, rooms_bc_dict["door2"][:, :, 0, 0], "C6", alpha=0.9, label="Door 2")
+    shade_supzero(ax_rooms, rooms_bc_dict["walls"][:, :, 0, 0], "k", alpha=0.9, label="Walls")
 
     fig_path = "rooms_sdf.pdf"
     ax_rooms.set_title("Rooms SDFs, Task: {}".format(TASK_SOURCE))
@@ -416,9 +498,10 @@ def plot_rooms(rooms_bc_dict: dict[str, np.ndarray], xmin: float = -1.2, xmax: f
     fig_rooms.savefig(fig_path, bbox_inches="tight")
     # remove dummy scatter objects
     for artist in ax_rooms.get_children():
-        if hasattr(artist, 'get_offsets') and len(artist.get_offsets()) == 0:
+        if hasattr(artist, "get_offsets") and len(artist.get_offsets()) == 0:
             artist.remove()
     return fig_rooms, ax_rooms
+
 
 if __name__ == "__main__":
     # with ipdb.launch_ipdb_on_exception():

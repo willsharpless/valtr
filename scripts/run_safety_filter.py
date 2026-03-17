@@ -31,6 +31,7 @@ MAP = """
 #############
 """
 
+
 def get_rooms():
     s = MAP
     dyn, d_raw = parse_rooms(s)
@@ -101,7 +102,7 @@ def main():
         colors[space_idx] = np.array([1.0, 1.0, 1.0, 0.0])
     if "w" in d_raw:
         space_idx = list(d_raw.keys()).index("w")
-        colors[space_idx] = np.array([140/255, 114/255, 179/255, 0.3])
+        colors[space_idx] = np.array([140 / 255, 114 / 255, 179 / 255, 0.3])
 
     cmap = ListedColormap(colors)
 
@@ -120,14 +121,14 @@ def main():
     cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
     cbar.ax.set_yticklabels(list(d_raw.keys()))
 
-    ax.grid(which='major', visible=False)
-    ax.grid(which='minor', visible=True)
+    ax.grid(which="major", visible=False)
+    ax.grid(which="minor", visible=True)
 
     ax.set_xticks(np.arange(h + 1) - 0.5, minor=True)
     ax.set_yticks(np.arange(w + 1) - 0.5, minor=True)
 
     lim = 0.2
-    T_offset = np.linspace(-lim, lim, num=20)[:len(T_x)]
+    T_offset = np.linspace(-lim, lim, num=20)[: len(T_x)]
 
     T_x = T_x + T_offset
     T_y = T_y - T_offset

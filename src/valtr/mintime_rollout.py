@@ -3,13 +3,13 @@ import jax.numpy as jnp
 import numpy as np
 import tqdm
 from dvi.dynamics.discrete import DiscreteDyn
+from dvi.dynamics.gridworld_ma_timed import GridWorldMATimed
+from dvi.dynamics.gridworld_timed import GridWorldTimed
 from loguru import logger
 
 from valtr.reachability import (DAGAvoid, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN, DAGNode, DAGReach,
                                 DAGReachAvoid, has_temporal_children)
 
-from dvi.dynamics.gridworld_ma_timed import GridWorldMATimed
-from dvi.dynamics.gridworld_timed import GridWorldTimed
 
 class MinTimeRollout:
     def __init__(

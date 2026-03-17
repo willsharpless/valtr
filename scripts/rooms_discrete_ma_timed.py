@@ -1,26 +1,26 @@
-import pathlib
 import functools as ft
-import jax
-import jax.numpy as jnp
+import pathlib
 
 import cyclopts
 import ipdb
+import jax
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 from dvi.dynamics.gridworld import GridWorld
-from dvi.dynamics.gridworld_ma import GridWorldMA, flat_totimed, ma_collision_predicate, rew_to_ma, \
-    ma_distance_predicate
+from dvi.dynamics.gridworld_ma import (GridWorldMA, flat_totimed, ma_collision_predicate, ma_distance_predicate,
+                                       rew_to_ma)
 from dvi.dynamics.gridworld_ma_timed import GridWorldMATimed
 from dvi.dynamics.gridworld_timed import GridWorldTimed
 from loguru import logger
 from matplotlib.animation import FuncAnimation
+from matplotlib.collections import LineCollection
 from matplotlib.colors import ListedColormap
 
 from valtr.gridworld_utils import GridWorldDriftFn, parse_rooms
 from valtr.mintime_rollout import MinTimeRollout
 from valtr.solve_discrete import load_discrete_sol, save_discrete_sol, solve_discrete
 from valtr.valtr import to_dag
-from matplotlib.collections import LineCollection
 
 plt.style.use("seaborn-v0_8-darkgrid")
 
@@ -142,7 +142,7 @@ def main(gamma: float | None = None, resolve: bool = False):
         "w": flat_totimed(rew_to_ma(d_flat["w"], dyn_ma.n_agents, "min"), t_max=TMAX),
         #
         "collide": ma_collision_predicate(dyn_ma_, collide_dist, t_max=TMAX),
-        "leash": ma_distance_predicate(dyn_ma_, 3, t_max=TMAX)
+        "leash": ma_distance_predicate(dyn_ma_, 3, t_max=TMAX),
     }
     for k, v in dict_predicates.items():
         assert v.ndim == 1 and v.shape[0] == dyn_ma.n_states, f"Predicate {k} has wrong shape {v.shape}"
@@ -191,7 +191,15 @@ def main(gamma: float | None = None, resolve: bool = False):
             "d_raw": d_raw,
         }
         save_discrete_sol(
-            pkl_path, dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras=extras
+            pkl_path,
+            dyn_ma,
+            dag_nodes,
+            dag_root,
+            dict_vars,
+            dict_actions,
+            dict_GU_vars,
+            dict_GU_actions,
+            extras=extras,
         )
 
     dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = load_discrete_sol(
@@ -232,7 +240,7 @@ def main(gamma: float | None = None, resolve: bool = False):
         assert T_values.shape == (TMAX + 1, *dyn_untimed.shape)
 
         # Visualize the value function for node_id at different time steps.
-        steps_to_viz = [0, 1, 2, TMAX - 2, TMAX-1, TMAX]
+        steps_to_viz = [0, 1, 2, TMAX - 2, TMAX - 1, TMAX]
         # steps_to_viz = [0, 1, 50, 51, 52, 53, 54, 55, 56, TMAX-1, TMAX]
         nrow = len(steps_to_viz)
         figsize = np.array([8, 3 * nrow])
@@ -312,6 +320,7 @@ def main(gamma: float | None = None, resolve: bool = False):
     anim = FuncAnimation(fig, update_fn, n_frames, init_fn, blit=True)
     anim.save("rooms_discrete_rollout_multiagent.mp4", fps=5, dpi=200)
 
+
 def outline_mask_cells(
     ax,
     mask,
@@ -378,6 +387,7 @@ def outline_mask_cells(
     lc = LineCollection(segments, colors=color, linewidths=linewidth)
     ax.add_collection(lc)
     return lc
+
 
 if __name__ == "__main__":
     with ipdb.launch_ipdb_on_exception():
