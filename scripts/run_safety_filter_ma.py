@@ -1,19 +1,21 @@
-import pathlib
 import functools as ft
-import jax
-import jax.numpy as jnp
+import pathlib
 
 import cyclopts
 import ipdb
+import jax
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+from dvi.dynamics.discrete import ActionInt, StateInt
 from dvi.dynamics.gridworld import GridWorld
-from dvi.dynamics.gridworld_ma import GridWorldMA, flat_totimed, ma_collision_predicate, rew_to_ma, \
-    ma_distance_predicate
+from dvi.dynamics.gridworld_ma import (GridWorldMA, flat_totimed, ma_collision_predicate, ma_distance_predicate,
+                                       rew_to_ma)
 from dvi.dynamics.gridworld_ma_timed import GridWorldMATimed
 from dvi.dynamics.gridworld_timed import GridWorldTimed
 from loguru import logger
 from matplotlib.animation import FuncAnimation
+from matplotlib.collections import LineCollection
 from matplotlib.colors import ListedColormap
 
 from valtr.gridworld_utils import GridWorldDriftFn, parse_rooms
@@ -21,7 +23,6 @@ from valtr.mintime_rollout import MinTimeRollout
 from valtr.safety_filter import SafetyFilter
 from valtr.solve_discrete import load_discrete_sol, save_discrete_sol, solve_discrete
 from valtr.valtr import to_dag
-from matplotlib.collections import LineCollection
 
 plt.style.use("seaborn-v0_8-darkgrid")
 
@@ -42,6 +43,7 @@ TASK_SOURCE = "G( leash && !collide )"
 # TASK_SOURCE = "G( !collide )"
 
 TMAX = 50
+
 
 @app.default()
 def main(gamma: float | None = None, resolve: bool = False):
@@ -106,7 +108,7 @@ def main(gamma: float | None = None, resolve: bool = False):
         # "w": flat_totimed(rew_to_ma(d_flat["w"], dyn_ma.n_agents, "min"), t_max=TMAX),
         # #
         "collide": ma_collision_predicate(dyn_ma_, collide_dist, t_max=TMAX),
-        "leash": ma_collision_predicate(dyn_ma_, 4, t_max=TMAX)
+        "leash": ma_collision_predicate(dyn_ma_, 4, t_max=TMAX),
     }
 
     # leash = dict_predicates["leash"]
@@ -162,7 +164,15 @@ def main(gamma: float | None = None, resolve: bool = False):
             "d_raw": d_raw,
         }
         save_discrete_sol(
-            pkl_path, dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras=extras
+            pkl_path,
+            dyn_ma,
+            dag_nodes,
+            dag_root,
+            dict_vars,
+            dict_actions,
+            dict_GU_vars,
+            dict_GU_actions,
+            extras=extras,
         )
 
     dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = load_discrete_sol(
@@ -180,7 +190,8 @@ def main(gamma: float | None = None, resolve: bool = False):
     logger.debug("Initial leash: {}".format(dict_predicates["leash"][start_state]))
 
     dyn_ma: GridWorldMATimed
-    a_nom = dyn_ma_.str_to_action("L|.")
+    # a_nom = dyn_ma_.str_to_action("L|.")
+    a_nom = dyn_ma_.str_to_action(".|U")
 
     safety_filter = SafetyFilter(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
 
@@ -188,9 +199,32 @@ def main(gamma: float | None = None, resolve: bool = False):
     Tp1_states = [state]
     T_hasfiltered = []
 
+    def preference_fn(_: StateInt, a_nom_: ActionInt) -> np.ndarray:
+        # If agent1 is staying still, then prefer actions where the agent2 action matches a_nom_.
+        # Otherwise, prefer actions where agent1 action matches a_nom_.
+        N_actions = dyn_ma_.decode_joint_action(a_nom_, which=np)
+        assert N_actions.shape == (2,)
+        a1_nom, a2_nom = N_actions
+
+        STILL_ACTION = dyn_ma_.base.str_to_action(".")
+
+        costs = np.zeros(dyn_ma.n_actions, dtype=np.float32)
+        for a in range(dyn_ma.n_actions):
+            N_a = dyn_ma_.decode_joint_action(a, which=np)
+            a1, a2 = N_a
+
+            if a1_nom == STILL_ACTION:  # Agent 1 is staying still
+                # Prefer actions where agent 2 matches a_nom_
+                costs[a] = 0.0 if a2 == a2_nom else 1.0
+            else:
+                # Prefer actions where agent 1 matches a_nom_
+                costs[a] = 0.0 if a1 == a1_nom else 1.0
+
+        return costs
+
     # Rollout safety filter.
     for kk in range(10):
-        a_safe = safety_filter.filter_action(state, a_nom)
+        a_safe = safety_filter.filter_action(state, a_nom, preference_fn)
         hasfiltered = a_safe != a_nom
         state = dyn_ma.step(state, a_safe)
         Tp1_states.append(state)
@@ -253,6 +287,7 @@ def main(gamma: float | None = None, resolve: bool = False):
 
     anim = FuncAnimation(fig, update_fn, n_frames, init_fn, blit=True)
     anim.save("safety_filter_ma_rollout.mp4", fps=5, dpi=200)
+
 
 if __name__ == "__main__":
     with ipdb.launch_ipdb_on_exception():

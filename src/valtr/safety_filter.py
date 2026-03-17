@@ -1,4 +1,5 @@
 from dvi.dynamics.discrete import ActionInt, StateInt
+import jax
 import ipdb
 import jax.numpy as jnp
 import numpy as np
@@ -6,9 +7,15 @@ import tqdm
 from dvi.dynamics.discrete import DiscreteDyn
 from dvi.dynamics.gridworld import GridWorld
 from loguru import logger
+from typing import Protocol
 
 from valtr.reachability import (DAGAvoid, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN, DAGNode, DAGReach,
                                 DAGReachAvoid, has_temporal_children)
+
+class PreferenceFn(Protocol):
+    """Return the costs/preference for different actions given the nominal action."""
+    def __call__(self, state: StateInt, a_nom: ActionInt) -> np.ndarray:
+        ...
 
 
 class SafetyFilter:
@@ -32,7 +39,7 @@ class SafetyFilter:
         # ---------------
         self.cur_node_id = self.dag_root
 
-    def filter_action(self, state: StateInt, a_nom: ActionInt) -> ActionInt:
+    def filter_action(self, state: StateInt, a_nom: ActionInt, preference_fn: PreferenceFn | None = None) -> ActionInt:
         dag_nodes = self.dag_nodes
 
         state_next_nom = self.dyn.step(state, a_nom)
@@ -199,7 +206,7 @@ class SafetyFilter:
         # At this point, we have reached a temporal operator. Choose the action associated with this node.
         if action_dict is None:
             action_dict = self.dict_actions[self.cur_node_id]
-        action = action_dict[state]
+        action_optpol = action_dict[state]
 
         # Safety filtering logic: if nominal action is safe, then take it. Otherwise, take the optimal action.
         value_next_nom = self.dict_vars[self.cur_node_id][state_next_nom]
@@ -212,5 +219,22 @@ class SafetyFilter:
 
         if value_next_nom >= 0:
             return a_nom
+
+        if preference_fn is not None:
+            def is_action_safe(action_) -> bool:
+                state_next_ = self.dyn.step(state, action_)
+                value_next_ = jnp.array(self.dict_vars[self.cur_node_id])[state_next_]
+                return value_next_ >= 0
+
+            a_actions = np.arange(self.dyn.n_actions)
+            a_isactionsafe = jax.vmap(is_action_safe)(a_actions)
+            a_isactionsafe = jax.device_get(a_isactionsafe)
+            n_actions_safe = np.sum(a_isactionsafe)
+            assert n_actions_safe >= 1, "There should be at least one safe action."
+
+            n_costs = preference_fn(state, a_nom)
+            n_costs = np.where(a_isactionsafe, n_costs, np.inf)
+            action_filtered = np.argmin(n_costs)
+            return action_filtered
         else:
-            return action
+            return action_optpol
