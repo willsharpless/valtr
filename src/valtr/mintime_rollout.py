@@ -8,6 +8,8 @@ from loguru import logger
 from valtr.reachability import (DAGAvoid, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN, DAGNode, DAGReach,
                                 DAGReachAvoid, has_temporal_children)
 
+from dvi.dynamics.gridworld_ma_timed import GridWorldMATimed
+from dvi.dynamics.gridworld_timed import GridWorldTimed
 
 class MinTimeRollout:
     def __init__(
@@ -164,7 +166,10 @@ class MinTimeRollout:
                         # same_value = (r_value == value_next_GU) and (r_value == current_value)
                         action_curr_str = self.dyn.action_to_str(action_curr)
 
-                        state_str = self.dyn.decode_timed_state(state, which=np)
+                        if isinstance(self.dyn, GridWorldMATimed) or isinstance(self.dyn, GridWorldTimed):
+                            state_str = self.dyn.decode_timed_state(state, which=np)
+                        else:
+                            state_str = ""
 
                         logger.info(
                             "kk={} | state: {} | Cur Node: {} | Cur GU idx: {} | r_value: {} | value_next_GU: {} | current_value: {} | "
