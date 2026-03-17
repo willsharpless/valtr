@@ -18,6 +18,7 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.collections import LineCollection
 from matplotlib.colors import ListedColormap
 
+from valtr.dag_graphviz import visualize_dag
 from valtr.gridworld_utils import GridWorldDriftFn, parse_rooms
 from valtr.mintime_policy import MinTimePolicy
 from valtr.mintime_rollout import MinTimeRollout
@@ -47,7 +48,9 @@ TAIL = "(!w) U G( ( (site && !w) U (site && !w && S)) && ( (site && !w) U (site 
 TASK_SOURCE = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(TAIL)
 
 AG1_GOAL = "C"
-TASK_SOURCE_AG1 = f"F {AG1_GOAL}"
+TASK_SOURCE_AG1 = f"!w U {AG1_GOAL}"
+
+TASK_SOURCE_AG2 = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({})".format(TAIL)
 
 TMAX = 50
 
@@ -56,31 +59,58 @@ def solve_ag1_policy(gamma: float |None = None, resolve: bool = False):
     results_dir.mkdir(exist_ok=True)
 
     dyn, d_raw = parse_rooms(MAP, ignore=".")
+    dyn_ma = GridWorldMA(dyn, n_agents=2)
 
-    dict_predicates_unflat = {
+    collide_dist = 1.0  # Diagonal is safe, but not adjacent.
+    d = {
         "C": np.where(d_raw["C"], 1, -1),
         "T": np.where(d_raw["T"], 1, -1),
-        "w": np.where(d_raw["#"], 1, -1),
+        #
+        "w": np.where(d_raw["#"] | d_raw["s"] | d_raw["S"] | d_raw["W"], 1, -1),
     }
 
-    value_tree_dag, dag_root = to_dag(TASK_SOURCE_AG1, ir_filename="safety_filter_ma_ag1_ir", dag_filename="safety_filter_ma_ag1_ir_dag")
-    dag_nodes = value_tree_dag.nodes
-    dict_predicates = {k: v.flatten() for k, v in dict_predicates_unflat.items()}
+    dict_predicates_unflat = d
+    d_flat = {k: v.flatten() for k, v in dict_predicates_unflat.items()}
+    dict_predicates = {
+        "C": rew_to_ma(d_flat["C"], dyn_ma.n_agents, mode=0),
+        "T": rew_to_ma(d_flat["T"], dyn_ma.n_agents, mode=0),
+        #
+        "w": rew_to_ma(d_flat["w"], dyn_ma.n_agents, "max"),
+        #
+        "collide": ma_collision_predicate(dyn_ma, collide_dist),
+        "leash": ma_collision_predicate(dyn_ma, 3),
+    }
 
+    # Make the walls encode all the safety stuff for convenience.
+    dict_predicates["w"] = jnp.stack([dict_predicates["w"], -dict_predicates["leash"], dict_predicates["collide"]], axis=-1).max(-1)
+
+    for k, v in dict_predicates.items():
+        assert v.ndim == 1 and v.shape[0] == dyn_ma.n_states, f"Predicate {k} has wrong shape {v.shape}"
+
+    # -----------------------------
+    # Decompose.
+    value_tree_dag, dag_root = to_dag(
+        TASK_SOURCE_AG1, ir_filename="rooms_discrete_ma_ag1_ir", dag_filename="rooms_discrete_ma_ag1_dag"
+    )
+    dag_nodes = value_tree_dag.nodes
+
+    # -----------------------------
     # Solve.
     pkl_path = results_dir / f"safety_filter_ma_ag1_{AG1_GOAL}_sol.pkl"
 
     if resolve or not pkl_path.exists():
-        dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(dyn, dag_nodes, dict_predicates)
+        dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
+            dyn_ma, dag_nodes, dict_predicates, gamma=gamma
+        )
         extras = {
-            "task_source": TASK_SOURCE,
+            "task_source": TASK_SOURCE_AG1,
             "dict_predicates": dict_predicates,
             "gamma": gamma,
             "d_raw": d_raw,
         }
         save_discrete_sol(
             pkl_path,
-            dyn,
+            dyn_ma,
             dag_nodes,
             dag_root,
             dict_vars,
@@ -90,16 +120,101 @@ def solve_ag1_policy(gamma: float |None = None, resolve: bool = False):
             extras=extras,
         )
 
-    dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = load_discrete_sol(
+    dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = load_discrete_sol(
         pkl_path
     )
 
-    pol = MinTimePolicy(dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+    pol = MinTimePolicy(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+    return pol
+
+def solve_ag2_policy(gamma: float |None = None, resolve: bool = False):
+    results_dir = pathlib.Path("plots_discrete")
+    results_dir.mkdir(exist_ok=True)
+
+    dyn, d_raw = parse_rooms(MAP, ignore=".")
+    dyn_ma = GridWorldMA(dyn, n_agents=2)
+
+    collide_dist = 1.0  # Diagonal is safe, but not adjacent.
+    d = {
+        "S": np.where(d_raw["S"], 1, -1),
+        "W": np.where(d_raw["W"], 1, -1),
+        #
+        "site": np.where(d_raw["s"] | d_raw["S"] | d_raw["W"], 1, -1),
+        #
+        "v": np.where(d_raw["v"], 1, -1),
+        "g": np.where(d_raw["g"], 1, -1),
+        #
+        "K": np.where(d_raw["K"], 1, -1),
+        "D": np.where(d_raw["D"], 1, -1),
+        "w": np.where(d_raw["#"], 1, -1),
+    }
+
+    dict_predicates_unflat = d
+    d_flat = {k: v.flatten() for k, v in dict_predicates_unflat.items()}
+    dict_predicates = {
+        "S": rew_to_ma(d_flat["S"], dyn_ma.n_agents, mode=1),
+        "W": rew_to_ma(d_flat["W"], dyn_ma.n_agents, mode=1),
+        #
+        "site": rew_to_ma(d_flat["site"], dyn_ma.n_agents, mode=1),
+        #
+        "v": rew_to_ma(d_flat["v"], dyn_ma.n_agents, mode=1),
+        "g": rew_to_ma(d_flat["g"], dyn_ma.n_agents, mode=1),
+        #
+        "w": rew_to_ma(d_flat["w"], dyn_ma.n_agents, "min"),
+        #
+        "collide": ma_collision_predicate(dyn_ma, collide_dist),
+        "leash": ma_collision_predicate(dyn_ma, 3),
+    }
+
+    # Make the walls encode all the safety stuff for convenience.
+    dict_predicates["w"] = jnp.stack([dict_predicates["w"], -dict_predicates["leash"], dict_predicates["collide"]], axis=-1).max(-1)
+
+    for k, v in dict_predicates.items():
+        assert v.ndim == 1 and v.shape[0] == dyn_ma.n_states, f"Predicate {k} has wrong shape {v.shape}"
+
+    # -----------------------------
+    # Decompose.
+    value_tree_dag, dag_root = to_dag(
+        TASK_SOURCE_AG2, ir_filename="rooms_discrete_ma_ag2_ir", dag_filename="rooms_discrete_ma_ag2_dag"
+    )
+    dag_nodes = value_tree_dag.nodes
+
+    # -----------------------------
+    # Solve.
+    pkl_path = results_dir / f"safety_filter_ma_ag2_sol.pkl"
+
+    if resolve or not pkl_path.exists():
+        dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
+            dyn_ma, dag_nodes, dict_predicates, gamma=gamma
+        )
+        extras = {
+            "task_source": TASK_SOURCE_AG2,
+            "dict_predicates": dict_predicates,
+            "gamma": gamma,
+            "d_raw": d_raw,
+        }
+        save_discrete_sol(
+            pkl_path,
+            dyn_ma,
+            dag_nodes,
+            dag_root,
+            dict_vars,
+            dict_actions,
+            dict_GU_vars,
+            dict_GU_actions,
+            extras=extras,
+        )
+
+    dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = load_discrete_sol(
+        pkl_path
+    )
+
+    pol = MinTimePolicy(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
     return pol
 
 
 @app.default()
-def main(gamma: float | None = None, resolve: bool = False):
+def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = False):
     results_dir = pathlib.Path("plots_discrete")
     results_dir.mkdir(exist_ok=True)
 
@@ -227,6 +342,8 @@ def main(gamma: float | None = None, resolve: bool = False):
     )
     dag_nodes = value_tree_dag.nodes
 
+    visualize_dag(value_tree_dag, [24], filename="dbg_safety_filter_ma", view=False)
+
     # -----------------------------
     # Solve.
     pkl_path = results_dir / "run_safety_filter_ma_timed_sol.pkl"
@@ -257,7 +374,8 @@ def main(gamma: float | None = None, resolve: bool = False):
         pkl_path
     )
 
-    pol_ag1 = solve_ag1_policy(gamma=gamma, resolve=resolve)
+    pol_ag1 = solve_ag1_policy(gamma=gamma, resolve=resolve_nom)
+    pol_ag2 = solve_ag2_policy(gamma=gamma, resolve=resolve_nom)
 
     # -----------------------------
     rng = np.random.default_rng(seed=12345)
@@ -306,18 +424,23 @@ def main(gamma: float | None = None, resolve: bool = False):
     T_a_filt = []
     T_hasfiltered = []
 
-    for kk in range(50):
+    for kk in range(80):
         logger.debug(f"> kk={kk}")
 
-        state_agents, _ = dyn_ma.decode_timed_state_to_agent(state, which=np)
-        state_ag1 = state_agents[0]
+        s_joint, _ = dyn_ma.decode_timed_state(state, which=np)
+        # state_ag1, state_ag2 = dyn_ma_.decode_joint_state(s_joint, which=np)
 
-        a_nom_ag1, ag1_isdone = pol_ag1.get_action(state_ag1, which=np, kk=kk)
+        a_nom_ag1_joint, ag1_isdone = pol_ag1.get_action(s_joint, which=np, kk=kk)
         if ag1_isdone:
             logger.debug("    Agent 1 policy is done. Using no-op.")
             a_nom_ag1 = dyn_untimed.str_to_action(".")
+        else:
+            a_nom_ag1 = dyn_ma_.decode_joint_action(a_nom_ag1_joint, which=np)[0]
 
-        a_nom_ag2 = dyn_untimed.str_to_action(".")
+        # a_nom_ag2 = dyn_untimed.str_to_action(".")
+        a_nom_ag2_joint, ag2_isdone = pol_ag2.get_action(s_joint)
+        a_nom_ag2 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[1]
+
         a_nom = dyn_ma_.encode_joint_action([a_nom_ag1, a_nom_ag2], which=np)
 
         a_safe = safety_filter.filter_action(state, a_nom, preference_fn)
@@ -398,12 +521,13 @@ def main(gamma: float | None = None, resolve: bool = False):
         # Show the nominal action and the filtered action.
         a_nom_str = dyn_ma_.action_to_str(T_a_nom[kk])
         a_safe_str = dyn_ma_.action_to_str(T_a_filt[kk])
-        debug_text.set_text("Nom : {}\nSafe: {}".format(a_nom_str, a_safe_str))
+        has_filtered = int(T_hasfiltered[kk])
+        debug_text.set_text("Nom : {}\nSafe: {}\nfiltered: {}".format(a_nom_str, a_safe_str, has_filtered))
 
         return agent_dots + [kk_text, debug_text]
 
     anim = FuncAnimation(fig, update_fn, n_frames, init_fn, blit=True)
-    anim.save("safety_filter_ma_rollout.mp4", fps=5, dpi=200)
+    anim.save(f"safety_filter_ma_rollout_{AG1_GOAL}.mp4", fps=5, dpi=200)
 
 
 if __name__ == "__main__":

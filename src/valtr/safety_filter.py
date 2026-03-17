@@ -46,6 +46,9 @@ class SafetyFilter:
 
         state_next_nom = self.dyn.step(state, a_nom)
 
+        current_value = self.dict_vars[self.cur_node_id][state]
+        logger.debug(f"Start at node {self.cur_node_id} ({self.dag_nodes[self.cur_node_id]}). Current value: {current_value}")
+
         # Evaluate the Q and get the optimal policy.
         while True:
             node = dag_nodes[self.cur_node_id]
@@ -189,7 +192,7 @@ class SafetyFilter:
                     raise ValueError(f"Unexpected node type: {node}")
 
         # End of while.
-        logger.debug(f"At node {self.cur_node_id} ({self.dag_nodes[self.cur_node_id]})")
+        logger.debug(f"End at node {self.cur_node_id} ({self.dag_nodes[self.cur_node_id]}). Current value: {current_value}")
 
         # At this point, we have reached a temporal operator. Choose the action associated with this node.
         if action_dict is None:
