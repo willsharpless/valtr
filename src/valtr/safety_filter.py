@@ -55,6 +55,10 @@ class SafetyFilter:
             current_value = self.dict_vars[self.cur_node_id][state]
             action_dict = None
 
+            if current_value < 0:
+                logger.error("current value became negative!")
+                ipdb.set_trace()
+
             match node:
                 case DAGMinN(args=args):
                     # Decide which child to go to based on which is the minimum.
@@ -66,69 +70,54 @@ class SafetyFilter:
                     self.cur_node_id = args[int(np.argmax(arg_values))]
                 case DAGReachAvoid(reach=reach_idx, avoid=_) | DAGReach(reach=reach_idx):
                     reach_node = dag_nodes[reach_idx]
-                    if has_temporal_children(reach_idx, self.dag_nodes):
-                        # It's either just a min, or a max of mins.
-                        # If it's the latter, identify which branch to take.
-                        if isinstance(reach_node, DAGMaxN):
-                            min_values = [self.dict_vars[idx][state] for idx in reach_node.args]
-                            branch = int(np.argmax(min_values))
-                            # logger.info("min values: {}".format(min_values))
-                            reach_min_idx = reach_node.args[branch]
-                        else:
-                            assert isinstance(reach_node, (DAGMinN, DAGGUMinN))
-                            reach_min_idx = reach_idx
+                    if not has_temporal_children(reach_idx, self.dag_nodes):
+                        rew = self.dict_vars[reach_idx][state]
+                        if rew >= current_value:
+                            # If we have reached the maximum, then we are done.
+                            is_done = True
 
-                        reach_min_node = dag_nodes[reach_min_idx]
-                        if isinstance(reach_min_node, DAGGUMinN):
-                            # F G F ...
-                            child_value = self.dict_vars[reach_min_idx][state]
-
-                            if child_value < current_value:
-                                # If G(...) < value, then staying here gets us a better val in the future.
-                                break
-                            else:
-                                # Go to GU.
-                                self.cur_node_id = reach_min_idx
-
-                        else:
-                            assert isinstance(reach_min_node, DAGMinN)
-
-                            # There should only be one temporal child under the min node.
-                            temporal_idxs = [
-                                child_idx
-                                for child_idx in reach_min_node.args
-                                if dag_nodes[child_idx].is_temporal() or isinstance(dag_nodes[child_idx], DAGGUMinN)
-                            ]
-                            assert len(temporal_idxs) == 1
-                            temporal_idx = temporal_idxs[0]
-
-                            non_temporal_idxs = [
-                                child_idx
-                                for child_idx in reach_min_node.args
-                                if not dag_nodes[child_idx].is_temporal()
-                            ]
-
-                            non_temporal_values = np.array([self.dict_vars[ii][state] for ii in non_temporal_idxs])
-                            non_temporal_value = np.min(non_temporal_values)
-                            temporal_value = self.dict_vars[temporal_idx][state]
-
-                            if (non_temporal_value < temporal_value) and (non_temporal_value < current_value):
-                                # Stay on the current node if (non_temporal < temporal) AND (non_temporal < V)
-                                break
-                            else:
-                                # Otherwise, go to the temporal child.
-                                if self.cur_node_id == temporal_idx:
-                                    logger.error(
-                                        "cur_node_id: {}, temporal_idx: {}".format(self.cur_node_id, temporal_idx)
-                                    )
-                                    ipdb.set_trace()
-
-                                self.cur_node_id = temporal_idx
-                                # logger.info("Switching to temporal child: {}".format(cur_node_id))
-                                continue
-                    else:
                         # If no temporal children, then execute the action associated with the reach node.
                         break
+
+                    # Switch only if r >= current_value.
+                    should_switch = self.dict_vars[reach_idx][state] >= current_value
+                    if not should_switch:
+                        # If we shouldn't switch, then execute the action associated with the current node.
+                        break
+
+                    # We can switch. Switch to the temporal node associated with the highest child of the max.
+                    # It's either just a min, or a max of mins.
+                    # If it's the latter, identify which branch to take.
+                    if isinstance(reach_node, DAGMaxN):
+                        min_values = [self.dict_vars[idx][state] for idx in reach_node.args]
+                        branch = int(np.argmax(min_values))
+                        # logger.info("min values: {}".format(min_values))
+                        reach_min_idx = reach_node.args[branch]
+                    else:
+                        assert isinstance(reach_node, (DAGMinN, DAGGUMinN))
+                        reach_min_idx = reach_idx
+
+                    reach_min_node = dag_nodes[reach_min_idx]
+
+                    # We now have either min( ..., temporal ), or just temporal.
+                    if isinstance(reach_min_node, DAGMinN):
+                        children = reach_min_node.args
+                    else:
+                        children = [reach_min_idx]
+
+                    # Find the temporal node among the children.
+                    temporal_idxs = [
+                        child_idx
+                        for child_idx in children
+                        if dag_nodes[child_idx].is_temporal() or isinstance(dag_nodes[child_idx], DAGGUMinN)
+                    ]
+                    assert len(temporal_idxs) == 1
+                    temporal_idx = temporal_idxs[0]
+
+                    # Go to the temporal child.
+                    logger.info("Switching from {} to temporal child: {}".format(self.cur_node_id, temporal_idx))
+                    self.cur_node_id = temporal_idx
+                    continue
                 case DAGGUMinN(args=args):
                     args: list[DAGId]
                     if len(args) == 1:

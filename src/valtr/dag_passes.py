@@ -1,4 +1,5 @@
 from typing import Dict, Iterable, List, Optional, Set, Tuple
+from loguru import logger
 
 import graphviz
 import ipdb
@@ -71,7 +72,7 @@ class DagRewriter:
             case DAGGUMinN(args=args):
                 new_args = [self.visit(a) for a in args]
                 out = self.dst.GU_min_n(new_args)
-            
+
             case DAGMinGuard(temporal_arg=temporal_arg, nontemporal_arg=nontemporal_arg):
                 new_temporal_arg = self.visit(temporal_arg)
                 new_nontemporal_arg = self.visit(nontemporal_arg)
@@ -500,6 +501,70 @@ class PassToMinGuard(DagRewriter):
 
         self.memo[i] = out
         return out
+
+class PassAbsorbGU(DagRewriter):
+    """
+    Converts:
+        (q1 U r1) AND G( AND_i q_i U r_i )
+    to:
+        ( (q1 AND AND_i (q_i OR r_i)) U (r1 AND G( AND_i q_i U r_i )) )
+
+    Pattern: a DAGMinN containing exactly one DAGReachAvoid and >=1 DAGGUSingle children
+    (no other child types). The DAGGUSingle children collectively represent G(AND_i q_i U r_i).
+    """
+
+    def visit(self, rid: DAGId) -> DAGId:
+        i = rid
+        if i in self.memo:
+            return self.memo[i]
+        n = self.src.nodes[i]
+
+        match n:
+            case DAGMinN(args=args):
+                ra_nodes = []    # (id, DAGReachAvoid)
+                gu_nodes = []    # (id, DAGGUSingle)
+                other_ids = []
+
+                for a_id in args:
+                    a_node = self.src.nodes[a_id]
+                    match a_node:
+                        case DAGReachAvoid():
+                            ra_nodes.append((a_id, a_node))
+                        case DAGGUMinN(args=args):
+                            for gu_node_idx in args:
+                                gu_node = self.src.nodes[gu_node_idx]
+                                gu_nodes.append((a_id, gu_node))
+                        case _:
+                            other_ids.append(a_id)
+
+                logger.debug(f"[Node %{rid}] Found {len(ra_nodes)} RA nodes, {len(gu_nodes)} GU nodes, {len(other_ids)} other nodes")
+                if len(ra_nodes) == 1 and len(gu_nodes) >= 1 and len(other_ids) == 0:
+                    _, ra = ra_nodes[0]
+                    q1 = self.visit(ra.avoid)
+                    r1 = self.visit(ra.reach)
+
+                    qi_or_ri_list = []
+                    new_gu_single_ids = []
+                    for _, gu in gu_nodes:
+                        new_qi = self.visit(gu.avoid)
+                        new_ri = self.visit(gu.reach)
+                        qi_or_ri_list.append(self.dst.max_n([new_qi, new_ri]))
+                        new_gu_single_ids.append(self.dst.GU_single(new_ri, new_qi))
+
+                    new_gu = self.dst.GU_min_n(new_gu_single_ids)
+
+                    new_avoid = self.dst.min_n([q1] + qi_or_ri_list)
+                    new_reach = self.dst.min_n([r1, new_gu])
+                    out = self.dst.reachavoid(reach=new_reach, stay=new_avoid)
+                    self.changed = True
+                else:
+                    out = super().visit(rid)
+            case _:
+                out = super().visit(rid)
+
+        self.memo[i] = out
+        return out
+
 
 class PassKeepReachable(DagRewriter):
     """

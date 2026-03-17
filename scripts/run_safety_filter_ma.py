@@ -48,11 +48,35 @@ TAIL = "(!w) U G( ( (site && !w) U (site && !w && S)) && ( (site && !w) U (site 
 TASK_SOURCE = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(TAIL)
 
 AG1_GOAL = "C"
-TASK_SOURCE_AG1 = f"!w U {AG1_GOAL}"
+TASK_SOURCE_AG1 = f"(!w && !collide && leash) U {AG1_GOAL}"
 
 TASK_SOURCE_AG2 = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({})".format(TAIL)
 
 TMAX = 50
+
+def get_empty_map():
+    dyn, d_raw = parse_rooms(MAP, ignore=".")
+    h, w = dyn.shape
+
+    d_raw_viz = d_raw
+
+    empty_map = np.zeros((h, w))
+    for ii, (k, v) in enumerate(d_raw_viz.items()):
+        empty_map = np.where(v[:, :], ii, empty_map)
+
+    tick_locs = np.arange(len(d_raw_viz)) + 0.5
+    cmap = plt.get_cmap("tab20", len(d_raw_viz))
+    colors = cmap.colors
+
+    # Get the index of " " in the keys to set it to white.
+    if " " in d_raw_viz:
+        space_idx = list(d_raw_viz.keys()).index(" ")
+        colors[space_idx] = np.array([0.8, 0.8, 0.8, 1.0])
+
+    map_cmap = ListedColormap(colors)
+
+    return empty_map, map_cmap, tick_locs
+
 
 def solve_ag1_policy(gamma: float |None = None, resolve: bool = False):
     results_dir = pathlib.Path("plots_discrete")
@@ -125,6 +149,73 @@ def solve_ag1_policy(gamma: float |None = None, resolve: bool = False):
     )
 
     pol = MinTimePolicy(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+
+    # =============================================
+    # Save a video of the optimal policy.
+    h, w = dyn.shape
+    empty_map, map_cmap, tick_locs = get_empty_map()
+
+    start_state = dyn_ma.encode_from_tups([(5, 4), (7, 4)])
+    logger.debug("[ag1] Initial value: {}".format(dict_vars[dag_root][start_state]))
+
+    rollouter = MinTimeRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+    Tp1_states, T_actions, T_curnode_idxs = rollouter.rollout(start_state, max_steps=50)
+
+    # Visualize the rollout by animating the path and saving as mp4.
+    n_frames = len(Tp1_states)
+    fig, ax = plt.subplots()
+    im = ax.imshow(empty_map.T, cmap=map_cmap, vmin=0, vmax=len(tick_locs))
+    cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
+
+    ax.set_aspect("equal")
+    ax.grid(which="major", visible=False)
+    ax.grid(which="minor", visible=True)
+
+    ax.set_xticks(np.arange(h + 1) - 0.5, minor=True)
+    ax.set_yticks(np.arange(w + 1) - 0.5, minor=True)
+
+    n_agents = dyn_ma.n_agents
+    agent_colors = ["C0", "C1", "C2"]
+
+    agent_dots = []
+    for i in range(n_agents):
+        (dot,) = ax.plot([], [], marker="o", color=agent_colors[i], ms=5, linestyle="None")
+        agent_dots.append(dot)
+
+    kk_text = ax.text(
+        0.02,
+        0.98,
+        "",
+        transform=ax.transAxes,
+        verticalalignment="top",
+        horizontalalignment="left",
+        color="white",
+        fontsize=8,
+        bbox=dict(facecolor="black", alpha=0.5, pad=2),
+    )
+    def init_fn():
+        # Return all animated artists
+        return agent_dots + [kk_text]
+
+    def update_fn(kk: int) -> list[plt.Artist]:
+        joint_state = Tp1_states[kk]
+
+        # Decode joint state -> per-agent single-agent states (N,)
+        agent_states = dyn_ma.decode_joint_state(joint_state, which=np)
+
+        # Update each agent dot
+        for i in range(n_agents):
+            s_i = int(agent_states[i])  # safe for matplotlib
+            x, y = dyn_ma.base.decode_state(s_i)  # (y, x) for your gridworld
+            agent_dots[i].set_data([x], [y])
+
+        kk_text.set_text(f"Step {kk: 3}")
+        return agent_dots + [kk_text]
+
+    anim = FuncAnimation(fig, update_fn, n_frames, init_fn, blit=True)
+    anim.save(f"ag1_nom_{AG1_GOAL}.mp4", fps=5, dpi=200)
+    # =============================================
+
     return pol
 
 def solve_ag2_policy(gamma: float |None = None, resolve: bool = False):
@@ -256,19 +347,7 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     # Remove all keys starting with "Tle"
     d_raw_viz = {k: v for k, v in d_raw_viz.items() if not k.startswith("Tle")}
 
-    empty_map = np.zeros((h, w))
-    for ii, (k, v) in enumerate(d_raw_viz.items()):
-        empty_map = np.where(v[:, :, -1], ii, empty_map)
-    tick_locs = np.arange(len(d_raw_viz)) + 0.5
-    cmap = plt.get_cmap("tab20", len(d_raw_viz))
-    colors = cmap.colors
-
-    # Get the index of " " in the keys to set it to white.
-    if " " in d_raw_viz:
-        space_idx = list(d_raw_viz.keys()).index(" ")
-        colors[space_idx] = np.array([0.8, 0.8, 0.8, 1.0])
-
-    cmap = ListedColormap(colors)
+    empty_map, map_cmap, tick_locs = get_empty_map()
 
     # ------------------------------
 
@@ -293,16 +372,20 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
         "collide": ma_collision_predicate(dyn_ma_, collide_dist, t_max=TMAX),
         "leash": ma_collision_predicate(dyn_ma_, 3, t_max=TMAX),
         #
-        "Tle30": dyn_ma.tle_predicate(30),
+        "Tle40": dyn_ma.tle_predicate(40),
     }
     # Reach everything before Tle30.
-    dict_predicates["C"] = jnp.minimum(dict_predicates["C"], dict_predicates["Tle30"])
-    dict_predicates["T"] = jnp.minimum(dict_predicates["T"], dict_predicates["Tle30"])
-    dict_predicates["v"] = jnp.minimum(dict_predicates["v"], dict_predicates["Tle30"])
-    dict_predicates["g"] = jnp.minimum(dict_predicates["g"], dict_predicates["Tle30"])
+    dict_predicates["C"] = jnp.minimum(dict_predicates["C"], dict_predicates["Tle40"])
+    dict_predicates["T"] = jnp.minimum(dict_predicates["T"], dict_predicates["Tle40"])
+    dict_predicates["v"] = jnp.minimum(dict_predicates["v"], dict_predicates["Tle40"])
+    dict_predicates["g"] = jnp.minimum(dict_predicates["g"], dict_predicates["Tle40"])
 
     # Make the walls encode all the safety stuff for convenience.
     dict_predicates["w"] = jnp.stack([dict_predicates["w"], -dict_predicates["leash"], dict_predicates["collide"]], axis=-1).max(-1)
+
+    # Also, agent1 should never enter the site.
+    site_agent1 = flat_totimed(rew_to_ma(d_flat["site"], dyn_ma.n_agents, mode=0), t_max=TMAX)
+    dict_predicates["w"] = jnp.maximum(dict_predicates["w"], site_agent1)
 
     # leash = dict_predicates["leash"]
     # logger.debug("leash min: {}, max: {}".format(leash.min(), leash.max()))
@@ -325,7 +408,7 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
 
     figsize = np.array([8, 6])
     fig, ax = plt.subplots(figsize=figsize, layout="constrained")
-    im = ax.imshow(empty_map.T, cmap=cmap, vmin=0, vmax=len(d_raw_viz))
+    im = ax.imshow(empty_map.T, cmap=map_cmap, vmin=0, vmax=len(d_raw_viz))
     cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
     cbar.ax.set_yticklabels(list(d_raw_viz.keys()))
     setup_ax(ax)
@@ -342,7 +425,7 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     )
     dag_nodes = value_tree_dag.nodes
 
-    visualize_dag(value_tree_dag, [24], filename="dbg_safety_filter_ma", view=False)
+    visualize_dag(value_tree_dag, [26], filename="dbg_safety_filter_ma", view=False)
 
     # -----------------------------
     # Solve.
@@ -424,15 +507,21 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     T_a_filt = []
     T_hasfiltered = []
 
-    for kk in range(80):
+    for kk in range(15):
         logger.debug(f"> kk={kk}")
 
         s_joint, _ = dyn_ma.decode_timed_state(state, which=np)
-        # state_ag1, state_ag2 = dyn_ma_.decode_joint_state(s_joint, which=np)
+        state_ag1, state_ag2 = dyn_ma_.decode_joint_state(s_joint, which=np)
+        state_ag1_tup = dyn_untimed.decode_state(state_ag1)
+        state_ag2_tup = dyn_untimed.decode_state(state_ag2)
+        logger.debug("    Current state: agent1 at {}, agent2 at {}".format(state_ag1_tup, state_ag2_tup))
 
+        logger.debug("    Agent 1 policy...")
         a_nom_ag1_joint, ag1_isdone = pol_ag1.get_action(s_joint, which=np, kk=kk)
+        logger.debug("    Agent 1 policy... done!")
         if ag1_isdone:
             logger.debug("    Agent 1 policy is done. Using no-op.")
+            ipdb.set_trace()
             a_nom_ag1 = dyn_untimed.str_to_action(".")
         else:
             a_nom_ag1 = dyn_ma_.decode_joint_action(a_nom_ag1_joint, which=np)[0]
@@ -460,7 +549,7 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     fig, ax = plt.subplots()
 
     # Visualize the map again.
-    im = ax.imshow(empty_map.T, cmap=cmap, vmin=0, vmax=len(d_raw_viz), alpha=0.5)
+    im = ax.imshow(empty_map.T, cmap=map_cmap, vmin=0, vmax=len(d_raw_viz), alpha=0.5)
     cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
     cbar.ax.set_yticklabels(list(d_raw_viz.keys()))
     setup_ax(ax)

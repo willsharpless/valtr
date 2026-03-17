@@ -37,6 +37,9 @@ class MinTimeRollout:
         for kk in tqdm.trange(max_steps):
             action, isdone = self.policy.get_action(state, which=which, kk=kk)
 
+            if isdone:
+                break
+
             # Apply the action to get the next state.
             state_new = self.dyn.step(state, action, which=which)
 
