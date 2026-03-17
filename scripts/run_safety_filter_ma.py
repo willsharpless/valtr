@@ -38,8 +38,8 @@ MAP = """
             .
 """
 
-# TASK_SOURCE = "G( leash && !collide )"
-TASK_SOURCE = "G( !collide )"
+TASK_SOURCE = "G( leash && !collide )"
+# TASK_SOURCE = "G( !collide )"
 
 TMAX = 50
 
@@ -106,8 +106,15 @@ def main(gamma: float | None = None, resolve: bool = False):
         # "w": flat_totimed(rew_to_ma(d_flat["w"], dyn_ma.n_agents, "min"), t_max=TMAX),
         # #
         "collide": ma_collision_predicate(dyn_ma_, collide_dist, t_max=TMAX),
-        "leash": ma_distance_predicate(dyn_ma_, 3, t_max=TMAX)
+        "leash": ma_collision_predicate(dyn_ma_, 4, t_max=TMAX)
     }
+
+    # leash = dict_predicates["leash"]
+    # logger.debug("leash min: {}, max: {}".format(leash.min(), leash.max()))
+    # tmp = leash.reshape((dyn_ma_.shape * dyn_ma_.n_agents) + (TMAX + 1,))[..., 0]
+    # print(tmp[0, 0, :, :])
+    # exit(0)
+
     for k, v in dict_predicates.items():
         assert v.ndim == 1 and v.shape[0] == dyn_ma.n_states, f"Predicate {k} has wrong shape {v.shape}"
 
@@ -170,6 +177,7 @@ def main(gamma: float | None = None, resolve: bool = False):
     start_state = dyn_ma.encode_timed_state(start_state_untimed, t=0)
 
     logger.debug("Initial value: {}".format(T_value[start_state]))
+    logger.debug("Initial leash: {}".format(dict_predicates["leash"][start_state]))
 
     dyn_ma: GridWorldMATimed
     a_nom = dyn_ma_.str_to_action("L|.")
