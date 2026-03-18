@@ -28,22 +28,41 @@ plt.style.use("seaborn-v0_8-darkgrid")
 
 app = cyclopts.App()
 
+# MAP = """
+# ################
+# #............# #
+# #.##.#.##.##.# #
+# #.#....#..FF.d #
+# #.EE.#....FF.d #
+# #.EE.###.....# #
+# #............# #
+# #####dddd##### #
+# #              #
+# # g #    ##  ###
+# #######       K#
+# #     #  #     #
+# #  #  #  ### ###
+# #s #  #  #     #
+# # s#     # AAA #
+# ################
+# """
+
 MAP = """
 ################
-#............# #
-#.##.#.##.##.# #
-#.#....#..FF.d #
-#.EE.#....FF.d #
-#.EE.###.....# #
-#............# #
-#####dddd##### #
-#              #
-# g #    ##  ###
-#######       K#
-#     #  #     #
-#  #  #  ### ###
-#s #  #  #     #
-# s#     # AAA #
+#......#  #  s #
+#.##EE.# g#   s#
+#.#.EE.#  # ####
+#......# ##    #
+#.#.##.d  #    #
+#....#.d  #### #
+#.##.#.d       #
+#.#....d       #
+#......# # #####
+#.#FF..# #  #  #
+#.#FF..#    # A#
+#......#      A#
+###dd### #  ##A#
+#        #K #  #
 ################
 """
 
@@ -340,8 +359,8 @@ def main(gamma: float | None = None, resolve: bool = False):
         plt.close(fig)
         return
 
-    # rollouter = MinTimeRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
-    rollouter = FilteredRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+    rollouter = MinTimeRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+    # rollouter = FilteredRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
     Tp1_states, T_actions, T_curnode_idxs = rollouter.rollout(start_state, max_steps=100)
 
     n_frames = len(Tp1_states)
