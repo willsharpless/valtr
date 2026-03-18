@@ -41,9 +41,6 @@ MAP = """
  K          .
 """
 
-# TASK_SOURCE = "G( leash && !collide )"
-# TASK_SOURCE = "G( !collide )"
-
 TAIL = "(!w) U G( ( (site && !w) U (site && !w && S)) && ( (site && !w) U (site && !w && W)) )"
 TASK_SOURCE = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(TAIL)
 
@@ -54,6 +51,54 @@ TASK_SOURCE_AG1 = f"(!w && !collide) U {AG1_GOAL}"
 TASK_SOURCE_AG2 = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({})".format(TAIL)
 
 TMAX = 50
+
+RESULTS_DIR = pathlib.Path("plots_discrete")
+COLLIDE_DIST = 1.0  # Diagonal is safe, but not adjacent.
+AGENT_COLORS = ["C0", "C1", "C2"]
+
+
+def _check_predicates(dict_predicates, n_states):
+    for k, v in dict_predicates.items():
+        assert v.ndim == 1 and v.shape[0] == n_states, f"Predicate {k} has wrong shape {v.shape}"
+
+
+def _solve_and_cache(dyn_ma, dag_nodes, dag_root, dict_predicates, pkl_path, task_source, d_raw, gamma, resolve):
+    RESULTS_DIR.mkdir(exist_ok=True)
+    if resolve or not pkl_path.exists():
+        dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
+            dyn_ma, dag_nodes, dict_predicates, gamma=gamma
+        )
+        extras = {"task_source": task_source, "dict_predicates": dict_predicates, "gamma": gamma, "d_raw": d_raw}
+        save_discrete_sol(
+            pkl_path, dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras=extras
+        )
+    return load_discrete_sol(pkl_path)
+
+
+def _setup_ax(ax, h, w):
+    ax.set_aspect("equal")
+    ax.grid(which="major", visible=False)
+    ax.grid(which="minor", visible=True)
+    ax.set_xticks(np.arange(h + 1) - 0.5, minor=True)
+    ax.set_yticks(np.arange(w + 1) - 0.5, minor=True)
+
+
+def _make_agent_dots(ax, n_agents):
+    agent_dots = []
+    for i in range(n_agents):
+        (dot,) = ax.plot([], [], marker="o", color=AGENT_COLORS[i], ms=5, linestyle="None")
+        agent_dots.append(dot)
+    return agent_dots
+
+
+def _make_overlay_text(ax, x, y, ha, va):
+    return ax.text(
+        x, y, "", transform=ax.transAxes,
+        verticalalignment=va, horizontalalignment=ha,
+        color="white", fontsize=8,
+        bbox=dict(facecolor="black", alpha=0.5, pad=2),
+    )
+
 
 def get_empty_map():
     dyn, d_raw = parse_rooms(MAP, ignore=".")
@@ -79,38 +124,30 @@ def get_empty_map():
     return empty_map, map_cmap, tick_locs
 
 
-def solve_ag1_policy(gamma: float |None = None, resolve: bool = False):
-    results_dir = pathlib.Path("plots_discrete")
-    results_dir.mkdir(exist_ok=True)
-
+def solve_ag1_policy(gamma: float | None = None, resolve: bool = False):
     dyn, d_raw = parse_rooms(MAP, ignore=".")
     dyn_ma = GridWorldMA(dyn, n_agents=2)
+    h, w = dyn.shape
 
-    collide_dist = 1.0  # Diagonal is safe, but not adjacent.
     d = {
         "C": np.where(d_raw["C"], 1, -1),
         "T": np.where(d_raw["T"], 1, -1),
-        #
         "w": np.where(d_raw["#"] | d_raw["s"] | d_raw["S"] | d_raw["W"], 1, -1),
     }
 
-    dict_predicates_unflat = d
-    d_flat = {k: v.flatten() for k, v in dict_predicates_unflat.items()}
+    d_flat = {k: v.flatten() for k, v in d.items()}
     dict_predicates = {
         "C": rew_to_ma(d_flat["C"], dyn_ma.n_agents, mode=0),
         "T": rew_to_ma(d_flat["T"], dyn_ma.n_agents, mode=0),
-        #
         "w": rew_to_ma(d_flat["w"], dyn_ma.n_agents, "max"),
-        #
-        "collide": ma_collision_predicate(dyn_ma, collide_dist, norm=1),
+        "collide": ma_collision_predicate(dyn_ma, COLLIDE_DIST, norm=1),
         "leash": ma_collision_predicate(dyn_ma, 3, norm=1),
     }
 
     # Make the walls encode all the safety stuff for convenience.
     dict_predicates["w"] = jnp.stack([dict_predicates["w"], dict_predicates["collide"]], axis=-1).max(-1)
 
-    for k, v in dict_predicates.items():
-        assert v.ndim == 1 and v.shape[0] == dyn_ma.n_states, f"Predicate {k} has wrong shape {v.shape}"
+    _check_predicates(dict_predicates, dyn_ma.n_states)
 
     # -----------------------------
     # Decompose.
@@ -121,42 +158,17 @@ def solve_ag1_policy(gamma: float |None = None, resolve: bool = False):
 
     # -----------------------------
     # Solve.
-    pkl_path = results_dir / f"safety_filter_ma_ag1_{AG1_GOAL}_sol.pkl"
-
-    if resolve or not pkl_path.exists():
-        dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
-            dyn_ma, dag_nodes, dict_predicates, gamma=gamma
-        )
-        extras = {
-            "task_source": TASK_SOURCE_AG1,
-            "dict_predicates": dict_predicates,
-            "gamma": gamma,
-            "d_raw": d_raw,
-        }
-        save_discrete_sol(
-            pkl_path,
-            dyn_ma,
-            dag_nodes,
-            dag_root,
-            dict_vars,
-            dict_actions,
-            dict_GU_vars,
-            dict_GU_actions,
-            extras=extras,
-        )
-
-    dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = load_discrete_sol(
-        pkl_path
+    pkl_path = RESULTS_DIR / f"safety_filter_ma_ag1_{AG1_GOAL}_sol.pkl"
+    dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = _solve_and_cache(
+        dyn_ma, dag_nodes, dag_root, dict_predicates, pkl_path, TASK_SOURCE_AG1, d_raw, gamma, resolve
     )
 
     pol = MinTimePolicy(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
 
     # =============================================
     # Save a video of the optimal policy.
-    h, w = dyn.shape
     empty_map, map_cmap, tick_locs = get_empty_map()
 
-    # start_state = dyn_ma.encode_from_tups([(5, 4), (7, 4)])
     start_state = dyn_ma.encode_from_tups([(11, 3), (9, 5)])
     logger.debug("[ag1] Initial value: {}".format(dict_vars[dag_root][start_state]))
 
@@ -169,48 +181,22 @@ def solve_ag1_policy(gamma: float |None = None, resolve: bool = False):
     im = ax.imshow(empty_map.T, cmap=map_cmap, vmin=0, vmax=len(tick_locs))
     cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
 
-    ax.set_aspect("equal")
-    ax.grid(which="major", visible=False)
-    ax.grid(which="minor", visible=True)
-
-    ax.set_xticks(np.arange(h + 1) - 0.5, minor=True)
-    ax.set_yticks(np.arange(w + 1) - 0.5, minor=True)
+    _setup_ax(ax, h, w)
 
     n_agents = dyn_ma.n_agents
-    agent_colors = ["C0", "C1", "C2"]
+    agent_dots = _make_agent_dots(ax, n_agents)
+    kk_text = _make_overlay_text(ax, 0.02, 0.98, ha="left", va="top")
 
-    agent_dots = []
-    for i in range(n_agents):
-        (dot,) = ax.plot([], [], marker="o", color=agent_colors[i], ms=5, linestyle="None")
-        agent_dots.append(dot)
-
-    kk_text = ax.text(
-        0.02,
-        0.98,
-        "",
-        transform=ax.transAxes,
-        verticalalignment="top",
-        horizontalalignment="left",
-        color="white",
-        fontsize=8,
-        bbox=dict(facecolor="black", alpha=0.5, pad=2),
-    )
     def init_fn():
-        # Return all animated artists
         return agent_dots + [kk_text]
 
     def update_fn(kk: int) -> list[plt.Artist]:
         joint_state = Tp1_states[kk]
-
-        # Decode joint state -> per-agent single-agent states (N,)
         agent_states = dyn_ma.decode_joint_state(joint_state, which=np)
-
-        # Update each agent dot
         for i in range(n_agents):
-            s_i = int(agent_states[i])  # safe for matplotlib
-            x, y = dyn_ma.base.decode_state(s_i)  # (y, x) for your gridworld
+            s_i = int(agent_states[i])
+            x, y = dyn_ma.base.decode_state(s_i)
             agent_dots[i].set_data([x], [y])
-
         kk_text.set_text(f"Step {kk: 3}")
         return agent_dots + [kk_text]
 
@@ -220,50 +206,40 @@ def solve_ag1_policy(gamma: float |None = None, resolve: bool = False):
 
     return pol
 
-def solve_ag2_policy(gamma: float |None = None, resolve: bool = False):
-    results_dir = pathlib.Path("plots_discrete")
-    results_dir.mkdir(exist_ok=True)
 
+def solve_ag2_policy(gamma: float | None = None, resolve: bool = False):
     dyn, d_raw = parse_rooms(MAP, ignore=".")
-    dyn_ma = GridWorldMA(dyn, n_agents=2)
+    dyn_ma = GridWorldMA(dyn, n_agents=2, agent_prio=[1, 0]) # Prioritize agent 2 moving.
 
-    collide_dist = 1.0  # Diagonal is safe, but not adjacent.
     d = {
         "S": np.where(d_raw["S"], 1, -1),
         "W": np.where(d_raw["W"], 1, -1),
-        #
         "site": np.where(d_raw["s"] | d_raw["S"] | d_raw["W"], 1, -1),
-        #
         "v": np.where(d_raw["v"], 1, -1),
         "g": np.where(d_raw["g"], 1, -1),
-        #
         "K": np.where(d_raw["K"], 1, -1),
         "D": np.where(d_raw["D"], 1, -1),
         "w": np.where(d_raw["#"], 1, -1),
     }
 
-    dict_predicates_unflat = d
-    d_flat = {k: v.flatten() for k, v in dict_predicates_unflat.items()}
+    d_flat = {k: v.flatten() for k, v in d.items()}
     dict_predicates = {
         "S": rew_to_ma(d_flat["S"], dyn_ma.n_agents, mode=1),
         "W": rew_to_ma(d_flat["W"], dyn_ma.n_agents, mode=1),
-        #
         "site": rew_to_ma(d_flat["site"], dyn_ma.n_agents, mode=1),
-        #
         "v": rew_to_ma(d_flat["v"], dyn_ma.n_agents, mode=1),
         "g": rew_to_ma(d_flat["g"], dyn_ma.n_agents, mode=1),
-        #
-        "w": rew_to_ma(d_flat["w"], dyn_ma.n_agents, "min"),
-        #
-        "collide": ma_collision_predicate(dyn_ma, collide_dist, norm=1),
+        "w": rew_to_ma(d_flat["w"], dyn_ma.n_agents, "max"),
+        "collide": ma_collision_predicate(dyn_ma, COLLIDE_DIST, norm=1),
         "leash": ma_collision_predicate(dyn_ma, 3, norm=1),
+        # ---
+        "site0": rew_to_ma(d_flat["site"], dyn_ma.n_agents, mode=0),
     }
 
     # Make the walls encode all the safety stuff for convenience.
-    dict_predicates["w"] = jnp.stack([dict_predicates["w"], -dict_predicates["leash"], dict_predicates["collide"]], axis=-1).max(-1)
+    dict_predicates["w"] = jnp.stack([dict_predicates["w"], -dict_predicates["leash"], dict_predicates["collide"], dict_predicates["site0"]], axis=-1).max(-1)
 
-    for k, v in dict_predicates.items():
-        assert v.ndim == 1 and v.shape[0] == dyn_ma.n_states, f"Predicate {k} has wrong shape {v.shape}"
+    _check_predicates(dict_predicates, dyn_ma.n_states)
 
     # -----------------------------
     # Decompose.
@@ -274,32 +250,9 @@ def solve_ag2_policy(gamma: float |None = None, resolve: bool = False):
 
     # -----------------------------
     # Solve.
-    pkl_path = results_dir / f"safety_filter_ma_ag2_sol.pkl"
-
-    if resolve or not pkl_path.exists():
-        dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
-            dyn_ma, dag_nodes, dict_predicates, gamma=gamma
-        )
-        extras = {
-            "task_source": TASK_SOURCE_AG2,
-            "dict_predicates": dict_predicates,
-            "gamma": gamma,
-            "d_raw": d_raw,
-        }
-        save_discrete_sol(
-            pkl_path,
-            dyn_ma,
-            dag_nodes,
-            dag_root,
-            dict_vars,
-            dict_actions,
-            dict_GU_vars,
-            dict_GU_actions,
-            extras=extras,
-        )
-
-    dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = load_discrete_sol(
-        pkl_path
+    pkl_path = RESULTS_DIR / "safety_filter_ma_ag2_sol.pkl"
+    dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = _solve_and_cache(
+        dyn_ma, dag_nodes, dag_root, dict_predicates, pkl_path, TASK_SOURCE_AG2, d_raw, gamma, resolve
     )
 
     pol = MinTimePolicy(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
@@ -308,8 +261,7 @@ def solve_ag2_policy(gamma: float |None = None, resolve: bool = False):
 
 @app.default()
 def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = False):
-    results_dir = pathlib.Path("plots_discrete")
-    results_dir.mkdir(exist_ok=True)
+    RESULTS_DIR.mkdir(exist_ok=True)
 
     logger.debug("Parsing...")
     dyn, d_raw = parse_rooms(MAP, TMAX, ignore=".")
@@ -324,19 +276,14 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     logger.debug("Creating GridWorldMATimed")
     dyn_ma = GridWorldMATimed(dyn_ma_, t_max=TMAX, freeze_at_t_max=False)
 
-    collide_dist = 1.0  # Diagonal is safe, but not adjacent.
     d = {
         "C": np.where(d_raw["C"], 1, -1)[:, :, -1],
         "T": np.where(d_raw["T"], 1, -1)[:, :, -1],
-        #
         "S": np.where(d_raw["S"], 1, -1)[:, :, -1],
         "W": np.where(d_raw["W"], 1, -1)[:, :, -1],
-        #
         "site": np.where(d_raw["s"] | d_raw["S"] | d_raw["W"], 1, -1)[:, :, -1],
-        #
         "v": np.where(d_raw["v"], 1, -1)[:, :, -1],
         "g": np.where(d_raw["g"], 1, -1)[:, :, -1],
-        #
         "K": np.where(d_raw["K"], 1, -1)[:, :, -1],
         "D": np.where(d_raw["D"], 1, -1)[:, :, -1],
         "w": np.where(d_raw["#"], 1, -1)[:, :, -1],
@@ -353,34 +300,27 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
 
     # ------------------------------
 
-    dict_predicates_unflat = d
-    d_flat = {k: v.flatten() for k, v in dict_predicates_unflat.items()}
+    d_flat = {k: v.flatten() for k, v in d.items()}
 
     logger.debug("dict predicates...")
     dict_predicates = {
         "C": flat_totimed(rew_to_ma(d_flat["C"], dyn_ma.n_agents, mode=0), t_max=TMAX),
         "T": flat_totimed(rew_to_ma(d_flat["T"], dyn_ma.n_agents, mode=0), t_max=TMAX),
-        #
         "S": flat_totimed(rew_to_ma(d_flat["S"], dyn_ma.n_agents, mode=1), t_max=TMAX),
         "W": flat_totimed(rew_to_ma(d_flat["W"], dyn_ma.n_agents, mode=1), t_max=TMAX),
-        #
         "site": flat_totimed(rew_to_ma(d_flat["site"], dyn_ma.n_agents, mode=1), t_max=TMAX),
-        #
         "v": flat_totimed(rew_to_ma(d_flat["v"], dyn_ma.n_agents, mode=1), t_max=TMAX),
         "g": flat_totimed(rew_to_ma(d_flat["g"], dyn_ma.n_agents, mode=1), t_max=TMAX),
-        #
-        "w": flat_totimed(rew_to_ma(d_flat["w"], dyn_ma.n_agents, "min"), t_max=TMAX),
-        #
-        "collide": ma_collision_predicate(dyn_ma_, collide_dist, t_max=TMAX, norm=1),
+        "w": flat_totimed(rew_to_ma(d_flat["w"], dyn_ma.n_agents, "max"), t_max=TMAX), # wall if either agent in wall.
+        "collide": ma_collision_predicate(dyn_ma_, COLLIDE_DIST, t_max=TMAX, norm=1),
         "leash": ma_collision_predicate(dyn_ma_, 3, t_max=TMAX, norm=1),
-        #
-        "Tle40": dyn_ma.tle_predicate(40),
+        "Tle50": dyn_ma.tle_predicate(50),
     }
     # Reach everything before Tle30.
-    dict_predicates["C"] = jnp.minimum(dict_predicates["C"], dict_predicates["Tle40"])
-    dict_predicates["T"] = jnp.minimum(dict_predicates["T"], dict_predicates["Tle40"])
-    dict_predicates["v"] = jnp.minimum(dict_predicates["v"], dict_predicates["Tle40"])
-    dict_predicates["g"] = jnp.minimum(dict_predicates["g"], dict_predicates["Tle40"])
+    dict_predicates["C"] = jnp.minimum(dict_predicates["C"], dict_predicates["Tle50"])
+    dict_predicates["T"] = jnp.minimum(dict_predicates["T"], dict_predicates["Tle50"])
+    dict_predicates["v"] = jnp.minimum(dict_predicates["v"], dict_predicates["Tle50"])
+    dict_predicates["g"] = jnp.minimum(dict_predicates["g"], dict_predicates["Tle50"])
 
     # Make the walls encode all the safety stuff for convenience.
     dict_predicates["w"] = jnp.stack([dict_predicates["w"], -dict_predicates["leash"], dict_predicates["collide"]], axis=-1).max(-1)
@@ -389,33 +329,18 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     site_agent1 = flat_totimed(rew_to_ma(d_flat["site"], dyn_ma.n_agents, mode=0), t_max=TMAX)
     dict_predicates["w"] = jnp.maximum(dict_predicates["w"], site_agent1)
 
-    # leash = dict_predicates["leash"]
-    # logger.debug("leash min: {}, max: {}".format(leash.min(), leash.max()))
-    # tmp = leash.reshape((dyn_ma_.shape * dyn_ma_.n_agents) + (TMAX + 1,))[..., 0]
-    # print(tmp[0, 0, :, :])
-    # exit(0)
-
-    for k, v in dict_predicates.items():
-        assert v.ndim == 1 and v.shape[0] == dyn_ma.n_states, f"Predicate {k} has wrong shape {v.shape}"
+    _check_predicates(dict_predicates, dyn_ma.n_states)
 
     # -----------------------------
     # Visualize map.
-    def setup_ax(ax_: plt.Axes):
-        ax_.set_aspect("equal")
-        ax_.grid(which="major", visible=False)
-        ax_.grid(which="minor", visible=True)
-
-        ax_.set_xticks(np.arange(h + 1) - 0.5, minor=True)
-        ax_.set_yticks(np.arange(w + 1) - 0.5, minor=True)
-
     figsize = np.array([8, 6])
     fig, ax = plt.subplots(figsize=figsize, layout="constrained")
     im = ax.imshow(empty_map.T, cmap=map_cmap, vmin=0, vmax=len(d_raw_viz))
     cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
     cbar.ax.set_yticklabels(list(d_raw_viz.keys()))
-    setup_ax(ax)
+    _setup_ax(ax, h, w)
 
-    fig_path = results_dir / "safety_filter_ma_map.pdf"
+    fig_path = RESULTS_DIR / "safety_filter_ma_map.pdf"
     fig.savefig(fig_path, bbox_inches="tight", pad_inches=1e-2)
     plt.close(fig)
     logger.success(f"Saved to {fig_path}")
@@ -431,32 +356,9 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
 
     # -----------------------------
     # Solve.
-    pkl_path = results_dir / "run_safety_filter_ma_timed_sol.pkl"
-
-    if resolve or not pkl_path.exists():
-        dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
-            dyn_ma, dag_nodes, dict_predicates, gamma=gamma
-        )
-        extras = {
-            "task_source": TASK_SOURCE,
-            "dict_predicates": dict_predicates,
-            "gamma": gamma,
-            "d_raw": d_raw,
-        }
-        save_discrete_sol(
-            pkl_path,
-            dyn_ma,
-            dag_nodes,
-            dag_root,
-            dict_vars,
-            dict_actions,
-            dict_GU_vars,
-            dict_GU_actions,
-            extras=extras,
-        )
-
-    dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = load_discrete_sol(
-        pkl_path
+    pkl_path = RESULTS_DIR / "run_safety_filter_ma_timed_sol.pkl"
+    dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = _solve_and_cache(
+        dyn_ma, dag_nodes, dag_root, dict_predicates, pkl_path, TASK_SOURCE, d_raw, gamma, resolve
     )
 
     pol_ag1 = solve_ag1_policy(gamma=gamma, resolve=resolve_nom)
@@ -473,11 +375,8 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     logger.debug("Initial leash: {}".format(dict_predicates["leash"][start_state]))
 
     dyn_ma: GridWorldMATimed
-    # a_nom = dyn_ma_.str_to_action("L|.")
-    # a_nom = dyn_ma_.str_to_action(".|U")
 
     safety_filter = SafetyFilter(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
-
 
     def preference_fn(_: StateInt, a_nom_: ActionInt) -> np.ndarray:
         # If agent1 is staying still, then prefer actions where the agent2 action matches a_nom_.
@@ -523,16 +422,20 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
         logger.debug("    Agent 1 policy... done!")
         if ag1_isdone:
             logger.debug("    Agent 1 policy is done. Using no-op.")
-            # ipdb.set_trace()
             a_nom_ag1 = dyn_untimed.str_to_action(".")
         else:
             a_nom_ag1 = dyn_ma_.decode_joint_action(a_nom_ag1_joint, which=np)[0]
 
-        # a_nom_ag2 = dyn_untimed.str_to_action(".")
+        logger.debug("    Agent 2 policy...")
         a_nom_ag2_joint, ag2_isdone = pol_ag2.get_action(s_joint)
+        logger.debug("    Agent 2 policy... done! {}".format(dyn_ma_.action_to_str(a_nom_ag2_joint)))
         a_nom_ag2 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[1]
 
         a_nom = dyn_ma_.encode_joint_action([a_nom_ag1, a_nom_ag2], which=np)
+
+        if a_nom_ag1 == dyn_untimed.str_to_action(".") and a_nom_ag2 == dyn_untimed.str_to_action("."):
+            logger.debug("Both agents want to stay still!")
+            a_nom = a_nom_ag2_joint
 
         a_safe = safety_filter.filter_action(state, a_nom, preference_fn)
         hasfiltered = a_safe != a_nom
@@ -554,44 +457,21 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     im = ax.imshow(empty_map.T, cmap=map_cmap, vmin=0, vmax=len(d_raw_viz), alpha=0.5)
     cbar = fig.colorbar(im, ax=ax, ticks=tick_locs)
     cbar.ax.set_yticklabels(list(d_raw_viz.keys()))
-    setup_ax(ax)
+    _setup_ax(ax, h, w)
 
     # --- Multi-agent: one dot per agent ---
     n_agents = dyn_ma.n_agents
-    agent_colors = ["C0", "C1", "C2"]
-
-    agent_dots = []
-    for i in range(n_agents):
-        (dot,) = ax.plot([], [], marker="o", color=agent_colors[i], ms=5, linestyle="None")
-        agent_dots.append(dot)
-
-    kk_text = ax.text(
-        0.02,
-        0.98,
-        "",
-        transform=ax.transAxes,
-        verticalalignment="top",
-        horizontalalignment="left",
-        color="white",
-        fontsize=8,
-        bbox=dict(facecolor="black", alpha=0.5, pad=2),
-    )
+    agent_dots = _make_agent_dots(ax, n_agents)
+    kk_text = _make_overlay_text(ax, 0.02, 0.98, ha="left", va="top")
     # Bottom right corner.
     debug_text = ax.text(
-        0.98,
-        0.02,
-        "",
-        transform=ax.transAxes,
-        verticalalignment="bottom",
-        horizontalalignment="right",
-        color="white",
-        fontsize=8,
-        fontname="DejaVu Sans",
+        0.98, 0.02, "", transform=ax.transAxes,
+        verticalalignment="bottom", horizontalalignment="right",
+        color="white", fontsize=8, fontname="DejaVu Sans",
         bbox=dict(facecolor="black", alpha=0.5, pad=2),
     )
 
     def init_fn():
-        # Return all animated artists
         return agent_dots + [kk_text, debug_text]
 
     def update_fn(kk: int) -> list[plt.Artist]:
