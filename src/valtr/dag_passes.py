@@ -1,11 +1,11 @@
 from typing import Dict, Iterable, List, Optional, Set, Tuple
-from loguru import logger
 
 import graphviz
 import ipdb
+from loguru import logger
 
-from valtr.reachability import (DAGAvoid, DagBuilder, DAGConst, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN, DAGMinGuard,
-                                DAGNegate, DAGNode, DAGReach, DAGReachAvoid, DAGVar)
+from valtr.reachability import (DAGAvoid, DagBuilder, DAGConst, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinGuard,
+                                DAGMinN, DAGNegate, DAGNode, DAGReach, DAGReachAvoid, DAGVar, has_temporal_children)
 
 
 class DagRewriter:
@@ -464,6 +464,7 @@ class PassRAToR(DagRewriter):
         # self.memo[i] = out
         return out
 
+
 class PassToMinGuard(DagRewriter):
     """
     Orgnaize the mins by splitting the nodes into either temporal nodes and non-temporal nodes.
@@ -502,6 +503,7 @@ class PassToMinGuard(DagRewriter):
         self.memo[i] = out
         return out
 
+
 class PassAbsorbGU(DagRewriter):
     """
     Converts:
@@ -521,8 +523,8 @@ class PassAbsorbGU(DagRewriter):
 
         match n:
             case DAGMinN(args=args):
-                ra_nodes = []    # (id, DAGReachAvoid)
-                gu_nodes = []    # (id, DAGGUSingle)
+                ra_nodes = []  # (id, DAGReachAvoid)
+                gu_nodes = []  # (id, DAGGUSingle)
                 other_ids = []
 
                 for a_id in args:
@@ -574,8 +576,10 @@ class PassKeepReachable(DagRewriter):
     def run(self, root: DAGId) -> Tuple[DAGId, DagBuilder, bool]:
         return super().run(root)
 
+
 class PassReachUInFiniteTime(DagRewriter):
-    """If there are any reach-avoid nodes, then make the avoid parts have a min(TleX, ...). """
+    """If there are any reach-avoid nodes, then make the avoid parts have a min(TleX, ...)."""
+
     def visit(self, rid: DAGId) -> DAGId:
         i = rid
         if i in self.memo:
@@ -629,6 +633,7 @@ class PassReachGUInFiniteTime(DagRewriter):
     if there are any reach-avoid nodes with a reach that is just a GU node, then make it min(TleX, GU) to
     force the GU to be reached within finite tine.
     """
+
     def visit(self, rid: DAGId) -> DAGId:
         i = rid
         if i in self.memo:
@@ -700,5 +705,47 @@ class PassReachGUInFiniteTime(DagRewriter):
 
         out = self.dst.reachavoid(reach=reach_id_new, stay=avoid_new)
         self.changed = True
+        self.memo[i] = out
+        return out
+
+
+class PassMergePropMin(DagRewriter):
+    """Merge min(p, min(q, r)) to min(p, q, r) if all variables are non-temporal."""
+
+    def visit(self, rid: DAGId) -> DAGId:
+        i = rid
+        if i in self.memo:
+            return self.memo[i]
+        n = self.src.nodes[i]
+
+        match n:
+            case DAGMinN(args=args):
+                # If any of the direct children are temporal or GU, then don't pull up the inner MinN.
+                for inner_id in args:
+                    node = self.src.nodes[inner_id]
+                    if node.is_temporal() or isinstance(node, DAGGUMinN):
+                        out = super().visit(rid)
+                        self.memo[i] = out
+                        return out
+
+                flat_args = []
+                any_flattened = False
+                for inner_id in args:
+                    inner_node = self.src.nodes[inner_id]
+                    # Pull up inner MinN args only if all its direct children are non-temporal.
+                    if isinstance(inner_node, DAGMinN) and not has_temporal_children(
+                        inner_id, self.src.nodes, include_self=True
+                    ):
+                        flat_args.extend(inner_node.args)
+                        any_flattened = True
+                    else:
+                        flat_args.append(inner_id)
+                flat_args_dst = [self.visit(a) for a in flat_args]
+                out = self.dst.min_n(flat_args_dst)
+                if any_flattened:
+                    self.changed = True
+            case _:
+                out = super().visit(rid)
+
         self.memo[i] = out
         return out
