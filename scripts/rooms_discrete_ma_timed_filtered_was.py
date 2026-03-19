@@ -89,7 +89,8 @@ MAP = """
 TAIL = "(!w) U G( ( (site && !w) U (site && !w && saw)) && ( (site && !w) U (site && !w && wood)) )"
 TAIL_TIMED = "(!w && TleGU) U G( ( (site && !w && TleGU) U (site && !w && saw)) && ( (site && !w && TleGU) U (site && !w && wood)) )"
 TASK_SOURCE = (
-    "((!site && !w) U (gear && !w)) && ((!d && TleKey) U (k && TleKey)) && ({}) && (!w && !site) U ( ( (r1 && TleR) || (r2 && TleR) ) && !w )".format(
+    "((!site && !w) U (gear && !w)) && (!d U k) && ({}) && (!w && !site) U ( ( (r1 && TleR) || (r2 && TleR) ) && !w )".format(
+    # "((!site && !w) U (gear && !w)) && ((!d && TleKey) U (k && TleKey)) && ({}) && (!w && !site) U ( ( (r1 && TleR) || (r2 && TleR) ) && !w )".format( # also BUG: NO TIME -> passes thru door without key
         TAIL_TIMED
     )
 )
@@ -114,7 +115,8 @@ else:
 LEASH_LEN = 3
 
 TMAX = 100
-TIME_KEY = 20
+# TIME_KEY = 20
+TIME_KEY = 30 # BUG
 
 RESULTS_DIR = pathlib.Path("plots_discrete")
 
