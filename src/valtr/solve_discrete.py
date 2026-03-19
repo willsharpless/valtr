@@ -58,7 +58,11 @@ def solve_discrete(
                 # update_rule = reach_avoid_update_rule
                 # solve_fn = make_solve_fn(dyn, update_rule, n_updates=dyn.n_states)
                 update_rule = reach_avoid_update_rule_with_actions(gamma)
-                solve_fn = make_solve_fn_with_actions(dyn, update_rule, n_updates=dyn.n_states)
+
+                if dag_id == 26:
+                    solve_fn = make_solve_fn_with_actions(dyn, update_rule, n_updates=dyn.n_states, debug=True)
+                else:
+                    solve_fn = make_solve_fn_with_actions(dyn, update_rule, n_updates=dyn.n_states)
                 dict_vars[dag_id], dict_actions[dag_id] = solve_fn(s_v0, **kwargs)
 
             case DAGReach(reach=reach):

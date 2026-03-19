@@ -56,12 +56,14 @@ def visualize_dag(
     view: bool = False,
     graph_name: str = "DAG",
     rankdir: str = "TB",  # or "LR"
+    hide_avoid: bool = False
 ) -> graphviz.Digraph:
     """
     Render the reachable DAG as a Graphviz Digraph.
 
     - Left/right ordering is enforced for RA(left, right).
     - Multiple roots are supported and highlighted.
+    if hide_avoid is True, then don't render the "avoid" edges in DAGReachAvoid and DAGGUSingle, to reduce clutter.
     """
     # Collect reachable nodes
     if isinstance(roots, int):
@@ -109,11 +111,13 @@ def visualize_dag(
             l, r = node.reach, node.avoid
             if l in seen:
                 dot.edge(f"n{i}", f"n{l}", label="Reach")
-            if r in seen:
-                dot.edge(f"n{i}", f"n{r}", label="Avoid")
-            # Enforce left→right order visually
-            if l in seen and r in seen:
-                dot.edge(f"n{l}", f"n{r}", style="invis", weight="100", constraint="true")
+
+            if not hide_avoid:
+                if r in seen:
+                    dot.edge(f"n{i}", f"n{r}", label="Avoid")
+                # Enforce left→right order visually
+                if l in seen and r in seen:
+                    dot.edge(f"n{l}", f"n{r}", style="invis", weight="100", constraint="true")
             continue
         # elif isinstance(node, DAG):
         #     for q, r in node.args:

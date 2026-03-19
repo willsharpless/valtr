@@ -19,6 +19,7 @@ from matplotlib.collections import LineCollection
 from matplotlib.colors import ListedColormap
 
 from valtr.dag_graphviz import visualize_dag
+from valtr.dag_passes import PassReachGUInFiniteTime, PassReachUInFiniteTime
 from valtr.gridworld_utils import GridWorldDriftFn, parse_rooms
 from valtr.mintime_policy import MinTimePolicy
 from valtr.mintime_rollout import MinTimeRollout
@@ -42,7 +43,10 @@ MAP = """
 """
 
 TAIL = "(!w) U G( ( (site && !w) U (site && !w && S)) && ( (site && !w) U (site && !w && W)) )"
-TASK_SOURCE = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(TAIL)
+TAIL_TIMED = "(!w && Tle50) U G( ( (site && !w) U (site && !w && S && Tle50)) && ( (site && !w) U (site && !w && W && Tle50)) )"
+TASK_SOURCE = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(
+    TAIL_TIMED
+)
 
 # AG1_GOAL = "C"
 AG1_GOAL = "T"
@@ -50,7 +54,7 @@ TASK_SOURCE_AG1 = f"(!w && !collide) U {AG1_GOAL}"
 
 TASK_SOURCE_AG2 = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({})".format(TAIL)
 
-TMAX = 50
+TMAX = 60
 
 RESULTS_DIR = pathlib.Path("plots_discrete")
 COLLIDE_DIST = 1.0  # Diagonal is safe, but not adjacent.
@@ -93,9 +97,14 @@ def _make_agent_dots(ax, n_agents):
 
 def _make_overlay_text(ax, x, y, ha, va):
     return ax.text(
-        x, y, "", transform=ax.transAxes,
-        verticalalignment=va, horizontalalignment=ha,
-        color="white", fontsize=8,
+        x,
+        y,
+        "",
+        transform=ax.transAxes,
+        verticalalignment=va,
+        horizontalalignment=ha,
+        color="white",
+        fontsize=8,
         bbox=dict(facecolor="black", alpha=0.5, pad=2),
     )
 
@@ -209,7 +218,7 @@ def solve_ag1_policy(gamma: float | None = None, resolve: bool = False):
 
 def solve_ag2_policy(gamma: float | None = None, resolve: bool = False):
     dyn, d_raw = parse_rooms(MAP, ignore=".")
-    dyn_ma = GridWorldMA(dyn, n_agents=2, agent_prio=[1, 0]) # Prioritize agent 2 moving.
+    dyn_ma = GridWorldMA(dyn, n_agents=2, agent_prio=[1, 0])  # Prioritize agent 2 moving.
 
     d = {
         "S": np.where(d_raw["S"], 1, -1),
@@ -237,7 +246,9 @@ def solve_ag2_policy(gamma: float | None = None, resolve: bool = False):
     }
 
     # Make the walls encode all the safety stuff for convenience.
-    dict_predicates["w"] = jnp.stack([dict_predicates["w"], -dict_predicates["leash"], dict_predicates["collide"], dict_predicates["site0"]], axis=-1).max(-1)
+    dict_predicates["w"] = jnp.stack(
+        [dict_predicates["w"], -dict_predicates["leash"], dict_predicates["collide"], dict_predicates["site0"]], axis=-1
+    ).max(-1)
 
     _check_predicates(dict_predicates, dyn_ma.n_states)
 
@@ -259,6 +270,32 @@ def solve_ag2_policy(gamma: float | None = None, resolve: bool = False):
     return pol
 
 
+class ShouldResetTimer:
+    def __init__(self):
+        dyn, d_raw = parse_rooms(MAP, TMAX, ignore=".")
+        dyn_untimed = dyn
+        if isinstance(dyn, GridWorldTimed):
+            dyn_untimed = GridWorld((dyn.shape[0], dyn.shape[1]), dyn.drift_fn)
+        dyn_ma_ = GridWorldMA(dyn_untimed, n_agents=2)
+        d = {
+            "S": np.where(d_raw["S"], 1, -1)[:, :, -1],
+            "W": np.where(d_raw["W"], 1, -1)[:, :, -1],
+        }
+        d_flat = {k: v.flatten() for k, v in d.items()}
+
+        self.dyn_ma_ = dyn_ma_
+        self.d_flat = d_flat
+
+    def __call__(self, s_joint: StateInt, a: ActionInt, s_joint_next: StateInt) -> bool:
+        # Reset timer if agent 2 reaches S or reaches W. Check the next state.
+        agent_states = self.dyn_ma_.decode_joint_state(s_joint_next, which=jnp)
+        agent2_state = agent_states[1]
+        at_S = jnp.array(self.d_flat["S"])[agent2_state] > 0
+        at_W = jnp.array(self.d_flat["W"])[agent2_state] > 0
+        should_reset = at_S | at_W
+        return should_reset
+
+
 @app.default()
 def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = False):
     RESULTS_DIR.mkdir(exist_ok=True)
@@ -274,7 +311,6 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     logger.debug("Creating GridWorldMA")
     dyn_ma_ = GridWorldMA(dyn_untimed, n_agents=2)
     logger.debug("Creating GridWorldMATimed")
-    dyn_ma = GridWorldMATimed(dyn_ma_, t_max=TMAX, freeze_at_t_max=False)
 
     d = {
         "C": np.where(d_raw["C"], 1, -1)[:, :, -1],
@@ -288,6 +324,9 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
         "D": np.where(d_raw["D"], 1, -1)[:, :, -1],
         "w": np.where(d_raw["#"], 1, -1)[:, :, -1],
     }
+    d_flat = {k: v.flatten() for k, v in d.items()}
+
+    dyn_ma = GridWorldMATimed(dyn_ma_, t_max=TMAX, freeze_at_t_max=False, should_reset_timer=ShouldResetTimer())
 
     h, w, _ = dyn.shape
     logger.debug("dyn.shape: {}".format(dyn.shape))
@@ -300,8 +339,6 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
 
     # ------------------------------
 
-    d_flat = {k: v.flatten() for k, v in d.items()}
-
     logger.debug("dict predicates...")
     dict_predicates = {
         "C": flat_totimed(rew_to_ma(d_flat["C"], dyn_ma.n_agents, mode=0), t_max=TMAX),
@@ -311,23 +348,34 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
         "site": flat_totimed(rew_to_ma(d_flat["site"], dyn_ma.n_agents, mode=1), t_max=TMAX),
         "v": flat_totimed(rew_to_ma(d_flat["v"], dyn_ma.n_agents, mode=1), t_max=TMAX),
         "g": flat_totimed(rew_to_ma(d_flat["g"], dyn_ma.n_agents, mode=1), t_max=TMAX),
-        "w": flat_totimed(rew_to_ma(d_flat["w"], dyn_ma.n_agents, "max"), t_max=TMAX), # wall if either agent in wall.
+        "w": flat_totimed(rew_to_ma(d_flat["w"], dyn_ma.n_agents, "max"), t_max=TMAX),  # wall if either agent in wall.
         "collide": ma_collision_predicate(dyn_ma_, COLLIDE_DIST, t_max=TMAX, norm=1),
         "leash": ma_collision_predicate(dyn_ma_, 3, t_max=TMAX, norm=1),
+        "Tle40": dyn_ma.tle_predicate(40),
         "Tle50": dyn_ma.tle_predicate(50),
     }
     # Reach everything before Tle30.
-    dict_predicates["C"] = jnp.minimum(dict_predicates["C"], dict_predicates["Tle50"])
-    dict_predicates["T"] = jnp.minimum(dict_predicates["T"], dict_predicates["Tle50"])
-    dict_predicates["v"] = jnp.minimum(dict_predicates["v"], dict_predicates["Tle50"])
-    dict_predicates["g"] = jnp.minimum(dict_predicates["g"], dict_predicates["Tle50"])
+    dict_predicates["C"] = jnp.minimum(dict_predicates["C"], dict_predicates["Tle40"])
+    dict_predicates["T"] = jnp.minimum(dict_predicates["T"], dict_predicates["Tle40"])
+    dict_predicates["v"] = jnp.minimum(dict_predicates["v"], dict_predicates["Tle40"])
+    dict_predicates["g"] = jnp.minimum(dict_predicates["g"], dict_predicates["Tle40"])
+
+    # The GU predicates should be finite horizon.
+    dict_predicates["S"] = jnp.minimum(dict_predicates["S"], dict_predicates["Tle40"])
+    dict_predicates["W"] = jnp.minimum(dict_predicates["W"], dict_predicates["Tle40"])
 
     # Make the walls encode all the safety stuff for convenience.
-    dict_predicates["w"] = jnp.stack([dict_predicates["w"], -dict_predicates["leash"], dict_predicates["collide"]], axis=-1).max(-1)
+    dict_predicates["w"] = jnp.stack(
+        [dict_predicates["w"], -dict_predicates["leash"], dict_predicates["collide"]], axis=-1
+    ).max(-1)
 
     # Also, agent1 should never enter the site.
     site_agent1 = flat_totimed(rew_to_ma(d_flat["site"], dyn_ma.n_agents, mode=0), t_max=TMAX)
     dict_predicates["w"] = jnp.maximum(dict_predicates["w"], site_agent1)
+
+    # Add one for the finite time GU.
+    dict_predicates["GU_in_finite_time"] = dict_predicates["Tle50"]
+    dict_predicates["U_in_finite_time"] = dict_predicates["Tle40"]
 
     _check_predicates(dict_predicates, dyn_ma.n_states)
 
@@ -350,9 +398,19 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     value_tree_dag, dag_root = to_dag(
         TASK_SOURCE, ir_filename="rooms_discrete_ma_ir", dag_filename="rooms_discrete_ma_dag"
     )
-    dag_nodes = value_tree_dag.nodes
 
-    visualize_dag(value_tree_dag, [26], filename="dbg_safety_filter_ma", view=False)
+    # # Hack: if there are any reach-avoid nodes with a reach that is just a GU node, then make it min(TleX, GU) to
+    # # force the GU to be reached within finite tine.
+    # passes = [PassReachGUInFiniteTime, PassReachUInFiniteTime]
+    # for p_cls in passes:
+    #     changed = True
+    #     while changed:
+    #         p = p_cls(value_tree_dag)
+    #         dag_root, value_tree_dag, changed = p.run(dag_root)
+
+    visualize_dag(value_tree_dag, [dag_root], filename="rooms_discrete_ma_dag_new", view=False, hide_avoid=True)
+
+    dag_nodes = value_tree_dag.nodes
 
     # -----------------------------
     # Solve.
@@ -363,6 +421,14 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
 
     pol_ag1 = solve_ag1_policy(gamma=gamma, resolve=resolve_nom)
     pol_ag2 = solve_ag2_policy(gamma=gamma, resolve=resolve_nom)
+
+    # -----------------------------
+    # DEBUG: dag_id = 26 is a ReachAvoid. See how many states at t=60 have value>0.
+    dag_id = 26
+    T_val = dict_vars[dag_id].reshape(dyn_ma._timed_shape)
+    n_positive = (T_val[:, -1] > 0).sum()
+    logger.debug(f"Number of states with positive value at t=TMAX: {n_positive}")
+    ipdb.set_trace()
 
     # -----------------------------
     rng = np.random.default_rng(seed=12345)
@@ -404,6 +470,7 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     # Rollout safety filter.
     state = start_state
     Tp1_states = [state]
+    Tp1_nodes = [dag_root]
     T_a_nom = []
     T_a_filt = []
     T_hasfiltered = []
@@ -411,31 +478,33 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     for kk in range(80):
         logger.debug(f"> kk={kk}")
 
-        s_joint, _ = dyn_ma.decode_timed_state(state, which=np)
-        state_ag1, state_ag2 = dyn_ma_.decode_joint_state(s_joint, which=np)
-        state_ag1_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag1)]
-        state_ag2_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag2)]
-        logger.debug("    Current state: agent1 at {}, agent2 at {}".format(state_ag1_tup, state_ag2_tup))
+        # s_joint, _ = dyn_ma.decode_timed_state(state, which=np)
+        # state_ag1, state_ag2 = dyn_ma_.decode_joint_state(s_joint, which=np)
+        # state_ag1_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag1)]
+        # state_ag2_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag2)]
+        # logger.debug("    Current state: agent1 at {}, agent2 at {}".format(state_ag1_tup, state_ag2_tup))
+        #
+        # logger.debug("    Agent 1 policy...")
+        # a_nom_ag1_joint, ag1_isdone = pol_ag1.get_action(s_joint, which=np, kk=kk, debug=True)
+        # logger.debug("    Agent 1 policy... done!")
+        # if ag1_isdone:
+        #     logger.debug("    Agent 1 policy is done. Using no-op.")
+        #     a_nom_ag1 = dyn_untimed.str_to_action(".")
+        # else:
+        #     a_nom_ag1 = dyn_ma_.decode_joint_action(a_nom_ag1_joint, which=np)[0]
+        #
+        # logger.debug("    Agent 2 policy...")
+        # a_nom_ag2_joint, ag2_isdone = pol_ag2.get_action(s_joint)
+        # logger.debug("    Agent 2 policy... done! {}".format(dyn_ma_.action_to_str(a_nom_ag2_joint)))
+        # a_nom_ag2 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[1]
+        #
+        # a_nom = dyn_ma_.encode_joint_action([a_nom_ag1, a_nom_ag2], which=np)
+        #
+        # if a_nom_ag1 == dyn_untimed.str_to_action(".") and a_nom_ag2 == dyn_untimed.str_to_action("."):
+        #     logger.debug("Both agents want to stay still!")
+        #     a_nom = a_nom_ag2_joint
 
-        logger.debug("    Agent 1 policy...")
-        a_nom_ag1_joint, ag1_isdone = pol_ag1.get_action(s_joint, which=np, kk=kk, debug=True)
-        logger.debug("    Agent 1 policy... done!")
-        if ag1_isdone:
-            logger.debug("    Agent 1 policy is done. Using no-op.")
-            a_nom_ag1 = dyn_untimed.str_to_action(".")
-        else:
-            a_nom_ag1 = dyn_ma_.decode_joint_action(a_nom_ag1_joint, which=np)[0]
-
-        logger.debug("    Agent 2 policy...")
-        a_nom_ag2_joint, ag2_isdone = pol_ag2.get_action(s_joint)
-        logger.debug("    Agent 2 policy... done! {}".format(dyn_ma_.action_to_str(a_nom_ag2_joint)))
-        a_nom_ag2 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[1]
-
-        a_nom = dyn_ma_.encode_joint_action([a_nom_ag1, a_nom_ag2], which=np)
-
-        if a_nom_ag1 == dyn_untimed.str_to_action(".") and a_nom_ag2 == dyn_untimed.str_to_action("."):
-            logger.debug("Both agents want to stay still!")
-            a_nom = a_nom_ag2_joint
+        a_nom = dyn_ma_.str_to_action(".|.")
 
         a_safe = safety_filter.filter_action(state, a_nom, preference_fn)
         hasfiltered = a_safe != a_nom
@@ -444,6 +513,7 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
         T_a_nom.append(a_nom)
         T_a_filt.append(a_safe)
         Tp1_states.append(state)
+        Tp1_nodes.append(safety_filter.cur_node_id)
         T_hasfiltered.append(hasfiltered)
 
     T_hasfiltered = np.array(T_hasfiltered)
@@ -465,9 +535,15 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     kk_text = _make_overlay_text(ax, 0.02, 0.98, ha="left", va="top")
     # Bottom right corner.
     debug_text = ax.text(
-        0.98, 0.02, "", transform=ax.transAxes,
-        verticalalignment="bottom", horizontalalignment="right",
-        color="white", fontsize=8, fontname="DejaVu Sans",
+        0.98,
+        0.02,
+        "",
+        transform=ax.transAxes,
+        verticalalignment="bottom",
+        horizontalalignment="right",
+        color="white",
+        fontsize=8,
+        fontname="DejaVu Sans",
         bbox=dict(facecolor="black", alpha=0.5, pad=2),
     )
 
@@ -489,11 +565,17 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
 
         kk_text.set_text(f"Step {kk: 3}")
 
+        cur_node = Tp1_nodes[kk]
+
         # Show the nominal action and the filtered action.
         a_nom_str = dyn_ma_.action_to_str(T_a_nom[kk])
         a_safe_str = dyn_ma_.action_to_str(T_a_filt[kk])
         has_filtered = int(T_hasfiltered[kk])
-        debug_text.set_text("Nom : {}\nSafe: {}\nfiltered: {}".format(a_nom_str, a_safe_str, has_filtered))
+        debug_text.set_text(
+            "Timer: {}\nNode: {}\nNom : {}\nSafe: {}\nfiltered: {}".format(
+                tt, cur_node, a_nom_str, a_safe_str, has_filtered
+            )
+        )
 
         return agent_dots + [kk_text, debug_text]
 

@@ -6,6 +6,7 @@ import numpy as np
 import tqdm
 from dvi.dynamics.discrete import DiscreteDyn
 from dvi.dynamics.gridworld import GridWorld
+from dvi.dynamics.gridworld_ma_timed import GridWorldMATimed
 from loguru import logger
 from typing import Protocol
 
@@ -182,6 +183,19 @@ class SafetyFilter:
 
         # End of while.
         logger.debug(f"End at node {self.cur_node_id} ({self.dag_nodes[self.cur_node_id]}). Current value: {current_value}")
+
+        # if self.cur_node_id == 26:
+        #     assert isinstance(node, DAGReachAvoid)
+        #     reach_idx = node.reach
+        #     reach_node = dag_nodes[reach_idx]
+        #     assert isinstance(reach_node, DAGMinN)
+        #     dyn_ma: GridWorldMATimed = self.dyn
+        #
+        #     s_joint_, tt_ = dyn_ma.decode_timed_state(state)
+        #
+        #     reach_node_value = self.dict_vars[reach_idx][state]
+        #     logger.warning(f"reach_node value: {reach_node_value}")
+        #     ipdb.set_trace()
 
         # At this point, we have reached a temporal operator. Choose the action associated with this node.
         if action_dict is None:

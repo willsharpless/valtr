@@ -466,7 +466,8 @@ def lower_ir_to_dag(
 
     root_arg_ids = get_and_args_list(root_node, root)
 
-    # 1: Extract the top-level AND arguments, separate it into the GU, U and G parts.
+    # 1: Extract the top-level AND arguments, separate it into the UG, GU, U and G parts.
+    UG_args: list[TemporalBinary] = []
     GU_args: list[TemporalBinary] = []
     U_args: list[TemporalBinary] = []
     G_args_id: list[IRId] = []
@@ -478,7 +479,13 @@ def lower_ir_to_dag(
             case TemporalBinary(kind=BinaryIROpKind.UNTIL, left=left, right=right, interval=iv, span=_):
                 if iv is not None:
                     raise LoweringError("Timed UNTIL not supported")
-                U_args.append(node)
+
+                # If right side is a G, then it's a UG.
+                node_right = irb.nodes[right]
+                if isinstance(node_right, TemporalUnary) and node_right.kind == UnaryIROpKind.GLOBALLY:
+                    UG_args.append(node)
+                else:
+                    U_args.append(node)
             case TemporalUnary(kind=UnaryIROpKind.GLOBALLY, arg=arg_id, interval=iv, span=_):
                 if iv is not None:
                     raise LoweringError("Timed GLOBALLY not supported")
@@ -524,7 +531,10 @@ def lower_ir_to_dag(
         G_dag_args = [lower_bool_leaf_expr_to_dag(irb, dag, gid) for gid in G_args_id]
         G_dag_arg = dag.min_n(G_dag_args)
 
-    dag_id = lower_ir_to_dag_(irb, dag, U_args, GU_args, G_dag_arg)
+    if len(UG_args) > 1:
+        raise NotImplementedError("Multiple UG not supported yet.")
+
+    dag_id = lower_ir_to_dag_(irb, dag, U_args, UG_args, GU_args, G_dag_arg)
 
     if len(outside_args) > 0:
         # AND with outside args.
@@ -537,6 +547,7 @@ def lower_ir_to_dag_(
     irb: IRBuilder,
     dag: DagBuilder,
     U_args: list[TemporalBinary],
+    UG_args: list[TemporalBinary],
     GU_args: list[TemporalBinary],
     G_arg_dag: DAGId,
 ) -> DAGId:
@@ -549,8 +560,11 @@ def lower_ir_to_dag_(
 
     AND is min, OR is max
     """
+    if len(UG_args) > 1:
+        raise NotImplementedError("Multiple UG not supported yet.")
+
     # Base case: U_args is empty.
-    if len(U_args) == 0:
+    if len(U_args) == 0 and len(UG_args) == 0:
         return lower_ir_to_dag_GU(irb, dag, GU_args, G_arg_dag)
 
     # Construct q_tilde.
@@ -565,12 +579,24 @@ def lower_ir_to_dag_(
     #     AND_j q_j
     q_tilde_ands_U = [lower_bool_leaf_expr_to_dag(irb, dag, node.left) for node in U_args]
 
+    #     AND_j q_j (from UG)
+    q_tilde_ands_UG = [lower_bool_leaf_expr_to_dag(irb, dag, node.left) for node in UG_args]
+
     #     AND q_G
-    q_tilde_args = q_tilde_ands_GU + q_tilde_ands_U
+    q_tilde_args = q_tilde_ands_GU + q_tilde_ands_U + q_tilde_ands_UG
     G_arg_node = dag.nodes[G_arg_dag]
     if not (isinstance(G_arg_node, DAGConst) and G_arg_node.value is True):
         q_tilde_ands_G = [G_arg_dag]
         q_tilde_args += q_tilde_ands_G
+
+    if len(U_args) == 0 and len(UG_args) == 1:
+        assert len(GU_args) == 0, "GU not supported when have UG yet."
+        UG_arg = UG_args[0]
+        left = lower_bool_leaf_expr_to_dag(irb, dag, UG_arg.left)
+        _, right = lower_ir_to_dag(irb, UG_arg.right, dag=dag, nested=True)
+
+        q_tilde = dag.min_n([*q_tilde_args, left])
+        return dag.reachavoid(reach=right, stay=q_tilde)
 
     q_tilde = dag.min_n(q_tilde_args)
 
@@ -584,8 +610,21 @@ def lower_ir_to_dag_(
             _, r_j = lower_ir_to_dag(irb, node.right, dag=dag, nested=True)
 
         U_args_without_j = [node for ii, node in enumerate(U_args) if ii != jj]
-        V_without_j = lower_ir_to_dag_(irb, dag, U_args_without_j, GU_args, G_arg_dag)
-        r_tilde_maxs.append(dag.min_n([r_j, V_without_j]))
+
+        # if len(U_args) == 1:
+        #     UG_args_ = []
+        # else:
+        #     UG_args_ = UG_args
+
+        V_without_j = lower_ir_to_dag_(irb, dag, U_args_without_j, UG_args, GU_args, G_arg_dag)
+        r_tilde_maxs_list = [r_j, V_without_j]
+
+        # if len(U_args) == 1 and len(UG_args) == 1:
+        #     UG_arg = UG_args[0]
+        #     _, UG_r = lower_ir_to_dag(irb, UG_arg.right, dag=dag, nested=True)
+        #     r_tilde_maxs_list.append(UG_r)
+
+        r_tilde_maxs.append(dag.min_n(r_tilde_maxs_list))
 
     if len(r_tilde_maxs) == 0:
         raise ValueError("Why U_args empty")
