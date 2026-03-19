@@ -215,6 +215,21 @@ class SafetyFilter:
             n_costs = preference_fn(state, a_nom)
             n_costs = np.where(a_isactionsafe, n_costs, np.inf)
             action_filtered = np.argmin(n_costs)
+
+            ## more sophisticated preference strategy
+            # safe_actions = np.flatnonzero(a_isactionsafe)
+            # safe_costs = np.asarray(n_costs)[safe_actions]
+
+            # safe_next_states = np.array([int(self.dyn.step(state, int(action), which=np)) for action in safe_actions], dtype=np.int32)
+            # safe_next_values = np.asarray(self.dict_vars[self.cur_node_id])[safe_next_states]
+
+            # min_cost = np.min(safe_costs)
+            # tol = 1e-6
+            # candidate_mask = safe_costs <= (min_cost + tol)
+            # candidate_actions = safe_actions[candidate_mask]
+            # candidate_values = safe_next_values[candidate_mask]
+
+            # action_filtered = int(candidate_actions[np.argmax(candidate_values)])
             return action_filtered
         else:
             return action_optpol
