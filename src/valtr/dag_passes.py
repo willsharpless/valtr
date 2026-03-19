@@ -573,3 +573,132 @@ class PassKeepReachable(DagRewriter):
 
     def run(self, root: DAGId) -> Tuple[DAGId, DagBuilder, bool]:
         return super().run(root)
+
+class PassReachUInFiniteTime(DagRewriter):
+    """If there are any reach-avoid nodes, then make the avoid parts have a min(TleX, ...). """
+    def visit(self, rid: DAGId) -> DAGId:
+        i = rid
+        if i in self.memo:
+            return self.memo[i]
+        n = self.src.nodes[i]
+
+        var_name = "U_in_finite_time"
+
+        if not isinstance(n, DAGReachAvoid):
+            out = super().visit(rid)
+            self.memo[i] = out
+            return out
+
+        reach_id = n.reach
+        avoid_id = n.avoid
+
+        avoid_node = self.src.nodes[avoid_id]
+        if isinstance(avoid_node, DAGMinN):
+            has_var = False
+            for a_id in avoid_node.args:
+                a_node = self.src.nodes[a_id]
+                if isinstance(a_node, DAGVar) and a_node.name == var_name:
+                    has_var = True
+                    break
+
+            if not has_var:
+                # Rebuild avoid args.
+                new_avoid_args = [self.visit(a_id) for a_id in avoid_node.args]
+
+                new_avoid = self.dst.min_n([*new_avoid_args, self.dst.var(var_name)])
+                new_reach = self.visit(reach_id)
+                out = self.dst.reachavoid(reach=new_reach, stay=new_avoid)
+                self.changed = True
+                self.memo[i] = out
+                return out
+        else:
+            new_avoid = self.dst.min_n([self.visit(avoid_id), self.dst.var(var_name)])
+            new_reach = self.visit(reach_id)
+            out = self.dst.reachavoid(reach=new_reach, stay=new_avoid)
+            self.changed = True
+            self.memo[i] = out
+            return out
+
+        out = super().visit(rid)
+        self.memo[i] = out
+        return out
+
+
+class PassReachGUInFiniteTime(DagRewriter):
+    """
+    if there are any reach-avoid nodes with a reach that is just a GU node, then make it min(TleX, GU) to
+    force the GU to be reached within finite tine.
+    """
+    def visit(self, rid: DAGId) -> DAGId:
+        i = rid
+        if i in self.memo:
+            return self.memo[i]
+        n = self.src.nodes[i]
+
+        var_name = "GU_in_finite_time"
+
+        if isinstance(n, DAGGUSingle):
+            # Add a GU_in_finite_time variable to the GU node if it doesn't already have one.
+            avoid_idx = n.avoid
+            avoid_node = self.src.nodes[avoid_idx]
+            if isinstance(avoid_node, DAGMinN):
+                has_var = False
+                for a_id in avoid_node.args:
+                    a_node = self.src.nodes[a_id]
+                    if isinstance(a_node, DAGVar) and a_node.name == var_name:
+                        has_var = True
+                        break
+
+                if not has_var:
+                    # Rebuild avoid args.
+                    new_avoid_args = [self.visit(a_id) for a_id in avoid_node.args]
+
+                    new_avoid = self.dst.min_n([*new_avoid_args, self.dst.var(var_name)])
+                    new_reach = self.visit(n.reach)
+                    out = self.dst.GU_single(new_reach, new_avoid)
+                    self.changed = True
+                    self.memo[i] = out
+                    return out
+            else:
+                new_avoid = self.dst.min_n([self.visit(avoid_idx), self.dst.var(var_name)])
+                new_reach = self.visit(n.reach)
+                out = self.dst.GU_single(new_reach, new_avoid)
+                self.changed = True
+                self.memo[i] = out
+                return out
+
+            # Manually rebuild.
+            rebuilt_reach = super().visit(n.reach)
+            rebuilt_avoid = super().visit(n.avoid)
+            out = self.dst.GU_single(rebuilt_reach, rebuilt_avoid)
+            self.memo[i] = out
+            return out
+
+        if not isinstance(n, DAGReachAvoid):
+            out = super().visit(rid)
+            self.memo[i] = out
+            return out
+
+        reach_id = n.reach
+        reach_node = self.src.nodes[reach_id]
+        if not isinstance(reach_node, DAGGUMinN):
+            out = super().visit(rid)
+            self.memo[i] = out
+            return out
+
+        # If we get here, we have a ReachAvoid with a GU reach. Modify it to min(LE, GU).
+        rebuilt_avoid = self.visit(n.avoid)
+
+        rebuilt_gu = self.visit(reach_id)
+
+        # Create a var.
+        GU_guard_id = self.dst.var(var_name)
+        reach_id_new = self.dst.min_n([GU_guard_id, rebuilt_gu])
+
+        # Also do a min on the avoid.
+        avoid_new = self.dst.min_n([rebuilt_avoid, rebuilt_gu])
+
+        out = self.dst.reachavoid(reach=reach_id_new, stay=avoid_new)
+        self.changed = True
+        self.memo[i] = out
+        return out
