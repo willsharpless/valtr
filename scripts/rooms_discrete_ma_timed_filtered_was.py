@@ -52,15 +52,15 @@ app = cyclopts.App()
 
 MAP = """
 ############
-#EE.#  # s #
-#EE.# g#  s#
+#EE.#gg# s #
+#EE.#gg#  s#
 ###.#  ### #
 #...# ##   #
 #.#.d      #
 #...# # ####
 #FF.# # #  #
 #FF.#     A#
-#dd## #   A#
+##d## #   A#
 #     #K#  #
 ############
 """
@@ -70,16 +70,16 @@ MAP = """
 # TASK_SOURCE_AG1 = TASK_SOURCE
 # TASK_SOURCE_AG2 = TASK_SOURCE
 
-## refactored version
+## new version
 TAIL = "(!w) U G( ( (site && !w) U (site && !w && saw)) && ( (site && !w) U (site && !w && wood)) )"
 # TASK_SOURCE = "((!site && !w) U (gear && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(TAIL)
-# TASK_SOURCE = "((!site && !w) U (gear && !w)) && ({})".format(TAIL)
-TASK_SOURCE = "((!site && !w) U (gear && !w))"
+TASK_SOURCE = "((!site && !w) U (gear && !w)) && (!d U k) && ({}) && (!w) U ( (r1 || r2) && !w )".format(TAIL)
+# TASK_SOURCE = "((!site && !w) U (gear && !w))"
 
 TASK_SOURCE_AG1 = "(!w && !collide) U r1"
-TASK_SOURCE_AG2 = "((!site && !w) U (gear && !w)) && ({})".format(TAIL)
+TASK_SOURCE_AG2 = "((!site && !w) U (gear && !w)) && (!d U k) && ({})".format(TAIL)
 
-# # TASK_SOURCE_AG1 = "((!site && !w) U (gear && !w)) && ({})".format(TAIL)
+# # TASK_SOURCE_AG1 = "((!site && !w) U (gear && !w)) && (!d U k) && ({})".format(TAIL)
 # # TASK_SOURCE_AG2 = "(!w && !collide) U r2"
 
 TMAX = 100
@@ -159,7 +159,8 @@ def make_room_cmap(d_raw_viz: dict[str, np.ndarray]) -> tuple[np.ndarray, Listed
         colors[list(d_raw_viz.keys()).index("d")] = np.array([0.05, 0.05, 0.05, 1.0])
 
     if "g" in d_raw_viz:
-        colors[list(d_raw_viz.keys()).index("g")] = np.array([77 / 255, 114 / 255, 176 / 255, 1.0])
+        # colors[list(d_raw_viz.keys()).index("g")] = np.array([0.302, 0.447, 0.690, 1.0])
+        colors[list(d_raw_viz.keys()).index("g")] = np.array([0.361, 0.518, 0.804, 1.0])
 
     if "#" in d_raw_viz:
         colors[list(d_raw_viz.keys()).index("#")] = np.array([0.33714769, 0.41920711, 0.54334937, 1.0])
@@ -173,7 +174,7 @@ def make_room_cmap(d_raw_viz: dict[str, np.ndarray]) -> tuple[np.ndarray, Listed
     return empty_map, ListedColormap(colors)
 
 @app.default()
-def main(gamma: float | None = None, resolve: bool = False):
+def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = False):
     RESULTS_DIR.mkdir(exist_ok=True)
 
     logger.debug("Parsing...")
@@ -190,7 +191,7 @@ def main(gamma: float | None = None, resolve: bool = False):
         "saw": np.where(get_mask("E"), 1, -1)[:, :, -1],
         "wood": np.where(get_mask("F"), 1, -1)[:, :, -1],
         "gear": np.where(get_mask("g"), 1, -1)[:, :, -1],
-        "site": np.where(get_mask("."), 1, -1)[:, :, -1],
+        "site": np.where(get_mask(".") | d_raw["E"] | d_raw["F"], 1, -1)[:, :, -1],
         "k": np.where(get_mask("K"), 1, -1)[:, :, -1],
         "d": np.where(get_mask("D"), 1, -1)[:, :, -1],
         "w": np.where(get_mask("#"), 1, -1)[:, :, -1],
@@ -240,55 +241,29 @@ def main(gamma: float | None = None, resolve: bool = False):
         "r3": flat_totimed(rew_to_ma(d_flat["r3"], dyn_ma.n_agents, "max"), t_max=TMAX),
         "saw": flat_totimed(rew_to_ma(d_flat["saw"], dyn_ma.n_agents, "min"), t_max=TMAX),
         "wood": flat_totimed(rew_to_ma(d_flat["wood"], dyn_ma.n_agents, "min"), t_max=TMAX),
-        "gear": flat_totimed(rew_to_ma(d_flat["gear"], dyn_ma.n_agents, "max"), t_max=TMAX),
+        "gear": flat_totimed(rew_to_ma(d_flat["gear"], dyn_ma.n_agents, "min"), t_max=TMAX),
         "site": flat_totimed(rew_to_ma(d_flat["site"], dyn_ma.n_agents, "max"), t_max=TMAX),
         "k": flat_totimed(rew_to_ma(d_flat["k"], dyn_ma.n_agents, "max"), t_max=TMAX),
         "d": flat_totimed(rew_to_ma(d_flat["d"], dyn_ma.n_agents, "max"), t_max=TMAX),
         "w": flat_totimed(rew_to_ma(d_flat["w"], dyn_ma.n_agents, "max"), t_max=TMAX),
         "collide": ma_collision_predicate(dyn_ma_, collide_dist, t_max=TMAX),
         "distant": flat_totimed(ma_distance_predicate(dyn_ma_, 2 * collide_dist), t_max=TMAX),
-        "leash": ma_collision_predicate(dyn_ma_, 3, t_max=TMAX, norm=1),
+        "leash": ma_collision_predicate(dyn_ma_, 2, t_max=TMAX, norm=1),
         "TleTMAX": dyn_ma.tle_predicate(TMAX),
     }
     
-    # # Reach everything before TMAX.
-    # dict_predicates["r1"] = jnp.minimum(dict_predicates["r1"], dict_predicates["TleTMAX"])
-    # dict_predicates["r2"] = jnp.minimum(dict_predicates["r2"], dict_predicates["TleTMAX"])
-    # dict_predicates["gear"] = jnp.minimum(dict_predicates["gear"], dict_predicates["TleTMAX"])
+    # Reach everything before TMAX.
+    dict_predicates["r1"] = jnp.minimum(dict_predicates["r1"], dict_predicates["TleTMAX"])
+    dict_predicates["r2"] = jnp.minimum(dict_predicates["r2"], dict_predicates["TleTMAX"])
+    dict_predicates["gear"] = jnp.minimum(dict_predicates["gear"], dict_predicates["TleTMAX"])
 
-    # # Make the walls encode all the safety stuff for convenience.
-    # dict_predicates["w"] = jnp.stack([dict_predicates["w"], -dict_predicates["leash"], dict_predicates["collide"]], axis=-1).max(-1)
+    # Make the walls encode all the safety stuff for convenience.
+    dict_predicates["w"] = jnp.stack([dict_predicates["w"], -dict_predicates["leash"], dict_predicates["collide"]], axis=-1).max(-1)
     
     for key, value in dict_predicates.items():
         assert value.ndim == 1 and value.shape[0] == dyn_ma.n_states, f"Predicate {key} has wrong shape {value.shape}"
 
-    pkl_path = RESULTS_DIR / "rooms_discrete_ma_timed_was_sol.pkl"
-    # if resolve or not pkl_path.exists():
-    #     dict_vars, dict_actions, dict_GU_vars, dict_GU_actions = solve_discrete(
-    #         dyn_ma, dag_nodes, dict_predicates, gamma=gamma
-    #     )
-    #     extras = {
-    #         "task_source": TASK_SOURCE,
-    #         "dict_predicates": dict_predicates,
-    #         "gamma": gamma,
-    #         "d_raw": d_raw,
-    #     }
-    #     save_discrete_sol(
-    #         pkl_path,
-    #         dyn_ma,
-    #         dag_nodes,
-    #         dag_root,
-    #         dict_vars,
-    #         dict_actions,
-    #         dict_GU_vars,
-    #         dict_GU_actions,
-    #         extras=extras,
-    #     )
-
-    # dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = load_discrete_sol(
-    #     pkl_path
-    # )
-
+    # Solve and save or load the solution.
     pkl_path = RESULTS_DIR / f"rooms_discrete_ma_timed_was_sol.pkl"
     dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = _solve_and_cache(
         dyn_ma, dag_nodes, dag_root, dict_predicates, pkl_path, TASK_SOURCE, d_raw, gamma, resolve
@@ -296,22 +271,64 @@ def main(gamma: float | None = None, resolve: bool = False):
 
     # Make Agent Nominal Policies
     def solve_ag_policy(policy_task_source: str, ag_tag: str, gamma: float | None = None, resolve: bool = False):
+
+        dyn, d_raw = parse_rooms(MAP)
+        dyn_ma_ = GridWorldMA(dyn, n_agents=2)
+
+        empty_mask = np.zeros_like(d_raw["#"], dtype=bool)
+        get_mask = lambda key: d_raw.get(key, empty_mask)
+
+        d = {
+            "r1": np.where(get_mask("A"), 1, -1),
+            "r2": np.where(get_mask("B"), 1, -1),
+            "r3": np.where(get_mask("C"), 1, -1),
+            "saw": np.where(get_mask("E"), 1, -1),
+            "wood": np.where(get_mask("F"), 1, -1),
+            "gear": np.where(get_mask("g"), 1, -1),
+            "site": np.where(get_mask(".") | d_raw["E"] | d_raw["F"], 1, -1),
+            "k": np.where(get_mask("K"), 1, -1),
+            "d": np.where(get_mask("D"), 1, -1),
+            "w": np.where(get_mask("#"), 1, -1),
+            "<": np.where(get_mask("<"), 1, -1),
+            ">": np.where(get_mask(">"), 1, -1),
+            "^": np.where(get_mask("^"), 1, -1),
+        }
+        d_flat = {k: v.flatten() for k, v in d.items()}
+        
+        dict_predicates = {
+            "r1": rew_to_ma(d_flat["r1"], dyn_ma_.n_agents, mode=0), # ag 0 to A
+            "r2": rew_to_ma(d_flat["r2"], dyn_ma_.n_agents, mode=1), # ag 1 to B
+            "r3": rew_to_ma(d_flat["r3"], dyn_ma_.n_agents, "max"),
+            "saw": rew_to_ma(d_flat["saw"], dyn_ma_.n_agents, "min"),
+            "wood": rew_to_ma(d_flat["wood"], dyn_ma_.n_agents, "min"),
+            "gear": rew_to_ma(d_flat["gear"], dyn_ma_.n_agents, "min"),
+            "site": rew_to_ma(d_flat["site"], dyn_ma_.n_agents, "max"),
+            "k": rew_to_ma(d_flat["k"], dyn_ma_.n_agents, "max"),
+            "d": rew_to_ma(d_flat["d"], dyn_ma_.n_agents, "max"),
+            "w": rew_to_ma(d_flat["w"], dyn_ma_.n_agents, "max"),
+            "collide": ma_collision_predicate(dyn_ma_, collide_dist),
+            "distant": ma_distance_predicate(dyn_ma_, 2 * collide_dist),
+            "leash": ma_collision_predicate(dyn_ma_, 2, norm=1),
+            # "TleTMAX": dyn_ma_.tle_predicate(TMAX),
+        }
+        dict_predicates["w"] = jnp.stack([dict_predicates["w"], dict_predicates["collide"]], axis=-1).max(-1)
+
         # Decompose
         value_tree_dag, dag_root = to_dag(
-            policy_task_source, ir_filename="rooms_discrete_ma_ag1_ir", dag_filename="rooms_discrete_ma_ag1_dag"
+            policy_task_source, ir_filename=f"rooms_discrete_ma_ag{ag_tag}_ir", dag_filename=f"rooms_discrete_ma_ag{ag_tag}_dag"
         )
         dag_nodes = value_tree_dag.nodes
 
         # Solve.
-        pkl_path = RESULTS_DIR / f"safety_filter_ma_ag1_{ag_tag}_sol.pkl"
-        sol_dyn_ma, sol_dag_nodes, sol_dag_root, sol_dict_vars, sol_dict_actions, sol_dict_GU_vars, sol_dict_GU_actions, extras = _solve_and_cache(
-            dyn_ma, dag_nodes, dag_root, dict_predicates, pkl_path, policy_task_source, d_raw, gamma, resolve
+        pkl_path = RESULTS_DIR / f"safety_filter_ma_ag{ag_tag}_sol.pkl"
+        sol_dyn_ma_, sol_dag_nodes, sol_dag_root, sol_dict_vars, sol_dict_actions, sol_dict_GU_vars, sol_dict_GU_actions, extras = _solve_and_cache(
+            dyn_ma_, dag_nodes, dag_root, dict_predicates, pkl_path, policy_task_source, d_raw, gamma, resolve
         )
 
-        return MinTimePolicy(sol_dyn_ma, sol_dag_nodes, sol_dag_root, sol_dict_vars, sol_dict_actions, sol_dict_GU_vars, sol_dict_GU_actions)
+        return MinTimePolicy(sol_dyn_ma_, sol_dag_nodes, sol_dag_root, sol_dict_vars, sol_dict_actions, sol_dict_GU_vars, sol_dict_GU_actions)
     
-    pol_ag1 = solve_ag_policy(TASK_SOURCE_AG1, "0", gamma=gamma, resolve=resolve)
-    pol_ag2 = solve_ag_policy(TASK_SOURCE_AG2, "1", gamma=gamma, resolve=resolve)
+    pol_ag1 = solve_ag_policy(TASK_SOURCE_AG1, "0", gamma=gamma, resolve=resolve_nom)
+    pol_ag2 = solve_ag_policy(TASK_SOURCE_AG2, "1", gamma=gamma, resolve=resolve_nom)
     safety_filter = SafetyFilter(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
 
     # ---------------------------------------------------------------------
@@ -400,78 +417,83 @@ def main(gamma: float | None = None, resolve: bool = False):
     # Rollout optimal policy for spec (no filtering)
 
     rollouter = MinTimeRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
-    Tp1_states, T_actions, T_curnode_idxs = rollouter.rollout(start_state, max_steps=TMAX)
+    # Tp1_states, T_actions, T_curnode_idxs = rollouter.rollout(start_state, max_steps=TMAX)
 
-    # # ---------------------------------------------------------------------
-    # # Rollout safety filter.
-    # state = start_state
-    # Tp1_states = [state]
-    # T_a_nom = []
-    # T_a_filt = []
-    # T_hasfiltered = []
+    # ---------------------------------------------------------------------
+    # Rollout safety filter.
+    state = start_state
+    Tp1_states = [state]
+    T_a_nom = []
+    T_a_filt = []
+    T_hasfiltered = []
+    T_curnode_idxs = []
 
-    # def preference_fn(_: StateInt, a_nom_: ActionInt) -> np.ndarray:
-    #     # If agent1 is staying still, then prefer actions where the agent2 action matches a_nom_.
-    #     # Otherwise, prefer actions where agent1 action matches a_nom_.
-    #     N_actions = dyn_ma_.decode_joint_action(a_nom_, which=np)
-    #     assert N_actions.shape == (2,)
-    #     a1_nom, a2_nom = N_actions
+    def preference_fn(_: StateInt, a_nom_: ActionInt) -> np.ndarray:
+        # If agent1 is staying still, then prefer actions where the agent2 action matches a_nom_.
+        # Otherwise, prefer actions where agent1 action matches a_nom_.
+        N_actions = dyn_ma_.decode_joint_action(a_nom_, which=np)
+        assert N_actions.shape == (2,)
+        a1_nom, a2_nom = N_actions
 
-    #     STILL_ACTION = dyn_ma_.base.str_to_action(".")
+        STILL_ACTION = dyn_ma_.base.str_to_action(".")
 
-    #     costs = np.zeros(dyn_ma.n_actions, dtype=np.float32)
-    #     for a in range(dyn_ma.n_actions):
-    #         N_a = dyn_ma_.decode_joint_action(a, which=np)
-    #         a1, a2 = N_a
+        costs = np.zeros(dyn_ma.n_actions, dtype=np.float32)
+        for a in range(dyn_ma.n_actions):
+            N_a = dyn_ma_.decode_joint_action(a, which=np)
+            a1, a2 = N_a
 
-    #         if a1_nom == STILL_ACTION:  # Agent 1 is staying still
-    #             # Prefer actions where agent 2 matches a_nom_
-    #             costs[a] = 0.0 if a2 == a2_nom else 1.0
-    #         else:
-    #             # Prefer actions where agent 1 matches a_nom_
-    #             costs[a] = 0.0 if a1 == a1_nom else 1.0
+            if a1_nom == STILL_ACTION:  # Agent 1 is staying still
+                # Prefer actions where agent 2 matches a_nom_
+                costs[a] = 0.0 if a2 == a2_nom else 1.0
+            else:
+                # Prefer actions where agent 1 matches a_nom_
+                costs[a] = 0.0 if a1 == a1_nom else 1.0
 
-    #     return costs
+        logger.debug(f"Preference function called with a_nom={dyn_ma_.action_to_str(a_nom_, which=np)}")
+        logger.debug(f"Costs: {costs}")
+        return costs
 
-    # for kk in range(80):
-    #     logger.debug(f"> kk={kk}")
+    for kk in range(80):
+        logger.debug(f"> kk={kk}")
 
-    #     s_joint, _ = dyn_ma.decode_timed_state(state, which=np)
-    #     state_ag1, state_ag2 = dyn_ma_.decode_joint_state(s_joint, which=np)
-    #     state_ag1_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag1)]
-    #     state_ag2_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag2)]
-    #     logger.debug("    Current state: agent1 at {}, agent2 at {}".format(state_ag1_tup, state_ag2_tup))
+        s_joint, _ = dyn_ma.decode_timed_state(state, which=np)
+        state_ag1, state_ag2 = dyn_ma_.decode_joint_state(s_joint, which=np)
+        state_ag1_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag1)]
+        state_ag2_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag2)]
+        logger.debug("    Current state: agent1 at {}, agent2 at {}".format(state_ag1_tup, state_ag2_tup))
 
-    #     logger.debug("    Agent 1 policy...")
-    #     a_nom_ag1_joint, ag1_isdone = pol_ag1.get_action(s_joint, which=np, kk=kk, debug=True)
-    #     logger.debug("    Agent 1 policy... done!")
-    #     if ag1_isdone:
-    #         logger.debug("    Agent 1 policy is done. Using no-op.")
-    #         a_nom_ag1 = dyn_untimed.str_to_action(".")
-    #     else:
-    #         a_nom_ag1 = dyn_ma_.decode_joint_action(a_nom_ag1_joint, which=np)[0]
+        logger.debug("    Agent 1 policy...")
+        a_nom_ag1_joint, ag1_isdone = pol_ag1.get_action(s_joint, which=np, kk=kk, debug=True)
+        logger.debug("    Agent 1 policy... done!")
+        if ag1_isdone:
+            logger.debug("    Agent 1 policy is done. Using no-op.")
+            a_nom_ag1 = dyn_untimed.str_to_action(".")
+        else:
+            a_nom_ag1 = dyn_ma_.decode_joint_action(a_nom_ag1_joint, which=np)[0]
 
-    #     logger.debug("    Agent 2 policy...")
-    #     a_nom_ag2_joint, ag2_isdone = pol_ag2.get_action(s_joint)
-    #     logger.debug("    Agent 2 policy... done! {}".format(dyn_ma_.action_to_str(a_nom_ag2_joint)))
-    #     a_nom_ag2 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[1]
+        logger.debug("    Agent 2 policy...")
+        a_nom_ag2_joint, ag2_isdone = pol_ag2.get_action(s_joint)
+        logger.debug("    Agent 2 policy... done! {}".format(dyn_ma_.action_to_str(a_nom_ag2_joint)))
+        a_nom_ag2 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[1]
 
-    #     a_nom = dyn_ma_.encode_joint_action([a_nom_ag1, a_nom_ag2], which=np)
+        a_nom = dyn_ma_.encode_joint_action([a_nom_ag1, a_nom_ag2], which=np)
 
-    #     if a_nom_ag1 == dyn_untimed.str_to_action(".") and a_nom_ag2 == dyn_untimed.str_to_action("."):
-    #         logger.debug("Both agents want to stay still!")
-    #         a_nom = a_nom_ag2_joint
+        if a_nom_ag1 == dyn_untimed.str_to_action(".") and a_nom_ag2 == dyn_untimed.str_to_action("."):
+            logger.debug("Both agents want to stay still!")
+            a_nom = a_nom_ag2_joint
 
-    #     a_safe = safety_filter.filter_action(state, a_nom, preference_fn)
-    #     hasfiltered = a_safe != a_nom
-    #     state = dyn_ma.step(state, a_safe)
+        a_safe = safety_filter.filter_action(state, a_nom, preference_fn)
+        hasfiltered = a_safe != a_nom
+        state = dyn_ma.step(state, a_safe)
 
-    #     T_a_nom.append(a_nom)
-    #     T_a_filt.append(a_safe)
-    #     Tp1_states.append(state)
-    #     T_hasfiltered.append(hasfiltered)
+        T_a_nom.append(a_nom)
+        T_a_filt.append(a_safe)
+        Tp1_states.append(state)
+        T_hasfiltered.append(hasfiltered)
+        T_curnode_idxs.append(safety_filter.cur_node_id)
 
-    # T_hasfiltered = np.array(T_hasfiltered)
+
+    T_hasfiltered = np.array(T_hasfiltered)
 
     # ---------------------------------------------------------------------
 
