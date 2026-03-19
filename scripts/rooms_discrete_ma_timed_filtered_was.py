@@ -71,7 +71,8 @@ MAP = """
 
 ## base spec
 TAIL = "(!w) U G( ( (site && !w) U (site && !w && saw)) && ( (site && !w) U (site && !w && wood)) )"
-TASK_SOURCE = "((!site && !w) U (gear && !w)) && (!d U k) && ({}) && (!w) U ( (r1 || r2) && !w )".format(TAIL)
+# TASK_SOURCE = "((!site && !w) U (gear && !w)) && (!d U k) && ({}) && (!w) U ( (r1 || r2) && !w )".format(TAIL)
+TASK_SOURCE = "((!site && !w) U (gear && !w)) && (!d U k) && ({})".format(TAIL)
 
 ## agent 1 -> coffee
 TASK_SOURCE_AG1 = "(!w U r1) && ((!w && !d) U k) && ((!w && !site) U gear)"
@@ -108,6 +109,33 @@ def draw_room_map(fig, ax, empty_map, cmap, d_raw, w, h, alpha: float = 0.5):
     ax.tick_params(labelbottom=False, labelleft=False)
     ax.set_aspect("equal")
     ax.set_autoscale_on(False)
+
+    arrow_specs = {
+        ">": ((-0.33, 0.0), (0.33, 0.0)),
+        "<": ((0.33, 0.0), (-0.33, 0.0)),
+        "^": ((0.0, -0.33), (0.0, 0.33)),
+        "v": ((0.0, 0.33), (0.0, -0.33)),
+    }
+
+    for key, (start_delta, end_delta) in arrow_specs.items():
+        if key not in d_raw:
+            continue
+
+        mask = d_raw[key][:, :, -1] if d_raw[key].ndim == 3 else d_raw[key]
+        ys, xs = np.where(mask)
+        for y, x in zip(ys, xs):
+            arrow = FancyArrowPatch(
+                posA=(x + start_delta[0], y + start_delta[1]),
+                posB=(x + end_delta[0], y + end_delta[1]),
+                arrowstyle="->",
+                mutation_scale=12,
+                linewidth=1.0,
+                edgecolor="black",
+                facecolor="none",
+                fill=False,
+                zorder=3,
+            )
+            ax.add_patch(arrow)
 
 
 def make_room_cmap(d_raw_viz: dict[str, np.ndarray]) -> tuple[np.ndarray, ListedColormap]:
@@ -182,6 +210,112 @@ def make_room_cmap(d_raw_viz: dict[str, np.ndarray]) -> tuple[np.ndarray, Listed
         colors[list(d_raw_viz.keys()).index("2")] = np.array([147 / 255, 120 / 255, 96 / 255, 0.7])
 
     return empty_map, ListedColormap(colors)
+
+
+def decode_timed_joint_states(
+    Tp1_states: list[int] | np.ndarray,
+    dyn_ma: GridWorldMATimed,
+    dyn_ma_untimed: GridWorldMA,
+) -> np.ndarray:
+    decoded_joint_states = []
+    for joint_state in Tp1_states:
+        joint_state_untimed, _ = dyn_ma.decode_timed_state(int(joint_state), which=np)
+        decoded_joint_states.append(dyn_ma_untimed.decode_joint_state(int(joint_state_untimed), which=np))
+    return np.asarray(decoded_joint_states)
+
+
+def get_agent_plot_offsets(n_agents: int, offset_radius: float = 0.14) -> np.ndarray:
+    if n_agents == 1:
+        return np.zeros((1, 2))
+    if n_agents == 2:
+        return offset_radius * np.array([[1.0, 1.0], [-1.0, -1.0]]) / np.sqrt(2.0)
+
+    offset_angles = np.linspace(np.pi / 4.0, np.pi / 4.0 + 2.0 * np.pi, n_agents, endpoint=False)
+    return offset_radius * np.column_stack((np.cos(offset_angles), np.sin(offset_angles)))
+
+
+def compute_plot_segments(T_curnode_idxs: list[int] | np.ndarray, max_segment_plots: int = 4) -> list[tuple[int, int]]:
+    n_actions = len(T_curnode_idxs)
+    if n_actions == 0:
+        return []
+
+    switch_starts = [idx for idx in range(1, n_actions) if T_curnode_idxs[idx] != T_curnode_idxs[idx - 1]]
+    segment_starts = [0] + switch_starts
+
+    segments = []
+    for seg_idx, start in enumerate(segment_starts):
+        end = segment_starts[seg_idx + 1] if seg_idx + 1 < len(segment_starts) else n_actions
+        segments.append((start, end))
+
+    if len(segments) <= max_segment_plots:
+        return segments
+
+    return segments[: max_segment_plots - 1] + [(segments[max_segment_plots - 1][0], n_actions)]
+
+
+def save_rollout_still(
+    fig_path: pathlib.Path,
+    decoded_joint_states: np.ndarray,
+    state_start: int,
+    state_end: int,
+    node_ids: list[int] | np.ndarray,
+    draw_arrows: bool,
+    fig_size: tuple[float, float],
+    empty_map: np.ndarray,
+    cmap: ListedColormap,
+    d_raw_viz: dict[str, np.ndarray],
+    w: int,
+    h: int,
+    dyn_untimed: GridWorld,
+    agent_colors: list[str],
+):
+    fig_still, ax_still = plt.subplots(frameon=False, figsize=fig_size)
+    draw_room_map(fig_still, ax_still, empty_map, cmap, d_raw_viz, w, h, alpha=0.5)
+
+    n_agents = decoded_joint_states.shape[1]
+    node_cmap = plt.get_cmap("tab20", max(len(node_ids), 1))
+    agent_plot_offsets = get_agent_plot_offsets(n_agents)
+
+    for ii in range(n_agents):
+        agent_state_traj = decoded_joint_states[state_start : state_end + 1, ii]
+        coords = np.array([dyn_untimed.decode_state(int(state)) for state in agent_state_traj])
+        offset_y, offset_x = agent_plot_offsets[ii]
+        ys = coords[:, 0] + offset_y
+        xs = coords[:, 1] + offset_x
+        color = agent_colors[ii]
+
+        if len(xs) > 1:
+            ax_still.plot(xs, ys, color=color, linewidth=1.5, alpha=0.6, zorder=4)
+
+        if draw_arrows:
+            for step_idx in range(state_start, state_end):
+                local_idx = step_idx - state_start
+                start = np.array([xs[local_idx], ys[local_idx]], dtype=float)
+                end = np.array([xs[local_idx + 1], ys[local_idx + 1]], dtype=float)
+                delta = end - start
+                if np.allclose(delta, 0.0):
+                    continue
+
+                node_color = node_cmap(int(node_ids[step_idx]))
+                direction = delta / np.linalg.norm(delta)
+                shrink = 0.08 * direction
+                arrow = FancyArrowPatch(
+                    posA=tuple(start + shrink),
+                    posB=tuple(end - shrink),
+                    arrowstyle="-|>",
+                    mutation_scale=12,
+                    linewidth=0.5,
+                    facecolor=to_rgba(node_color, alpha=1.0),
+                    zorder=5,
+                )
+                ax_still.add_patch(arrow)
+
+        ax_still.plot(xs[0], ys[0], marker="o", color=color, ms=6, zorder=6)
+        if len(xs) > 1:
+            ax_still.plot(xs[-1], ys[-1], marker="s", color=color, ms=5, zorder=6)
+
+    fig_still.savefig(fig_path, dpi=200, pad_inches=0)
+    plt.close(fig_still)
 
 @app.default()
 def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = False):
@@ -425,12 +559,6 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
             start_state_untimed = int(rng.choice(feasible_states))
         start_state = dyn_ma.encode_timed_state(start_state_untimed, t=0)
 
-    # ---------------------------------------------------------------------------
-    # Rollout optimal policy for spec (no filtering)
-
-    rollouter = MinTimeRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
-    # Tp1_states, T_actions, T_curnode_idxs = rollouter.rollout(start_state, max_steps=TMAX)
-
     # ---------------------------------------------------------------------
     # Rollout safety filter.
     state = start_state
@@ -547,6 +675,12 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
 
     T_hasfiltered = np.array(T_hasfiltered)
 
+    # ---------------------------------------------------------------------------
+    # Rollout optimal policy for spec (no filtering)
+
+    rollouter = MinTimeRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
+    Tp1_states, T_actions, T_curnode_idxs = rollouter.rollout(start_state, max_steps=TMAX)
+
     # ---------------------------------------------------------------------
 
     n_frames = len(Tp1_states)
@@ -590,63 +724,43 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     anim.save(str(RESULTS_DIR / "rooms_discrete_rollout_multiagent_timed_was.mp4"), fps=5, dpi=200)
     plt.close(fig_anim)
 
-    fig_still, ax_still = plt.subplots(frameon=False, figsize=(4, 4))
-    draw_room_map(fig_still, ax_still, empty_map, cmap, d_raw_viz, w, h, alpha=0.5)
+    decoded_joint_states = decode_timed_joint_states(Tp1_states, dyn_ma, dyn_ma_)
+    segment_ranges = compute_plot_segments(T_curnode_idxs, max_segment_plots=4)
 
-    steps_to_plot = 50
-    n_plot_steps = min(steps_to_plot, len(Tp1_states))
-    Tp1_states_plot = Tp1_states[:n_plot_steps]
-    T_curnode_idxs_plot = T_curnode_idxs[: max(n_plot_steps - 1, 0)]
+    save_rollout_still(
+        RESULTS_DIR / "rooms_discrete_rollout_multiagent_timed_was_t0.png",
+        decoded_joint_states,
+        state_start=0,
+        state_end=0,
+        node_ids=T_curnode_idxs,
+        draw_arrows=False,
+        fig_size=(4, 4),
+        empty_map=empty_map,
+        cmap=cmap,
+        d_raw_viz=d_raw_viz,
+        w=w,
+        h=h,
+        dyn_untimed=dyn_untimed,
+        agent_colors=agent_colors,
+    )
 
-    decoded_joint_states = []
-    for joint_state in Tp1_states_plot:
-        joint_state_untimed, _ = dyn_ma.decode_timed_state(int(joint_state), which=np)
-        decoded_joint_states.append(dyn_ma_.decode_joint_state(int(joint_state_untimed)))
-    decoded_joint_states = np.array(decoded_joint_states)
-
-    node_cmap = plt.get_cmap("tab20", max(len(dag_nodes), 1))
-    offset_radius = 0.14
-    if n_agents == 1:
-        agent_plot_offsets = np.zeros((1, 2))
-    elif n_agents == 2:
-        agent_plot_offsets = offset_radius * np.array([[1.0, 1.0], [-1.0, -1.0]]) / np.sqrt(2.0)
-    else:
-        offset_angles = np.linspace(np.pi / 4.0, np.pi / 4.0 + 2.0 * np.pi, n_agents, endpoint=False)
-        agent_plot_offsets = offset_radius * np.column_stack((np.cos(offset_angles), np.sin(offset_angles)))
-
-    for ii in range(n_agents):
-        agent_state_traj = decoded_joint_states[:, ii]
-        coords = np.array([dyn_untimed.decode_state(int(state)) for state in agent_state_traj])
-        offset_y, offset_x = agent_plot_offsets[ii]
-        ys = coords[:, 0] + offset_y
-        xs = coords[:, 1] + offset_x
-        color = agent_colors[ii]
-
-        ax_still.plot(xs, ys, color=color, linewidth=1.5, alpha=0.6, zorder=4)
-        for step_idx in range(len(xs) - 1):
-            start = np.array([xs[step_idx], ys[step_idx]], dtype=float)
-            end = np.array([xs[step_idx + 1], ys[step_idx + 1]], dtype=float)
-            delta = end - start
-            if np.allclose(delta, 0.0):
-                continue
-            node_color = node_cmap(int(T_curnode_idxs_plot[step_idx]))
-            direction = delta / np.linalg.norm(delta)
-            shrink = 0.08 * direction
-            arrow = FancyArrowPatch(
-                posA=tuple(start + shrink),
-                posB=tuple(end - shrink),
-                arrowstyle="-|>",
-                mutation_scale=12,
-                linewidth=0.5,
-                facecolor=to_rgba(node_color, alpha=1.0),
-                zorder=5,
-            )
-            ax_still.add_patch(arrow)
-        ax_still.plot(xs[0], ys[0], marker="o", color=color, ms=6, zorder=6)
-        ax_still.plot(xs[-1], ys[-1], marker="s", color=color, ms=5, zorder=6)
-
-    fig_still.savefig(RESULTS_DIR / "rooms_discrete_rollout_multiagent_timed_was_paths.png", dpi=200, pad_inches=0)
-    plt.close(fig_still)
+    for plot_idx, (action_start, action_end) in enumerate(segment_ranges, start=1):
+        save_rollout_still(
+            RESULTS_DIR / f"rooms_discrete_rollout_multiagent_timed_was_switch_{plot_idx}.png",
+            decoded_joint_states,
+            state_start=action_start,
+            state_end=action_end,
+            node_ids=T_curnode_idxs,
+            draw_arrows=True,
+            fig_size=(4, 4),
+            empty_map=empty_map,
+            cmap=cmap,
+            d_raw_viz=d_raw_viz,
+            w=w,
+            h=h,
+            dyn_untimed=dyn_untimed,
+            agent_colors=agent_colors,
+        )
 
 
 def outline_mask_cells(
