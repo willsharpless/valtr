@@ -1,34 +1,36 @@
-from dvi.dynamics.discrete import ActionInt, StateInt
-import jax
+from typing import Protocol
+
 import ipdb
+import jax
 import jax.numpy as jnp
 import numpy as np
 import tqdm
-from dvi.dynamics.discrete import DiscreteDyn
+from dvi.dynamics.discrete import ActionInt, DiscreteDyn, StateInt
 from dvi.dynamics.gridworld import GridWorld
 from dvi.dynamics.gridworld_ma_timed import GridWorldMATimed
 from loguru import logger
-from typing import Protocol
 
 from valtr.reachability import (DAGAvoid, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN, DAGNode, DAGReach,
                                 DAGReachAvoid, has_temporal_children)
 
+
 class PreferenceFn(Protocol):
     """Return the costs/preference for different actions given the nominal action."""
-    def __call__(self, state: StateInt, a_nom: ActionInt) -> np.ndarray:
-        ...
+
+    def __call__(self, state: StateInt, a_nom: ActionInt) -> np.ndarray: ...
 
 
 class SafetyFilter:
-    def __init__(self,
-         dyn: DiscreteDyn,
-         dag_nodes: list[DAGNode],
-         dag_root: DAGId,
-         dict_vars: dict[int, jnp.ndarray],
-         dict_actions: dict[int, jnp.ndarray],
-         dict_GU_vars: dict[int, list[jnp.ndarray]],
-         dict_GU_actions: dict[int, list[jnp.ndarray]],
-     ):
+    def __init__(
+        self,
+        dyn: DiscreteDyn,
+        dag_nodes: list[DAGNode],
+        dag_root: DAGId,
+        dict_vars: dict[int, jnp.ndarray],
+        dict_actions: dict[int, jnp.ndarray],
+        dict_GU_vars: dict[int, list[jnp.ndarray]],
+        dict_GU_actions: dict[int, list[jnp.ndarray]],
+    ):
         self.dyn = dyn
         self.dag_nodes = dag_nodes
         self.dag_root = dag_root
@@ -41,14 +43,20 @@ class SafetyFilter:
         self.cur_node_id = self.dag_root
         self.cycle_start_GU_idx = None
         self.GU_index_dict: dict[DAGId, int] = {}
+        self.kk = -1
 
-    def filter_action(self, state: StateInt, a_nom: ActionInt, preference_fn: PreferenceFn | None = None, which=jnp) -> ActionInt:
+    def filter_action(
+        self, state: StateInt, a_nom: ActionInt, preference_fn: PreferenceFn | None = None, which=jnp
+    ) -> ActionInt:
+        self.kk += 1
         dag_nodes = self.dag_nodes
 
         state_next_nom = self.dyn.step(state, a_nom)
 
         current_value = self.dict_vars[self.cur_node_id][state]
-        logger.debug(f"Start at node {self.cur_node_id} ({self.dag_nodes[self.cur_node_id]}). Current value: {current_value}")
+        logger.debug(
+            f"Start at node {self.cur_node_id} ({self.dag_nodes[self.cur_node_id]}). Current value: {current_value}"
+        )
 
         # Evaluate the Q and get the optimal policy.
         while True:
@@ -212,7 +220,9 @@ class SafetyFilter:
 
         nom_is_safe = value_next_nom >= 0
 
-        logger.debug(f"End at node {self.cur_node_id} ({self.dag_nodes[self.cur_node_id]}). Current value: {current_value}, next nom value: {value_next_nom}")
+        logger.debug(
+            f"End at node {self.cur_node_id} ({self.dag_nodes[self.cur_node_id]}). Current value: {current_value}, next nom value: {value_next_nom}"
+        )
 
         # if self.cur_node_id == 18 and not nom_is_safe:
         #     logger.warning("At node 18, nominal action is not safe!")
@@ -222,6 +232,7 @@ class SafetyFilter:
             return a_nom
 
         if preference_fn is not None:
+
             def is_action_safe(action_) -> bool:
                 state_next_ = self.dyn.step(state, action_)
                 value_next_ = jnp.array(self.dict_vars[self.cur_node_id])[state_next_]
@@ -236,6 +247,19 @@ class SafetyFilter:
             n_costs = preference_fn(state, a_nom)
             n_costs = np.where(a_isactionsafe, n_costs, np.inf)
             action_filtered = np.argmin(n_costs)
+
+            # if action_filtered == 0:
+            #     logger.warning("Preference fn chose action 0!")
+            # if self.kk == 24:
+            #     logger.warning("kk={} | Nominal action: {}".format(self.kk, self.dyn.action_to_str(a_nom)))
+            #
+            #     for action_ in range(self.dyn.n_actions):
+            #         if not a_isactionsafe[action_]:
+            #             continue
+            #         action_safe_str = self.dyn.action_to_str(action_)
+            #         logger.warning(f"Safe action {action_}: {action_safe_str}, cost: {n_costs[action_]}")
+            #
+            #     ipdb.set_trace()
 
             ## more sophisticated preference strategy
             # safe_actions = np.flatnonzero(a_isactionsafe)

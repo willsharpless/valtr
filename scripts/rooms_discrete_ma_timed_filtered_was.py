@@ -60,9 +60,9 @@ MAP = """
 #...# ##   #
 #.#.d      #
 #...# # ####
-#FF.# # #  #
-#FF.#   ^ A#
-##d## # # A#
+#FF.# # ^  #
+#FF.# ### A#
+##d##   # A#
 #B    #K#  #
 ############
 """
@@ -89,7 +89,7 @@ MAP = """
 TAIL = "(!w) U G( ( (site && !w) U (site && !w && saw)) && ( (site && !w) U (site && !w && wood)) )"
 TAIL_TIMED = "(!w && TleGU) U G( ( (site && !w && TleGU) U (site && !w && saw)) && ( (site && !w && TleGU) U (site && !w && wood)) )"
 TASK_SOURCE = (
-    "((!site && !w) U (gear && !w)) && ((!d && TleKey) U (k && TleKey)) && ({}) && (!w) U ( ( (r1 && TleR) || (r2 && TleR) ) && !w )".format(
+    "((!site && !w) U (gear && !w)) && ((!d && TleKey) U (k && TleKey)) && ({}) && (!w && !site) U ( ( (r1 && TleR) || (r2 && TleR) ) && !w )".format(
         TAIL_TIMED
     )
 )
@@ -106,7 +106,7 @@ if TGT == "r1":
 
 ## agent 1 -> tea
 elif TGT == "r2":
-    TASK_SOURCE_AG1 = "(!w U r2) && ((!w && !d) U k) && ((!w && !site) U gear)"
+    TASK_SOURCE_AG1 = "F r2 && G(!w)"
     TASK_SOURCE_AG2 = "((!site && !w) U (gear && !w)) && (!d U k) && ({})".format(TAIL)
 else:
     raise ValueError("Unknown TGT")
@@ -332,15 +332,15 @@ def main(
         "collide": ma_collision_predicate(dyn_ma_, collide_dist, t_max=TMAX),
         "leash": ma_collision_predicate(dyn_ma_, LEASH_LEN, t_max=TMAX, norm=1),
         "TleTMAX": dyn_ma.tle_predicate(TMAX),
-        "Tle": dyn_ma.tle_predicate(30),
+        # "Tle": dyn_ma.tle_predicate(30),
         "TleKey": dyn_ma.tle_predicate(TIME_KEY),
         "TleGU": dyn_ma.tle_predicate(50),
-        "TleR": dyn_ma.tle_predicate(30),
+        "TleR": dyn_ma.tle_predicate(40),
     }
 
     # Reach everything before TMAX.
-    dict_predicates["r1"] = jnp.minimum(dict_predicates["r1"], dict_predicates["Tle"])
-    dict_predicates["r2"] = jnp.minimum(dict_predicates["r2"], dict_predicates["Tle"])
+    # dict_predicates["r1"] = jnp.minimum(dict_predicates["r1"], dict_predicates["Tle"])
+    # dict_predicates["r2"] = jnp.minimum(dict_predicates["r2"], dict_predicates["Tle"])
     dict_predicates["gear"] = jnp.minimum(dict_predicates["gear"], dict_predicates["TleTMAX"])
 
     # Make the walls encode all the safety stuff for convenience.
@@ -663,11 +663,16 @@ def main(
                 if a1_nom == STILL_ACTION:  # Agent 1 is staying still
                     # High cost if agent 2 action doesn't match nom, lower cost if agent 1 action doesn't match nom
                     costs[a] += 0.0 if a2 == a2_nom else 2.0
-                    costs[a] += 0.0 if a1 == a1_nom else 1.0
+                    costs[a] += 0.0 if ((a1 == a1_nom) | (a1_nom == STILL_ACTION)) else 1.0
                 else:
                     # High cost if agent 1 action doesn't match nom, lower cost if agent 2 action doesn't match nom
                     costs[a] += 0.0 if a1 == a1_nom else 2.0
-                    costs[a] += 0.0 if a2 == a2_nom else 1.0
+                    costs[a] += 0.0 if ((a2 == a2_nom) | (a2_nom == STILL_ACTION)) else 1.0
+
+                # # High cost for both agents not moving.
+                # if (a1 == STILL_ACTION) and (a2 == STILL_ACTION):
+                #     costs[a] += 5.0
+
             return costs
 
         if nofilter:
