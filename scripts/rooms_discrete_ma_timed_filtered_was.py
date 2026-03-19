@@ -24,6 +24,7 @@ from valtr.filtered_rollout import FilteredRollout
 from valtr.gridworld_utils import GridWorldDriftFn, parse_rooms
 from valtr.mintime_policy import MinTimePolicy
 from valtr.mintime_rollout import MinTimeRollout
+from valtr.reachability import DAGGUMinN
 from valtr.safety_filter import SafetyFilter
 from valtr.solve_discrete import load_discrete_sol, save_discrete_sol, solve_discrete
 from valtr.valtr import to_dag
@@ -53,10 +54,10 @@ app = cyclopts.App()
 
 MAP = """
 ############
-#EE.#gg# s #
-#EE.#gg#  s#
-###.#  ### #
-#A..# ##   #
+#EE.#gg #s #
+#EE.#gg # s#
+###.#  A## #
+#...# ##   #
 #.#.d      #
 #...# # ####
 #FF.# # #  #
@@ -66,24 +67,58 @@ MAP = """
 ############
 """
 
+# MAP = """
+# ############
+# #EE.#g # s #
+# #EE.#  #  s#
+# ###.# A### #
+# #...# ##   #
+# #.#.d      #
+# #...# # ####
+# #FF.# # #  #
+# #FF.#   ^ A#
+# ##d## # # A#
+# #B    #K#  #
+# ############
+# """
+
 ## old version
 # TASK_SOURCE = TASK_SOURCE_AG1 = TASK_SOURCE_AG2 = "(!site U gear) && G F saw && G F wood && (!d U k) && G(!w) && G(!collide) && G(!distant)" # old
 
 ## base spec
 TAIL = "(!w) U G( ( (site && !w) U (site && !w && saw)) && ( (site && !w) U (site && !w && wood)) )"
-TASK_SOURCE = "((!site && !w) U (gear && !w)) && (!d U k) && ({}) && (!w) U ( (r1 || r2) && !w )".format(TAIL)
+TAIL_TIMED = "(!w && TleGU) U G( ( (site && !w && TleGU) U (site && !w && saw)) && ( (site && !w && TleGU) U (site && !w && wood)) )"
+TASK_SOURCE = (
+    "((!site && !w) U (gear && !w)) && ((!d && TleKey) U (k && TleKey)) && ({}) && (!w) U ( ( (r1 && TleR) || (r2 && TleR) ) && !w )".format(
+        TAIL_TIMED
+    )
+)
+
+TASK_SOURCE_SAFETYONLY = "G(!w)"
+
+# TGT = "r1"
+TGT = "r2"
 
 ## agent 1 -> coffee
-TASK_SOURCE_AG1 = "(!w U r1) && ((!w && !d) U k) && ((!w && !site) U gear)"
-TASK_SOURCE_AG2 = "((!site && !w) U (gear && !w)) && (!d U k) && ({})".format(TAIL)
+if TGT == "r1":
+    TASK_SOURCE_AG1 = "F r1 && G(!w)"
+    TASK_SOURCE_AG2 = "((!site && !w) U (gear && !w)) && (!d U k) && ({})".format(TAIL)
 
 ## agent 1 -> tea
-# TASK_SOURCE_AG1 = "(!w U r2) && ((!w && !d) U k) && ((!w && !site) U gear)"
-# TASK_SOURCE_AG2 = "((!site && !w) U (gear && !w)) && (!d U k) && ({})".format(TAIL)
+elif TGT == "r2":
+    TASK_SOURCE_AG1 = "(!w U r2) && ((!w && !d) U k) && ((!w && !site) U gear)"
+    TASK_SOURCE_AG2 = "((!site && !w) U (gear && !w)) && (!d U k) && ({})".format(TAIL)
+else:
+    raise ValueError("Unknown TGT")
+
+LEASH_LEN = 3
 
 TMAX = 100
+TIME_KEY = 20
 
 RESULTS_DIR = pathlib.Path("plots_discrete")
+
+
 def _solve_and_cache(dyn_ma, dag_nodes, dag_root, dict_predicates, pkl_path, task_source, d_raw, gamma, resolve):
     RESULTS_DIR.mkdir(exist_ok=True)
     if resolve or not pkl_path.exists():
@@ -95,6 +130,7 @@ def _solve_and_cache(dyn_ma, dag_nodes, dag_root, dict_predicates, pkl_path, tas
             pkl_path, dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras=extras
         )
     return load_discrete_sol(pkl_path)
+
 
 def draw_room_map(fig, ax, empty_map, cmap, d_raw, w, h, alpha: float = 0.5):
     fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
@@ -132,7 +168,7 @@ def make_room_cmap(d_raw_viz: dict[str, np.ndarray]) -> tuple[np.ndarray, Listed
 
     if "^" in d_raw_viz:
         # colors[list(d_raw_viz.keys()).index("^")] = np.array([227 / 255, 197 / 255, 87 / 255, 0.5])
-        colors[list(d_raw_viz.keys()).index("^")] = np.array([209 / 255, 119 / 255, 143 / 255, 1.])
+        colors[list(d_raw_viz.keys()).index("^")] = np.array([209 / 255, 119 / 255, 143 / 255, 1.0])
 
     if "." in d_raw_viz:
         colors[list(d_raw_viz.keys()).index(".")] = np.array([227 / 255, 197 / 255, 87 / 255, 0.5])
@@ -183,9 +219,46 @@ def make_room_cmap(d_raw_viz: dict[str, np.ndarray]) -> tuple[np.ndarray, Listed
 
     return empty_map, ListedColormap(colors)
 
+
+class ShouldResetTimer:
+    def __init__(self):
+        dyn, d_raw = parse_rooms(MAP, TMAX)
+        dyn_untimed = dyn
+        if isinstance(dyn, GridWorldTimed):
+            dyn_untimed = GridWorld((dyn.shape[0], dyn.shape[1]), dyn.drift_fn)
+        dyn_ma_ = GridWorldMA(dyn_untimed, n_agents=2)
+        d = {
+            "saw": np.where(d_raw["E"], 1, -1)[:, :, -1],
+            "wood": np.where(d_raw["F"], 1, -1)[:, :, -1],
+        }
+        d_flat = {k: v.flatten() for k, v in d.items()}
+
+        self.dyn_ma_ = dyn_ma_
+        self.d_flat = d_flat
+
+    def __call__(self, s_joint: StateInt, a: ActionInt, s_joint_next: StateInt) -> bool:
+        # Reset timer if agent 2 reaches S or reaches W. Check the next state.
+        agent_states = self.dyn_ma_.decode_joint_state(s_joint_next, which=jnp)
+        agent2_state = agent_states[1]
+        at_S = jnp.array(self.d_flat["saw"])[agent2_state] > 0
+        at_W = jnp.array(self.d_flat["wood"])[agent2_state] > 0
+        should_reset = at_S | at_W
+        return should_reset
+
+
 @app.default()
-def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = False):
+def main(
+    gamma: float | None = None,
+    resolve: bool = False,
+    resolve_nom: bool = False,
+    nofilter: bool = False,
+    safetyonly: bool = False,
+):
     RESULTS_DIR.mkdir(exist_ok=True)
+
+    if safetyonly:
+        global TASK_SOURCE, TASK_SOURCE_SAFETYONLY
+        TASK_SOURCE = TASK_SOURCE_SAFETYONLY
 
     logger.debug("Parsing...")
     dyn, d_raw = parse_rooms(MAP, TMAX)
@@ -219,7 +292,7 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     logger.debug("Creating GridWorldMA")
     dyn_ma_ = GridWorldMA(dyn_untimed, n_agents=2)
     logger.debug("Creating GridWorldMATimed")
-    dyn_ma = GridWorldMATimed(dyn_ma_, t_max=TMAX, freeze_at_t_max=False)
+    dyn_ma = GridWorldMATimed(dyn_ma_, t_max=TMAX, freeze_at_t_max=False, should_reset_timer=ShouldResetTimer())
 
     collide_dist = 1.0
     for key, value in d.items():
@@ -246,8 +319,8 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     d_flat = {key: value.flatten() for key, value in d.items()}
     logger.debug("dict predicates...")
     dict_predicates = {
-        "r1": flat_totimed(rew_to_ma(d_flat["r1"], dyn_ma.n_agents, mode=0), t_max=TMAX), # ag 0 to A
-        "r2": flat_totimed(rew_to_ma(d_flat["r2"], dyn_ma.n_agents, mode=0), t_max=TMAX), # ag 1 to B
+        "r1": flat_totimed(rew_to_ma(d_flat["r1"], dyn_ma.n_agents, mode=0), t_max=TMAX),  # ag 0 to A
+        "r2": flat_totimed(rew_to_ma(d_flat["r2"], dyn_ma.n_agents, mode=0), t_max=TMAX),  # ag 1 to B
         "r3": flat_totimed(rew_to_ma(d_flat["r3"], dyn_ma.n_agents, "max"), t_max=TMAX),
         "saw": flat_totimed(rew_to_ma(d_flat["saw"], dyn_ma.n_agents, "min"), t_max=TMAX),
         "wood": flat_totimed(rew_to_ma(d_flat["wood"], dyn_ma.n_agents, "min"), t_max=TMAX),
@@ -257,24 +330,36 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
         "d": flat_totimed(rew_to_ma(d_flat["d"], dyn_ma.n_agents, "max"), t_max=TMAX),
         "w": flat_totimed(rew_to_ma(d_flat["w"], dyn_ma.n_agents, "max"), t_max=TMAX),
         "collide": ma_collision_predicate(dyn_ma_, collide_dist, t_max=TMAX),
-        "distant": flat_totimed(ma_distance_predicate(dyn_ma_, 2 * collide_dist), t_max=TMAX),
-        "leash": ma_collision_predicate(dyn_ma_, 2, t_max=TMAX, norm=1),
+        "leash": ma_collision_predicate(dyn_ma_, LEASH_LEN, t_max=TMAX, norm=1),
         "TleTMAX": dyn_ma.tle_predicate(TMAX),
+        "Tle": dyn_ma.tle_predicate(30),
+        "TleKey": dyn_ma.tle_predicate(TIME_KEY),
+        "TleGU": dyn_ma.tle_predicate(50),
+        "TleR": dyn_ma.tle_predicate(30),
     }
-    
+
     # Reach everything before TMAX.
-    dict_predicates["r1"] = jnp.minimum(dict_predicates["r1"], dict_predicates["TleTMAX"])
-    dict_predicates["r2"] = jnp.minimum(dict_predicates["r2"], dict_predicates["TleTMAX"])
+    dict_predicates["r1"] = jnp.minimum(dict_predicates["r1"], dict_predicates["Tle"])
+    dict_predicates["r2"] = jnp.minimum(dict_predicates["r2"], dict_predicates["Tle"])
     dict_predicates["gear"] = jnp.minimum(dict_predicates["gear"], dict_predicates["TleTMAX"])
 
     # Make the walls encode all the safety stuff for convenience.
-    dict_predicates["w"] = jnp.stack([dict_predicates["w"], -dict_predicates["leash"], dict_predicates["collide"]], axis=-1).max(-1)
-    
+    dict_predicates["w"] = jnp.stack(
+        [dict_predicates["w"], -dict_predicates["leash"], dict_predicates["collide"]], axis=-1
+    ).max(-1)
+
+    dict_predicates["saw"] = jnp.minimum(dict_predicates["saw"], dict_predicates["TleGU"])
+    dict_predicates["wood"] = jnp.minimum(dict_predicates["wood"], dict_predicates["TleGU"])
+
     for key, value in dict_predicates.items():
         assert value.ndim == 1 and value.shape[0] == dyn_ma.n_states, f"Predicate {key} has wrong shape {value.shape}"
 
     # Solve and save or load the solution.
-    pkl_path = RESULTS_DIR / f"rooms_discrete_ma_timed_was_sol.pkl"
+    if safetyonly:
+        pkl_path = RESULTS_DIR / f"rooms_discrete_ma_timed_was_sol_{TGT}_safetyonly.pkl"
+    else:
+        pkl_path = RESULTS_DIR / f"rooms_discrete_ma_timed_was_sol_{TGT}.pkl"
+
     dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = _solve_and_cache(
         dyn_ma, dag_nodes, dag_root, dict_predicates, pkl_path, TASK_SOURCE, d_raw, gamma, resolve
     )
@@ -285,7 +370,12 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
         dyn, d_raw = parse_rooms(MAP)
         if any(key in d_raw for key in ("<", ">", "^", "v")):
             dyn.drift_fn = GridWorldDriftFn(d_raw, force=False)
-        dyn_ma_ = GridWorldMA(dyn, n_agents=2)
+
+        if ag_tag == "0":
+            # Prioritize agent0 moving.
+            dyn_ma_ = GridWorldMA(dyn, n_agents=2, agent_prio=[0, 1])
+        else:
+            dyn_ma_ = GridWorldMA(dyn, n_agents=2, agent_prio=[1, 0])
 
         empty_mask = np.zeros_like(d_raw["#"], dtype=bool)
         get_mask = lambda key: d_raw.get(key, empty_mask)
@@ -306,10 +396,10 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
             "^": np.where(get_mask("^"), 1, -1),
         }
         d_flat = {k: v.flatten() for k, v in d.items()}
-        
+
         dict_predicates = {
-            "r1": rew_to_ma(d_flat["r1"], dyn_ma_.n_agents, mode=0), # ag 0 to A
-            "r2": rew_to_ma(d_flat["r2"], dyn_ma_.n_agents, mode=0), # ag 1 to B
+            "r1": rew_to_ma(d_flat["r1"], dyn_ma_.n_agents, mode=0),  # ag 0 to A
+            "r2": rew_to_ma(d_flat["r2"], dyn_ma_.n_agents, mode=0),  # ag 0 to B
             "r3": rew_to_ma(d_flat["r3"], dyn_ma_.n_agents, "max"),
             "saw": rew_to_ma(d_flat["saw"], dyn_ma_.n_agents, "min"),
             "wood": rew_to_ma(d_flat["wood"], dyn_ma_.n_agents, "min"),
@@ -319,26 +409,44 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
             "d": rew_to_ma(d_flat["d"], dyn_ma_.n_agents, "max"),
             "w": rew_to_ma(d_flat["w"], dyn_ma_.n_agents, "max"),
             "collide": ma_collision_predicate(dyn_ma_, collide_dist),
-            "distant": ma_distance_predicate(dyn_ma_, 2 * collide_dist),
-            "leash": ma_collision_predicate(dyn_ma_, 2, norm=1),
+            "leash": ma_collision_predicate(dyn_ma_, LEASH_LEN, norm=1),
             # "TleTMAX": dyn_ma_.tle_predicate(TMAX),
         }
         dict_predicates["w"] = jnp.stack([dict_predicates["w"], dict_predicates["collide"]], axis=-1).max(-1)
 
         # Decompose
         value_tree_dag, dag_root = to_dag(
-            policy_task_source, ir_filename=f"rooms_discrete_ma_ag{ag_tag}_ir", dag_filename=f"rooms_discrete_ma_ag{ag_tag}_dag"
+            policy_task_source,
+            ir_filename=f"rooms_discrete_ma_ag{ag_tag}_ir",
+            dag_filename=f"rooms_discrete_ma_ag{ag_tag}_dag",
         )
         dag_nodes = value_tree_dag.nodes
 
         # Solve.
-        pkl_path = RESULTS_DIR / f"safety_filter_ma_ag{ag_tag}_sol.pkl"
-        sol_dyn_ma_, sol_dag_nodes, sol_dag_root, sol_dict_vars, sol_dict_actions, sol_dict_GU_vars, sol_dict_GU_actions, extras = _solve_and_cache(
+        pkl_path = RESULTS_DIR / f"safety_filter_ma_ag{ag_tag}_{TGT}_sol.pkl"
+        (
+            sol_dyn_ma_,
+            sol_dag_nodes,
+            sol_dag_root,
+            sol_dict_vars,
+            sol_dict_actions,
+            sol_dict_GU_vars,
+            sol_dict_GU_actions,
+            extras,
+        ) = _solve_and_cache(
             dyn_ma_, dag_nodes, dag_root, dict_predicates, pkl_path, policy_task_source, d_raw, gamma, resolve
         )
 
-        return MinTimePolicy(sol_dyn_ma_, sol_dag_nodes, sol_dag_root, sol_dict_vars, sol_dict_actions, sol_dict_GU_vars, sol_dict_GU_actions)
-    
+        return MinTimePolicy(
+            sol_dyn_ma_,
+            sol_dag_nodes,
+            sol_dag_root,
+            sol_dict_vars,
+            sol_dict_actions,
+            sol_dict_GU_vars,
+            sol_dict_GU_actions,
+        )
+
     pol_ag1 = solve_ag_policy(TASK_SOURCE_AG1, "0", gamma=gamma, resolve=resolve_nom)
     pol_ag2 = solve_ag_policy(TASK_SOURCE_AG2, "1", gamma=gamma, resolve=resolve_nom)
     safety_filter = SafetyFilter(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
@@ -399,7 +507,7 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
         fig_values.colorbar(im_values, ax=axes_values, fraction=0.046, pad=0.04)
     fig_values.savefig(RESULTS_DIR / "rooms_discrete_ma_timed_was_root_values.png", dpi=200, bbox_inches="tight")
     plt.close(fig_values)
-    
+
     feasible_states = np.where(value >= 0)[0]
     logger.info("Num feasible states: {}", len(feasible_states))
 
@@ -436,6 +544,7 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     state = start_state
     Tp1_states = [state]
     T_a_nom = []
+    T_a_nom_ag1, T_a_nom_ag2 = [], []
     T_a_filt = []
     T_hasfiltered = []
     T_curnode_idxs = []
@@ -495,7 +604,9 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
 
     #     return costs
 
-    for kk in range(80):
+    gotten_key = False
+
+    for kk in range(TMAX):
         logger.debug(f"> kk={kk}")
 
         s_joint, _ = dyn_ma.decode_timed_state(state, which=np)
@@ -523,6 +634,10 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
         # else:
         #     a_nom_ag2 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[1]
 
+        if isinstance(dag_nodes[safety_filter.cur_node_id], DAGGUMinN):
+            # At the GU, just set nominal action to agent 2's action to prevent deadlocks.
+            a_nom_ag1 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[0]
+
         a_nom = dyn_ma_.encode_joint_action([a_nom_ag1, a_nom_ag2], which=np)
 
         if a_nom_ag1 == dyn_untimed.str_to_action(".") and a_nom_ag2 == dyn_untimed.str_to_action("."):
@@ -530,15 +645,59 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
             a_nom = a_nom_ag2_joint
 
         # a_safe = safety_filter.filter_action(state, a_nom, preference_fn) # preference not helping here
-        a_safe = safety_filter.filter_action(state, a_nom)
-        hasfiltered = a_safe != a_nom
+
+        def preference_fn(_: StateInt, a_nom_: ActionInt) -> np.ndarray:
+            # If agent1 is staying still, then prefer actions where the agent2 action matches a_nom_.
+            # Otherwise, prefer actions where agent1 action matches a_nom_.
+            N_actions = dyn_ma_.decode_joint_action(a_nom_, which=np)
+            assert N_actions.shape == (2,)
+            a1_nom, a2_nom = N_actions
+
+            STILL_ACTION = dyn_ma_.base.str_to_action(".")
+
+            costs = np.zeros(dyn_ma.n_actions, dtype=np.float32)
+            for a in range(dyn_ma.n_actions):
+                N_a = dyn_ma_.decode_joint_action(a, which=np)
+                a1, a2 = N_a
+
+                if a1_nom == STILL_ACTION:  # Agent 1 is staying still
+                    # High cost if agent 2 action doesn't match nom, lower cost if agent 1 action doesn't match nom
+                    costs[a] += 0.0 if a2 == a2_nom else 2.0
+                    costs[a] += 0.0 if a1 == a1_nom else 1.0
+                else:
+                    # High cost if agent 1 action doesn't match nom, lower cost if agent 2 action doesn't match nom
+                    costs[a] += 0.0 if a1 == a1_nom else 2.0
+                    costs[a] += 0.0 if a2 == a2_nom else 1.0
+            return costs
+
+        if nofilter:
+            a_safe = a_nom
+            hasfiltered = False
+        else:
+            # a_safe = safety_filter.filter_action(state, a_nom)
+            a_safe = safety_filter.filter_action(state, a_nom, preference_fn=preference_fn)
+            hasfiltered = a_safe != a_nom
+
         state = dyn_ma.step(state, a_safe)
 
+        T_a_nom_ag1.append(a_nom_ag1_joint)
+        T_a_nom_ag2.append(a_nom_ag2_joint)
         T_a_nom.append(a_nom)
         T_a_filt.append(a_safe)
         Tp1_states.append(state)
         T_hasfiltered.append(hasfiltered)
         T_curnode_idxs.append(safety_filter.cur_node_id)
+
+        if safety_filter.dict_vars[safety_filter.cur_node_id][state] < 0:
+            logger.warning("Reached infeasible state at step {}: {}".format(kk, state))
+            break
+
+        if dict_predicates["k"][state] == 1:
+            gotten_key = True
+
+        if kk > TIME_KEY and not gotten_key:
+            logger.warning("Haven't gotten the key by step {}: {}".format(kk, state))
+            break
 
         # s_joint_new, _ = dyn_ma.decode_timed_state(state, which=np)
         # s_joint_new = int(s_joint_new)
@@ -549,7 +708,7 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
 
     # ---------------------------------------------------------------------
 
-    n_frames = len(Tp1_states)
+    n_frames = len(Tp1_states) - 1
     fig_anim, ax_anim = plt.subplots(frameon=False)
     draw_room_map(fig_anim, ax_anim, empty_map, cmap, d_raw_viz, w, h, alpha=0.5)
 
@@ -572,22 +731,55 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
         bbox=dict(facecolor="black", alpha=0.5, pad=2),
     )
 
+    debug_text = ax_anim.text(
+        0.98,
+        0.02,
+        "",
+        transform=ax_anim.transAxes,
+        verticalalignment="bottom",
+        horizontalalignment="right",
+        color="white",
+        fontsize=8,
+        fontname="DejaVu Sans",
+        bbox=dict(facecolor="black", alpha=0.5, pad=2),
+    )
+
     def init_fn():
-        return agent_dots + [kk_text]
+        return agent_dots + [kk_text, debug_text]
 
     def update_fn(kk: int) -> list[plt.Artist]:
         joint_state = Tp1_states[kk]
-        agent_states_flat, _ = dyn_ma.decode_timed_state(joint_state, which=np)
+        agent_states_flat, tt = dyn_ma.decode_timed_state(joint_state, which=np)
         agent_states = dyn_ma_.decode_joint_state(agent_states_flat)
         for ii in range(n_agents):
             state_i = int(agent_states[ii])
             y, x = dyn_untimed.decode_state(state_i)
             agent_dots[ii].set_data([x], [y])
         kk_text.set_text(f"Step {kk: 3}")
-        return agent_dots + [kk_text]
+        cur_node = T_curnode_idxs[kk]
+        a_nom_str = dyn_ma_.action_to_str(T_a_nom[kk])
+        a_safe_str = dyn_ma_.action_to_str(T_a_filt[kk])
+        has_filtered = int(T_hasfiltered[kk])
+
+        a_nom_ag1_str = dyn_ma_.action_to_str(T_a_nom_ag1[kk]) if T_a_nom_ag1[kk] is not None else "None"
+        a_nom_ag2_str = dyn_ma_.action_to_str(T_a_nom_ag2[kk]) if T_a_nom_ag2[kk] is not None else "None"
+
+        debug_text.set_text(
+            "Timer: {}\nNode: {}\nNom_ag1: {}\nNom_ag2: {}\nNom : {}\nSafe: {}\nfiltered: {}".format(
+                tt, cur_node, a_nom_ag1_str, a_nom_ag2_str, a_nom_str, a_safe_str, has_filtered
+            )
+        )
+        return agent_dots + [kk_text, debug_text]
 
     anim = FuncAnimation(fig_anim, update_fn, n_frames, init_fn, blit=True)
-    anim.save(str(RESULTS_DIR / "rooms_discrete_rollout_multiagent_timed_was.mp4"), fps=5, dpi=200)
+    if nofilter:
+        name = f"rooms_discrete_rollout_multiagent_timed_was_{TGT}_nofilter.mp4"
+    else:
+        if safetyonly:
+            name = f"rooms_discrete_rollout_multiagent_timed_was_{TGT}_safetyonly.mp4"
+        else:
+            name = f"rooms_discrete_rollout_multiagent_timed_was_{TGT}.mp4"
+    anim.save(RESULTS_DIR / name, fps=5, dpi=200)
     plt.close(fig_anim)
 
     fig_still, ax_still = plt.subplots(frameon=False, figsize=(4, 4))
@@ -645,7 +837,14 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
         ax_still.plot(xs[0], ys[0], marker="o", color=color, ms=6, zorder=6)
         ax_still.plot(xs[-1], ys[-1], marker="s", color=color, ms=5, zorder=6)
 
-    fig_still.savefig(RESULTS_DIR / "rooms_discrete_rollout_multiagent_timed_was_paths.png", dpi=200, pad_inches=0)
+    if nofilter:
+        name = f"rooms_discrete_rollout_multiagent_timed_was_{TGT}_paths_nofilter.png"
+    else:
+        if safetyonly:
+            name = f"rooms_discrete_rollout_multiagent_timed_was_{TGT}_paths_safetyonly.png"
+        else:
+            name = f"rooms_discrete_rollout_multiagent_timed_was_{TGT}_paths.png"
+    fig_still.savefig(RESULTS_DIR / name, dpi=200, pad_inches=0)
     plt.close(fig_still)
 
 

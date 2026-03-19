@@ -43,10 +43,13 @@ MAP = """
 """
 
 TAIL = "(!w) U G( ( (site && !w) U (site && !w && S)) && ( (site && !w) U (site && !w && W)) )"
-TAIL_TIMED = "(!w && Tle50) U G( ( (site && !w) U (site && !w && S && Tle50)) && ( (site && !w) U (site && !w && W && Tle50)) )"
+TAIL_TIMED = (
+    "(!w && Tle50) U G( ( (site && !w) U (site && !w && S && Tle50)) && ( (site && !w) U (site && !w && W && Tle50)) )"
+)
 TASK_SOURCE = "((!site && !w) U (v && !w)) && ((!site && !w) U (g && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(
     TAIL_TIMED
 )
+TASK_SOURCE_SAFETY = "G(!w)"
 
 # AG1_GOAL = "C"
 AG1_GOAL = "T"
@@ -297,8 +300,12 @@ class ShouldResetTimer:
 
 
 @app.default()
-def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = False):
+def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = False, safetyonly: bool = False, nom_stay_still: bool = False):
     RESULTS_DIR.mkdir(exist_ok=True)
+
+    if safetyonly:
+        global TASK_SOURCE, TASK_SOURCE_SAFETY
+        TASK_SOURCE = TASK_SOURCE_SAFETY
 
     logger.debug("Parsing...")
     dyn, d_raw = parse_rooms(MAP, TMAX, ignore=".")
@@ -414,7 +421,11 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
 
     # -----------------------------
     # Solve.
-    pkl_path = RESULTS_DIR / "run_safety_filter_ma_timed_sol.pkl"
+    if safetyonly:
+        pkl_path = RESULTS_DIR / "run_safety_filter_ma_timed_safetyonly_sol.pkl"
+    else:
+        pkl_path = RESULTS_DIR / "run_safety_filter_ma_timed_sol.pkl"
+
     dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = _solve_and_cache(
         dyn_ma, dag_nodes, dag_root, dict_predicates, pkl_path, TASK_SOURCE, d_raw, gamma, resolve
     )
@@ -422,13 +433,13 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     pol_ag1 = solve_ag1_policy(gamma=gamma, resolve=resolve_nom)
     pol_ag2 = solve_ag2_policy(gamma=gamma, resolve=resolve_nom)
 
-    # -----------------------------
-    # DEBUG: dag_id = 26 is a ReachAvoid. See how many states at t=60 have value>0.
-    dag_id = 26
-    T_val = dict_vars[dag_id].reshape(dyn_ma._timed_shape)
-    n_positive = (T_val[:, -1] > 0).sum()
-    logger.debug(f"Number of states with positive value at t=TMAX: {n_positive}")
-    ipdb.set_trace()
+    # # -----------------------------
+    # # DEBUG: dag_id = 26 is a ReachAvoid. See how many states at t=60 have value>0.
+    # dag_id = 26
+    # T_val = dict_vars[dag_id].reshape(dyn_ma._timed_shape)
+    # n_positive = (T_val[:, -1] > 0).sum()
+    # logger.debug(f"Number of states with positive value at t=TMAX: {n_positive}")
+    # ipdb.set_trace()
 
     # -----------------------------
     rng = np.random.default_rng(seed=12345)
@@ -478,33 +489,34 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     for kk in range(80):
         logger.debug(f"> kk={kk}")
 
-        # s_joint, _ = dyn_ma.decode_timed_state(state, which=np)
-        # state_ag1, state_ag2 = dyn_ma_.decode_joint_state(s_joint, which=np)
-        # state_ag1_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag1)]
-        # state_ag2_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag2)]
-        # logger.debug("    Current state: agent1 at {}, agent2 at {}".format(state_ag1_tup, state_ag2_tup))
-        #
-        # logger.debug("    Agent 1 policy...")
-        # a_nom_ag1_joint, ag1_isdone = pol_ag1.get_action(s_joint, which=np, kk=kk, debug=True)
-        # logger.debug("    Agent 1 policy... done!")
-        # if ag1_isdone:
-        #     logger.debug("    Agent 1 policy is done. Using no-op.")
-        #     a_nom_ag1 = dyn_untimed.str_to_action(".")
-        # else:
-        #     a_nom_ag1 = dyn_ma_.decode_joint_action(a_nom_ag1_joint, which=np)[0]
-        #
-        # logger.debug("    Agent 2 policy...")
-        # a_nom_ag2_joint, ag2_isdone = pol_ag2.get_action(s_joint)
-        # logger.debug("    Agent 2 policy... done! {}".format(dyn_ma_.action_to_str(a_nom_ag2_joint)))
-        # a_nom_ag2 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[1]
-        #
-        # a_nom = dyn_ma_.encode_joint_action([a_nom_ag1, a_nom_ag2], which=np)
-        #
-        # if a_nom_ag1 == dyn_untimed.str_to_action(".") and a_nom_ag2 == dyn_untimed.str_to_action("."):
-        #     logger.debug("Both agents want to stay still!")
-        #     a_nom = a_nom_ag2_joint
+        if nom_stay_still:
+            a_nom = dyn_ma_.str_to_action(".|.")
+        else:
+            s_joint, _ = dyn_ma.decode_timed_state(state, which=np)
+            state_ag1, state_ag2 = dyn_ma_.decode_joint_state(s_joint, which=np)
+            state_ag1_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag1)]
+            state_ag2_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag2)]
+            logger.debug("    Current state: agent1 at {}, agent2 at {}".format(state_ag1_tup, state_ag2_tup))
 
-        a_nom = dyn_ma_.str_to_action(".|.")
+            logger.debug("    Agent 1 policy...")
+            a_nom_ag1_joint, ag1_isdone = pol_ag1.get_action(s_joint, which=np, kk=kk, debug=True)
+            logger.debug("    Agent 1 policy... done!")
+            if ag1_isdone:
+                logger.debug("    Agent 1 policy is done. Using no-op.")
+                a_nom_ag1 = dyn_untimed.str_to_action(".")
+            else:
+                a_nom_ag1 = dyn_ma_.decode_joint_action(a_nom_ag1_joint, which=np)[0]
+
+            logger.debug("    Agent 2 policy...")
+            a_nom_ag2_joint, ag2_isdone = pol_ag2.get_action(s_joint)
+            logger.debug("    Agent 2 policy... done! {}".format(dyn_ma_.action_to_str(a_nom_ag2_joint)))
+            a_nom_ag2 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[1]
+
+            a_nom = dyn_ma_.encode_joint_action([a_nom_ag1, a_nom_ag2], which=np)
+
+            if a_nom_ag1 == dyn_untimed.str_to_action(".") and a_nom_ag2 == dyn_untimed.str_to_action("."):
+                logger.debug("Both agents want to stay still!")
+                a_nom = a_nom_ag2_joint
 
         a_safe = safety_filter.filter_action(state, a_nom, preference_fn)
         hasfiltered = a_safe != a_nom
@@ -579,8 +591,13 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
 
         return agent_dots + [kk_text, debug_text]
 
+    if safetyonly:
+        name = f"safety_filter_ma_rollout_{AG1_GOAL}_safetyonly.mp4"
+    else:
+        name = f"safety_filter_ma_rollout_{AG1_GOAL}.mp4"
+
     anim = FuncAnimation(fig, update_fn, n_frames, init_fn, blit=True)
-    anim.save(f"safety_filter_ma_rollout_{AG1_GOAL}.mp4", fps=5, dpi=200)
+    anim.save(name, fps=5, dpi=200)
 
 
 if __name__ == "__main__":

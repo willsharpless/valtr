@@ -182,7 +182,6 @@ class SafetyFilter:
                     raise ValueError(f"Unexpected node type: {node}")
 
         # End of while.
-        logger.debug(f"End at node {self.cur_node_id} ({self.dag_nodes[self.cur_node_id]}). Current value: {current_value}")
 
         # if self.cur_node_id == 26:
         #     assert isinstance(node, DAGReachAvoid)
@@ -211,7 +210,15 @@ class SafetyFilter:
         # decoded_nextstate = [int(n) for n in dyn.decode_state(state_next_nom)]
         # logger.debug(f"{decoded_state} ({action_str}) -> {decoded_nextstate}. nom_value = {value_next_nom}")
 
-        if value_next_nom >= 0:
+        nom_is_safe = value_next_nom >= 0
+
+        logger.debug(f"End at node {self.cur_node_id} ({self.dag_nodes[self.cur_node_id]}). Current value: {current_value}, next nom value: {value_next_nom}")
+
+        # if self.cur_node_id == 18 and not nom_is_safe:
+        #     logger.warning("At node 18, nominal action is not safe!")
+        #     ipdb.set_trace()
+
+        if nom_is_safe:
             return a_nom
 
         if preference_fn is not None:
