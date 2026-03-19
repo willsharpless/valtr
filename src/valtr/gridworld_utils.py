@@ -66,14 +66,11 @@ class GridWorldDriftFn:
         d = self.d
         force = self.force
         y, x = state
-        l_only = which.array(d["<"])[y, x]  # bool
-        r_only = which.array(d[">"])[y, x]  # bool
-        u_only = which.array(d["^"])[y, x]  # bool
-
-        if "v" in d:
-            d_only = which.array(d["v"])[y, x]  # bool
-        else:
-            d_only = np.array(False)
+        empty = np.array(False)
+        l_only = which.array(d["<"])[y, x] if "<" in d else empty
+        r_only = which.array(d[">"])[y, x] if ">" in d else empty
+        u_only = which.array(d["^"])[y, x] if "^" in d else empty
+        d_only = which.array(d["v"])[y, x] if "v" in d else empty
 
         delta_x = which.where(l_only, -1, which.where(r_only, 1, delta[0]))
         delta_y = which.where(u_only, -1, which.where(d_only, 1, delta[1]))
