@@ -1,5 +1,6 @@
 import functools as ft
 import pathlib
+from collections import Counter, deque
 
 import cyclopts
 import ipdb
@@ -55,32 +56,30 @@ MAP = """
 #EE.#gg# s #
 #EE.#gg#  s#
 ###.#  ### #
-#...# ##   #
+#A..# ##   #
 #.#.d      #
 #...# # ####
 #FF.# # #  #
-#FF.#     A#
-##d## #   A#
-#     #K#  #
+#FF.#   ^ A#
+##d## # # A#
+#B    #K#  #
 ############
 """
 
 ## old version
-# TASK_SOURCE = "(!site U gear) && G F saw && G F wood && (!d U k) && G(!w) && G(!collide) && G(!distant)" # old
-# TASK_SOURCE_AG1 = TASK_SOURCE
-# TASK_SOURCE_AG2 = TASK_SOURCE
+# TASK_SOURCE = TASK_SOURCE_AG1 = TASK_SOURCE_AG2 = "(!site U gear) && G F saw && G F wood && (!d U k) && G(!w) && G(!collide) && G(!distant)" # old
 
-## new version
+## base spec
 TAIL = "(!w) U G( ( (site && !w) U (site && !w && saw)) && ( (site && !w) U (site && !w && wood)) )"
-# TASK_SOURCE = "((!site && !w) U (gear && !w)) && ({}) && (!w) U ( (C || T) && !w )".format(TAIL)
 TASK_SOURCE = "((!site && !w) U (gear && !w)) && (!d U k) && ({}) && (!w) U ( (r1 || r2) && !w )".format(TAIL)
-# TASK_SOURCE = "((!site && !w) U (gear && !w))"
 
-TASK_SOURCE_AG1 = "(!w && !collide) U r1"
+## agent 1 -> coffee
+TASK_SOURCE_AG1 = "(!w U r1) && ((!w && !d) U k) && ((!w && !site) U gear)"
 TASK_SOURCE_AG2 = "((!site && !w) U (gear && !w)) && (!d U k) && ({})".format(TAIL)
 
-# # TASK_SOURCE_AG1 = "((!site && !w) U (gear && !w)) && (!d U k) && ({})".format(TAIL)
-# # TASK_SOURCE_AG2 = "(!w && !collide) U r2"
+## agent 1 -> tea
+# TASK_SOURCE_AG1 = "(!w U r2) && ((!w && !d) U k) && ((!w && !site) U gear)"
+# TASK_SOURCE_AG2 = "((!site && !w) U (gear && !w)) && (!d U k) && ({})".format(TAIL)
 
 TMAX = 100
 
@@ -131,6 +130,10 @@ def make_room_cmap(d_raw_viz: dict[str, np.ndarray]) -> tuple[np.ndarray, Listed
     if " " in d_raw_viz:
         colors[list(d_raw_viz.keys()).index(" ")] = np.array([1.0, 1.0, 1.0, 0.0])
 
+    if "^" in d_raw_viz:
+        # colors[list(d_raw_viz.keys()).index("^")] = np.array([227 / 255, 197 / 255, 87 / 255, 0.5])
+        colors[list(d_raw_viz.keys()).index("^")] = np.array([209 / 255, 119 / 255, 143 / 255, 1.])
+
     if "." in d_raw_viz:
         colors[list(d_raw_viz.keys()).index(".")] = np.array([227 / 255, 197 / 255, 87 / 255, 0.5])
 
@@ -138,19 +141,25 @@ def make_room_cmap(d_raw_viz: dict[str, np.ndarray]) -> tuple[np.ndarray, Listed
         colors[list(d_raw_viz.keys()).index("s")] = colors[space_idx]
 
     if "A" in d_raw_viz:
-        colors[list(d_raw_viz.keys()).index("A")] = np.array([140 / 255, 114 / 255, 179 / 255, 1.0])
+        # colors[list(d_raw_viz.keys()).index("A")] = np.array([140 / 255, 114 / 255, 179 / 255, 1.0])
+        # colors[list(d_raw_viz.keys()).index("A")] = np.array([147 / 255, 120 / 255, 96 / 255, 1.0])
+        colors[list(d_raw_viz.keys()).index("A")] = np.array([128 / 255, 101 / 255, 79 / 255, 1.0])
 
     if "B" in d_raw_viz:
-        colors[list(d_raw_viz.keys()).index("B")] = np.array([147 / 255, 120 / 255, 96 / 255, 1.0])
+        # colors[list(d_raw_viz.keys()).index("B")] = np.array([147 / 255, 120 / 255, 96 / 255, 1.0])
+        # colors[list(d_raw_viz.keys()).index("B")] = np.array([140 / 255, 114 / 255, 179 / 255, 1.0])
+        colors[list(d_raw_viz.keys()).index("B")] = np.array([135 / 255, 87 / 255, 207 / 255, 1.0])
 
     if "C" in d_raw_viz:
         colors[list(d_raw_viz.keys()).index("C")] = np.array([221 / 255, 132 / 255, 83 / 255, 1.0])
 
     if "E" in d_raw_viz:
-        colors[list(d_raw_viz.keys()).index("E")] = np.array([85 / 255, 168 / 255, 104 / 255, 1.0])
+        # colors[list(d_raw_viz.keys()).index("E")] = np.array([85 / 255, 168 / 255, 104 / 255, 1.0])
+        colors[list(d_raw_viz.keys()).index("E")] = np.array([76 / 255, 169 / 255, 97 / 255, 1.0])
 
     if "F" in d_raw_viz:
-        colors[list(d_raw_viz.keys()).index("F")] = np.array([0.8, 0.4, 0.4, 1.0])
+        # colors[list(d_raw_viz.keys()).index("F")] = np.array([0.8, 0.4, 0.4, 1.0])
+        colors[list(d_raw_viz.keys()).index("F")] = np.array([0.78, 0.17, 0.17, 1.0])
 
     if "K" in d_raw_viz:
         colors[list(d_raw_viz.keys()).index("K")] = np.array([221 / 255, 132 / 255, 83 / 255, 1.0])
@@ -160,7 +169,8 @@ def make_room_cmap(d_raw_viz: dict[str, np.ndarray]) -> tuple[np.ndarray, Listed
 
     if "g" in d_raw_viz:
         # colors[list(d_raw_viz.keys()).index("g")] = np.array([0.302, 0.447, 0.690, 1.0])
-        colors[list(d_raw_viz.keys()).index("g")] = np.array([0.361, 0.518, 0.804, 1.0])
+        # colors[list(d_raw_viz.keys()).index("g")] = np.array([0.361, 0.518, 0.804, 1.0])
+        colors[list(d_raw_viz.keys()).index("g")] = np.array([49 / 255, 107 / 255, 207 / 255, 1.0])
 
     if "#" in d_raw_viz:
         colors[list(d_raw_viz.keys()).index("#")] = np.array([0.33714769, 0.41920711, 0.54334937, 1.0])
@@ -237,7 +247,7 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     logger.debug("dict predicates...")
     dict_predicates = {
         "r1": flat_totimed(rew_to_ma(d_flat["r1"], dyn_ma.n_agents, mode=0), t_max=TMAX), # ag 0 to A
-        "r2": flat_totimed(rew_to_ma(d_flat["r2"], dyn_ma.n_agents, mode=1), t_max=TMAX), # ag 1 to B
+        "r2": flat_totimed(rew_to_ma(d_flat["r2"], dyn_ma.n_agents, mode=0), t_max=TMAX), # ag 1 to B
         "r3": flat_totimed(rew_to_ma(d_flat["r3"], dyn_ma.n_agents, "max"), t_max=TMAX),
         "saw": flat_totimed(rew_to_ma(d_flat["saw"], dyn_ma.n_agents, "min"), t_max=TMAX),
         "wood": flat_totimed(rew_to_ma(d_flat["wood"], dyn_ma.n_agents, "min"), t_max=TMAX),
@@ -273,6 +283,8 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     def solve_ag_policy(policy_task_source: str, ag_tag: str, gamma: float | None = None, resolve: bool = False):
 
         dyn, d_raw = parse_rooms(MAP)
+        if any(key in d_raw for key in ("<", ">", "^", "v")):
+            dyn.drift_fn = GridWorldDriftFn(d_raw, force=False)
         dyn_ma_ = GridWorldMA(dyn, n_agents=2)
 
         empty_mask = np.zeros_like(d_raw["#"], dtype=bool)
@@ -297,7 +309,7 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
         
         dict_predicates = {
             "r1": rew_to_ma(d_flat["r1"], dyn_ma_.n_agents, mode=0), # ag 0 to A
-            "r2": rew_to_ma(d_flat["r2"], dyn_ma_.n_agents, mode=1), # ag 1 to B
+            "r2": rew_to_ma(d_flat["r2"], dyn_ma_.n_agents, mode=0), # ag 1 to B
             "r3": rew_to_ma(d_flat["r3"], dyn_ma_.n_agents, "max"),
             "saw": rew_to_ma(d_flat["saw"], dyn_ma_.n_agents, "min"),
             "wood": rew_to_ma(d_flat["wood"], dyn_ma_.n_agents, "min"),
@@ -428,30 +440,60 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
     T_hasfiltered = []
     T_curnode_idxs = []
 
-    def preference_fn(_: StateInt, a_nom_: ActionInt) -> np.ndarray:
-        # If agent1 is staying still, then prefer actions where the agent2 action matches a_nom_.
-        # Otherwise, prefer actions where agent1 action matches a_nom_.
-        N_actions = dyn_ma_.decode_joint_action(a_nom_, which=np)
-        assert N_actions.shape == (2,)
-        a1_nom, a2_nom = N_actions
+    # State tracking for fancy preference (works but jank)
+    # recent_joint_states = deque(maxlen=8)
+    # joint_visit_counts = Counter()
+    # start_joint_state, _ = dyn_ma.decode_timed_state(state, which=np)
+    # start_joint_state = int(start_joint_state)
+    # recent_joint_states.append(start_joint_state)
+    # joint_visit_counts[start_joint_state] += 1
 
-        STILL_ACTION = dyn_ma_.base.str_to_action(".")
+    # def _joint_xy_from_joint_state(s_joint_: int) -> np.ndarray:
+    #     agent_states_ = dyn_ma_.decode_joint_state(s_joint_, which=np)
+    #     return np.array(
+    #         [dyn_ma_.base.decode_state(int(agent_state), which=np) for agent_state in agent_states_],
+    #         dtype=np.int32,
+    #     )
 
-        costs = np.zeros(dyn_ma.n_actions, dtype=np.float32)
-        for a in range(dyn_ma.n_actions):
-            N_a = dyn_ma_.decode_joint_action(a, which=np)
-            a1, a2 = N_a
+    # def preference_fn(state_: StateInt, a_nom_: ActionInt) -> np.ndarray:
+    #     s_joint_, _ = dyn_ma.decode_timed_state(state_, which=np)
+    #     s_joint_ = int(s_joint_)
+    #     cur_xy = _joint_xy_from_joint_state(s_joint_)
 
-            if a1_nom == STILL_ACTION:  # Agent 1 is staying still
-                # Prefer actions where agent 2 matches a_nom_
-                costs[a] = 0.0 if a2 == a2_nom else 1.0
-            else:
-                # Prefer actions where agent 1 matches a_nom_
-                costs[a] = 0.0 if a1 == a1_nom else 1.0
+    #     s_nom_next = int(dyn_ma.step(state_, a_nom_, which=np))
+    #     s_nom_next_joint, _ = dyn_ma.decode_timed_state(s_nom_next, which=np)
+    #     s_nom_next_joint = int(s_nom_next_joint)
+    #     nom_xy = _joint_xy_from_joint_state(s_nom_next_joint)
+    #     nom_disp = nom_xy - cur_xy
 
-        logger.debug(f"Preference function called with a_nom={dyn_ma_.action_to_str(a_nom_, which=np)}")
-        logger.debug(f"Costs: {costs}")
-        return costs
+    #     costs = np.full(dyn_ma.n_actions, np.inf, dtype=np.float32)
+    #     for a in range(dyn_ma.n_actions):
+    #         s_next = int(dyn_ma.step(state_, a, which=np))
+    #         value_next = float(dict_vars[safety_filter.cur_node_id][s_next])
+    #         if value_next < 0:
+    #             continue
+
+    #         s_next_joint, _ = dyn_ma.decode_timed_state(s_next, which=np)
+    #         s_next_joint = int(s_next_joint)
+    #         next_xy = _joint_xy_from_joint_state(s_next_joint)
+    #         disp = next_xy - cur_xy
+
+    #         align = float(np.sum(disp * nom_disp))
+    #         dev = float(np.abs(next_xy - nom_xy).sum())
+    #         stuck = float(s_next_joint == s_joint_)
+    #         waiting_agents = float(np.sum(np.all(disp == 0, axis=1)))
+    #         revisit = float(joint_visit_counts[s_next_joint] + 2 * (s_next_joint in recent_joint_states))
+
+    #         costs[a] = (
+    #             10.0 * stuck
+    #             + 3.0 * waiting_agents
+    #             + 2.0 * revisit
+    #             + 1.0 * dev
+    #             - 1.5 * align
+    #             - 0.1 * value_next
+    #         )
+
+    #     return costs
 
     for kk in range(80):
         logger.debug(f"> kk={kk}")
@@ -475,6 +517,11 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
         a_nom_ag2_joint, ag2_isdone = pol_ag2.get_action(s_joint)
         logger.debug("    Agent 2 policy... done! {}".format(dyn_ma_.action_to_str(a_nom_ag2_joint)))
         a_nom_ag2 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[1]
+        # if ag2_isdone:
+        #     logger.debug("    Agent 2 policy is done! Using no-op.")
+        #     a_nom_ag2 = dyn_untimed.str_to_action(".")
+        # else:
+        #     a_nom_ag2 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[1]
 
         a_nom = dyn_ma_.encode_joint_action([a_nom_ag1, a_nom_ag2], which=np)
 
@@ -482,7 +529,8 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
             logger.debug("Both agents want to stay still!")
             a_nom = a_nom_ag2_joint
 
-        a_safe = safety_filter.filter_action(state, a_nom, preference_fn)
+        # a_safe = safety_filter.filter_action(state, a_nom, preference_fn) # preference not helping here
+        a_safe = safety_filter.filter_action(state, a_nom)
         hasfiltered = a_safe != a_nom
         state = dyn_ma.step(state, a_safe)
 
@@ -492,6 +540,10 @@ def main(gamma: float | None = None, resolve: bool = False, resolve_nom: bool = 
         T_hasfiltered.append(hasfiltered)
         T_curnode_idxs.append(safety_filter.cur_node_id)
 
+        # s_joint_new, _ = dyn_ma.decode_timed_state(state, which=np)
+        # s_joint_new = int(s_joint_new)
+        # recent_joint_states.append(s_joint_new)
+        # joint_visit_counts[s_joint_new] += 1
 
     T_hasfiltered = np.array(T_hasfiltered)
 
