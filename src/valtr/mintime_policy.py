@@ -163,25 +163,25 @@ class MinTimePolicy:
                     # same_value = (r_value == value_next_GU) and (r_value == current_value)
                     action_curr_str = self.dyn.action_to_str(action_curr)
 
-                    if isinstance(self.dyn, GridWorldMATimed) or isinstance(self.dyn, GridWorldTimed):
-                        state_str = self.dyn.decode_timed_state(state, which=np)
-                    else:
-                        state_str = ""
-
-                    logger.info(
-                        "kk={} | state: {} | Cur Node: {} | Cur GU idx: {} | r_value: {} | value_next_GU: {} | current_value: {} | "
-                        "stay: {} | action_curr: {}".format(
-                            kk,
-                            state_str,
-                            cur_node_id,
-                            cur_GU_index,
-                            r_value,
-                            value_next_GU,
-                            current_value,
-                            stay_current_GU_node,
-                            action_curr_str,
-                        )
-                    )
+                    # if isinstance(self.dyn, GridWorldMATimed) or isinstance(self.dyn, GridWorldTimed):
+                    #     state_str = self.dyn.decode_timed_state(state, which=np)
+                    # else:
+                    #     state_str = ""
+                    #
+                    # logger.info(
+                    #     "kk={} | state: {} | Cur Node: {} | Cur GU idx: {} | r_value: {} | value_next_GU: {} | current_value: {} | "
+                    #     "stay: {} | action_curr: {}".format(
+                    #         kk,
+                    #         state_str,
+                    #         cur_node_id,
+                    #         cur_GU_index,
+                    #         r_value,
+                    #         value_next_GU,
+                    #         current_value,
+                    #         stay_current_GU_node,
+                    #         action_curr_str,
+                    #     )
+                    # )
 
                     if current_value == -1:
                         ipdb.set_trace()

@@ -142,8 +142,8 @@ def draw_room_map(fig, ax, empty_map, cmap, d_raw, w, h, alpha: float = 0.5):
     ax.set_yticks(np.arange(h + 1) - 0.5)
     ax.set_xlim(-0.5, w - 0.5)
     ax.set_ylim(-0.5, h - 0.5)
-    ax.margins(0)
-    ax.tick_params(labelbottom=False, labelleft=False)
+    # ax.margins(0)
+    # ax.tick_params(labelbottom=False, labelleft=False)
     ax.set_aspect("equal")
     ax.set_autoscale_on(False)
 

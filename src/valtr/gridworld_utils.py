@@ -1,12 +1,12 @@
+import einops as ei
 import ipdb
 import jax.numpy as jnp
 import numpy as np
 from dvi.dynamics.gridworld import GridWorld
-import einops as ei
 from dvi.dynamics.gridworld_timed import GridWorldTimed
 
 
-def parse_rooms(s: str, maxtime: int | None = None, ignore: str|None = None):
+def parse_rooms(s: str, maxtime: int | None = None, ignore: str | None = None, flipy: bool = False):
     s = s.strip("\n")
 
     if ignore is not None:
@@ -40,12 +40,15 @@ def parse_rooms(s: str, maxtime: int | None = None, ignore: str|None = None):
         for kk in range(maxtime + 1):
             k = f"Tle{kk}"
             d[k] = np.zeros((height, width, maxtime + 1), dtype=bool)
-            d[k][:, :, :kk + 1] = True
+            d[k][:, :, : kk + 1] = True
 
         # Flip the first 2 dims.
         d = {k: ei.rearrange(v, "x y T -> y x T") for k, v in d.items()}
     else:
         d = {k: v.T for k, v in d.items()}
+
+    if flipy:
+        d = {k: v[:, ::-1] for k, v in d.items()}
 
     shape = (width, height)
     drift_fn = None
@@ -55,6 +58,41 @@ def parse_rooms(s: str, maxtime: int | None = None, ignore: str|None = None):
         dyn = GridWorldTimed(shape, maxtime, drift_fn)
 
     return dyn, d
+
+
+class GridWorldDriftFn2:
+    """dyn is (y, x). up is +1 in y, right is +1 in x."""
+
+    def __init__(self, d: dict[str, np.ndarray], force: bool = False):
+        self.d = d
+        self.force = force
+
+    def __call__(self, state: jnp.ndarray, delta: jnp.ndarray, which=jnp):
+        d = self.d
+        force = self.force
+        y, x = state
+        empty = np.array(False)
+        l_only = which.array(d["<"])[y, x] if "<" in d else empty
+        r_only = which.array(d[">"])[y, x] if ">" in d else empty
+        u_only = which.array(d["^"])[y, x] if "^" in d else empty
+        d_only = which.array(d["v"])[y, x] if "v" in d else empty
+
+        delta_y = which.where(l_only, -1, which.where(r_only, 1, delta[0]))
+        delta_x = which.where(u_only, 1, which.where(d_only, -1, delta[1]))
+
+        if force:
+            # In l_only or r_only, delta_y = 0. Similarly, in u_only or d_only, delta_x = 0.
+            delta_x = which.where(l_only | r_only, 0, delta_x)
+            delta_y = which.where(u_only | d_only, 0, delta_y)
+
+        if isinstance(delta, jnp.ndarray):
+            delta = delta.at[1].set(delta_x).at[0].set(delta_y)
+        else:
+            assert isinstance(delta, np.ndarray)
+            delta[1] = delta_x
+            delta[0] = delta_y
+
+        return state + delta
 
 
 class GridWorldDriftFn:

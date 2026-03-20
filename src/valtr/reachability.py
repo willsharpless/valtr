@@ -590,13 +590,24 @@ def lower_ir_to_dag_(
         q_tilde_args += q_tilde_ands_G
 
     if len(U_args) == 0 and len(UG_args) == 1:
-        assert len(GU_args) == 0, "GU not supported when have UG yet."
         UG_arg = UG_args[0]
         left = lower_bool_leaf_expr_to_dag(irb, dag, UG_arg.left)
-        _, right = lower_ir_to_dag(irb, UG_arg.right, dag=dag, nested=True)
-
         q_tilde = dag.min_n([*q_tilde_args, left])
-        return dag.reachavoid(reach=right, stay=q_tilde)
+
+        if len(GU_args) == 0:
+            _, right = lower_ir_to_dag(irb, UG_arg.right, dag=dag, nested=True)
+
+            return dag.reachavoid(reach=right, stay=q_tilde)
+        else:
+            node_right = irb.nodes[UG_arg.right]
+            assert isinstance(node_right, TemporalUnary) and node_right.kind == UnaryIROpKind.GLOBALLY
+            globally_arg = node_right.arg
+            globally_arg_dag = lower_bool_leaf_expr_to_dag(irb, dag, globally_arg)
+
+            G_arg_dag_new = dag.min_n([globally_arg_dag, G_arg_dag])
+
+            GU_dag = lower_ir_to_dag_GU(irb, dag, GU_args, G_arg_dag_new)
+            return dag.reachavoid(reach=GU_dag, stay=q_tilde)
 
     q_tilde = dag.min_n(q_tilde_args)
 

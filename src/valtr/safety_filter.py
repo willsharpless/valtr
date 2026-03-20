@@ -250,7 +250,7 @@ class SafetyFilter:
 
             # if action_filtered == 0:
             #     logger.warning("Preference fn chose action 0!")
-            # if self.kk == 24:
+            # if self.kk == 16:
             #     logger.warning("kk={} | Nominal action: {}".format(self.kk, self.dyn.action_to_str(a_nom)))
             #
             #     for action_ in range(self.dyn.n_actions):
