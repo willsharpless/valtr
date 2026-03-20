@@ -52,35 +52,50 @@ app = cyclopts.App()
 # ################
 # """
 
+# MAP = """
+# ############
+# #EE.#gg #s #
+# #EE.#gg # s#
+# ###.#  A## #
+# #...# ###  #
+# #.#.d      #
+# #...# # ####
+# #FF.# # #  #
+# #FF.# # ^ A#
+# ##d##   ^ A#
+# #B    #K#  #
+# ############
+# """
+
+# MAP = """
+# ############
+# #EE.#ggg#s #
+# #EE.#   # s#
+# ###.#  A## #
+# #...# #### #
+# #.#.d      #
+# #...d # ####
+# #FF.d # ^  #
+# #FF.# ### A#
+# ##d##   # A#
+# #B    #K#  #
+# ############
+# """
+
 MAP = """
 ############
-#EE.#gg #s #
-#EE.#gg # s#
-###.#  A## #
-#...# ##   #
+#EE.#ggg#s #
+#EE.#   ##s#
+###.#   A# #
+#...# #### #
 #.#.d      #
-#...# # ####
-#FF.# # ^  #
+#...d # ####
+#FF.d # ^  #
 #FF.# ### A#
 ##d##   # A#
 #B    #K#  #
 ############
 """
-
-# MAP = """
-# ############
-# #EE.#g # s #
-# #EE.#  #  s#
-# ###.# A### #
-# #...# ##   #
-# #.#.d      #
-# #...# # ####
-# #FF.# # #  #
-# #FF.#   ^ A#
-# ##d## # # A#
-# #B    #K#  #
-# ############
-# """
 
 ## old version
 # TASK_SOURCE = TASK_SOURCE_AG1 = TASK_SOURCE_AG2 = "(!site U gear) && G F saw && G F wood && (!d U k) && G(!w) && G(!collide) && G(!distant)" # old
@@ -89,9 +104,12 @@ MAP = """
 TAIL = "(!w) U G( ( (site && !w) U (site && !w && saw)) && ( (site && !w) U (site && !w && wood)) )"
 TAIL_TIMED = "(!w && TleGU) U G( ( (site && !w && TleGU) U (site && !w && saw)) && ( (site && !w && TleGU) U (site && !w && wood)) )"
 TASK_SOURCE = (
-    "((!site && !w) U (gear && !w)) && (!d U k) && ({}) && (!w && !site) U ( ( (r1 && TleR) || (r2 && TleR) ) && !w )".format(
-    # "((!site && !w) U (gear && !w)) && ((!d && TleKey) U (k && TleKey)) && ({}) && (!w && !site) U ( ( (r1 && TleR) || (r2 && TleR) ) && !w )".format( # also BUG: NO TIME -> passes thru door without key
-        TAIL_TIMED
+    # "((!site && !w) U (gear && !w)) && (!d U k) && ({}) && (!w && !site) U ( ( (r1 && TleR) || (r2 && TleR) ) && !w )".format(
+    "((!site && !w) U (gear && !w)) && (!d U k) && (TleSite U (site && TleSite)) && ({})".format(
+    # "((!site && !w) U (gear && !w)) && (!d U k) && (TleSite U (site && TleSite)) && ({}) && (!w && !site) U ( ( (r1 && TleR) || (r2 && TleR) ) && !w )".format(
+    # "((!site && !w) U (gear && !w)) && ((!d && TleKey) U (k && TleKey)) && ({}) && (!w && !site) U ( ( (r1 && TleR) || (r2 && TleR) ) && !w )".format(
+        # TAIL_TIMED
+        TAIL
     )
 )
 
@@ -102,21 +120,22 @@ TGT = "r2"
 
 ## agent 1 -> coffee
 if TGT == "r1":
-    TASK_SOURCE_AG1 = "F r1 && G(!w)"
-    TASK_SOURCE_AG2 = "((!site && !w) U (gear && !w)) && (!d U k) && ({})".format(TAIL)
+    TASK_SOURCE_AG1 = "F r1 && G(!w) && (!d U k)"
+    TASK_SOURCE_AG2 = "F r1 && ((!site && !w) U (gear && !w)) && ({})".format(TAIL)
 
 ## agent 1 -> tea
 elif TGT == "r2":
-    TASK_SOURCE_AG1 = "F r2 && G(!w)"
-    TASK_SOURCE_AG2 = "((!site && !w) U (gear && !w)) && (!d U k) && ({})".format(TAIL)
+    TASK_SOURCE_AG1 = "F r2 && ((!site && !w) U (gear && !w)) && G(!w) && (!d U k)"
+    TASK_SOURCE_AG2 = "F r2 && ((!site && !w) U (gear && !w)) && (!d U k) && ({})".format(TAIL) # less deadlock if agent 2 wants agent 1 to get tea
 else:
     raise ValueError("Unknown TGT")
 
 LEASH_LEN = 3
 
 TMAX = 100
-# TIME_KEY = 20
-TIME_KEY = 30 # BUG
+TIME_KEY = 30
+TIME_SITE = 60
+TIME_GU = 50
 
 RESULTS_DIR = pathlib.Path("plots_discrete")
 
@@ -146,6 +165,167 @@ def draw_room_map(fig, ax, empty_map, cmap, d_raw, w, h, alpha: float = 0.5):
     ax.tick_params(labelbottom=False, labelleft=False)
     ax.set_aspect("equal")
     ax.set_autoscale_on(False)
+
+
+def draw_directional_cell_arrows(ax, d_raw_viz: dict[str, np.ndarray], arrow_color=(0.15, 0.15, 0.15, 0.9)):
+    direction_vectors = {
+        "^": (0.0, 1.0),
+        "v": (0.0, -1.0),
+        "<": (-1.0, 0.0),
+        ">": (1.0, 0.0),
+    }
+    shaft_half_length = 0.35
+
+    for symbol, (dx, dy) in direction_vectors.items():
+        if symbol not in d_raw_viz:
+            continue
+
+        mask = d_raw_viz[symbol]
+        if mask.ndim == 3:
+            mask = mask[:, :, -1]
+
+        for y, x in np.argwhere(mask):
+            arrow = FancyArrowPatch(
+                posA=(x - shaft_half_length * dx, y - shaft_half_length * dy),
+                posB=(x + shaft_half_length * dx, y + shaft_half_length * dy),
+                arrowstyle="simple",
+                mutation_scale=10,
+                linewidth=1.1,
+                color=arrow_color,
+                zorder=3,
+            )
+            ax.add_patch(arrow)
+
+
+def decode_rollout_joint_states(dyn_ma, dyn_ma_untimed, Tp1_states):
+    decoded_joint_states = []
+    for joint_state in Tp1_states:
+        joint_state_untimed, _ = dyn_ma.decode_timed_state(int(joint_state), which=np)
+        decoded_joint_states.append(dyn_ma_untimed.decode_joint_state(int(joint_state_untimed)))
+    return np.array(decoded_joint_states)
+
+
+def make_agent_plot_offsets(n_agents: int, offset_radius: float = 0.14) -> np.ndarray:
+    if n_agents == 1:
+        return np.zeros((1, 2))
+    if n_agents == 2:
+        return offset_radius * np.array([[1.0, 1.0], [-1.0, -1.0]]) / np.sqrt(2.0)
+
+    offset_angles = np.linspace(np.pi / 4.0, np.pi / 4.0 + 2.0 * np.pi, n_agents, endpoint=False)
+    return offset_radius * np.column_stack((np.cos(offset_angles), np.sin(offset_angles)))
+
+
+def get_switch_segment_bounds(T_curnode_idxs, n_states: int, n_segments: int = 4) -> list[tuple[int, int]]:
+    switch_starts = [idx + 1 for idx in range(len(T_curnode_idxs) - 1) if T_curnode_idxs[idx] != T_curnode_idxs[idx + 1]]
+    segment_starts = [0] + switch_starts[: max(n_segments - 1, 0)]
+
+    while len(segment_starts) < n_segments:
+        segment_starts.append(n_states - 1)
+
+    segment_bounds = []
+    for seg_idx in range(n_segments):
+        start_idx = min(segment_starts[seg_idx], n_states - 1)
+        if seg_idx + 1 < len(segment_starts):
+            end_idx = min(segment_starts[seg_idx + 1], n_states - 1)
+        else:
+            end_idx = n_states - 1
+        if end_idx < start_idx:
+            end_idx = start_idx
+        segment_bounds.append((start_idx, end_idx))
+
+    return segment_bounds
+
+
+def get_map_symbol_color(symbol: str, d_raw_viz: dict[str, np.ndarray], cmap) -> tuple[float, float, float, float]:
+    if symbol not in d_raw_viz:
+        return to_rgba("k", alpha=1.0)
+    color_idx = list(d_raw_viz.keys()).index(symbol)
+    return to_rgba(cmap.colors[color_idx], alpha=1.0)
+
+
+def get_spec_arrow_colors(T_curnode_idxs, d_raw_viz: dict[str, np.ndarray], cmap):
+    node_symbol_map = {
+        49: ["g"],
+        29: ["K"],
+        19: ["."],
+        15: ["E", "F"],
+    }
+
+    arrow_colors = []
+    visit_counts = Counter()
+    for node_idx in T_curnode_idxs:
+        symbols = node_symbol_map.get(int(node_idx))
+        if not symbols:
+            arrow_colors.append(None)
+            continue
+
+        symbol = symbols[visit_counts[int(node_idx)] % len(symbols)]
+        visit_counts[int(node_idx)] += 1
+        arrow_colors.append(get_map_symbol_color(symbol, d_raw_viz, cmap))
+
+    return arrow_colors
+
+
+def save_rollout_still(
+    out_path: pathlib.Path,
+    dyn_untimed,
+    decoded_joint_states: np.ndarray,
+    T_curnode_idxs_plot,
+    spec_arrow_colors,
+    dag_nodes,
+    empty_map,
+    cmap,
+    d_raw_viz,
+    w: int,
+    h: int,
+    agent_colors,
+    colorbynode: bool=False,
+):
+    fig_still, ax_still = plt.subplots(frameon=False, figsize=(4, 4))
+    draw_room_map(fig_still, ax_still, empty_map, cmap, d_raw_viz, w, h, alpha=0.5)
+    draw_directional_cell_arrows(ax_still, d_raw_viz)
+
+    n_agents = decoded_joint_states.shape[1]
+    node_cmap = plt.get_cmap("tab20", max(len(dag_nodes), 1))
+    agent_plot_offsets = make_agent_plot_offsets(n_agents)
+
+    for ii in range(n_agents):
+        agent_state_traj = decoded_joint_states[:, ii]
+        coords = np.array([dyn_untimed.decode_state(int(state)) for state in agent_state_traj])
+        offset_y, offset_x = agent_plot_offsets[ii]
+        ys = coords[:, 0] + offset_y
+        xs = coords[:, 1] + offset_x
+        color = agent_colors[ii]
+
+        ax_still.plot(xs, ys, color=color, linewidth=1.5, alpha=0.6, zorder=4)
+        for step_idx in range(len(xs) - 1):
+            start = np.array([xs[step_idx], ys[step_idx]], dtype=float)
+            end = np.array([xs[step_idx + 1], ys[step_idx + 1]], dtype=float)
+            delta = end - start
+            if np.allclose(delta, 0.0):
+                continue
+            node_color = node_cmap(int(T_curnode_idxs_plot[step_idx]))
+            spec_color = spec_arrow_colors[step_idx] if len(spec_arrow_colors) > step_idx else None
+            direction = delta / np.linalg.norm(delta)
+            shrink = 0.08 * direction
+            arrow = FancyArrowPatch(
+                posA=tuple(start + shrink),
+                posB=tuple(end - shrink),
+                arrowstyle="-|>",
+                mutation_scale=12,
+                linewidth=0.5,
+                facecolor=spec_color if spec_color is not None else (
+                    to_rgba(node_color, alpha=1.0) if colorbynode else (1.0, 1.0, 1.0, 1.0)
+                ),
+                zorder=5,
+            )
+            ax_still.add_patch(arrow)
+
+        ax_still.plot(xs[0], ys[0], marker="o", color=color, ms=6, zorder=6)
+        ax_still.plot(xs[-1], ys[-1], marker="s", color=color, ms=5, zorder=6)
+
+    fig_still.savefig(out_path, dpi=500, pad_inches=0)
+    plt.close(fig_still)
 
 
 def make_room_cmap(d_raw_viz: dict[str, np.ndarray]) -> tuple[np.ndarray, ListedColormap]:
@@ -255,11 +435,19 @@ def main(
     resolve_nom: bool = False,
     nofilter: bool = False,
     safetyonly: bool = False,
+    onlyfilter: bool = False,
+    colorbynode: bool = False
 ):
     RESULTS_DIR.mkdir(exist_ok=True)
 
     if safetyonly:
-        global TASK_SOURCE, TASK_SOURCE_SAFETYONLY
+        global TASK_SOURCE, TASK_SOURCE_SAFETYONLY, TASK_SOURCE_AG1, TASK_SOURCE_AG2
+        # if TGT == "r1":
+        #     TASK_SOURCE_AG1 = TASK_SOURCE_AG2 = TASK_SOURCE
+        # elif TGT == "r2":
+        #     # TASK_SOURCE_AG1 = TASK_SOURCE_AG2 = TASK_SOURCE
+        #     TASK_SOURCE_AG1 = "F r2 &&" + TASK_SOURCE
+        #     TASK_SOURCE_AG2 = "F r2 &&" + TASK_SOURCE
         TASK_SOURCE = TASK_SOURCE_SAFETYONLY
 
     logger.debug("Parsing...")
@@ -278,7 +466,7 @@ def main(
         "gear": np.where(get_mask("g"), 1, -1)[:, :, -1],
         "site": np.where(get_mask(".") | d_raw["E"] | d_raw["F"], 1, -1)[:, :, -1],
         "k": np.where(get_mask("K"), 1, -1)[:, :, -1],
-        "d": np.where(get_mask("D"), 1, -1)[:, :, -1],
+        "d": np.where(get_mask("d"), 1, -1)[:, :, -1],
         "w": np.where(get_mask("#"), 1, -1)[:, :, -1],
         "<": np.where(get_mask("<"), 1, -1)[:, :, -1],
         ">": np.where(get_mask(">"), 1, -1)[:, :, -1],
@@ -309,7 +497,7 @@ def main(
     fig, ax = plt.subplots(figsize=np.array([8, 6]), frameon=False)
     draw_room_map(fig, ax, empty_map, cmap, d_raw_viz, w, h, alpha=0.5)
     fig_path = RESULTS_DIR / "ma_timed_was_map.pdf"
-    fig.savefig(fig_path, bbox_inches="tight", pad_inches=1e-2)
+    fig.savefig(fig_path, bbox_inches="tight", pad_inches=1e-2, dpi=500)
     plt.close(fig)
     logger.success(f"Saved to {fig_path}")
 
@@ -336,7 +524,8 @@ def main(
         "TleTMAX": dyn_ma.tle_predicate(TMAX),
         # "Tle": dyn_ma.tle_predicate(30),
         "TleKey": dyn_ma.tle_predicate(TIME_KEY),
-        "TleGU": dyn_ma.tle_predicate(50),
+        "TleSite": dyn_ma.tle_predicate(TIME_SITE),
+        "TleGU": dyn_ma.tle_predicate(TIME_GU),
         "TleR": dyn_ma.tle_predicate(40),
     }
 
@@ -391,7 +580,7 @@ def main(
             "gear": np.where(get_mask("g"), 1, -1),
             "site": np.where(get_mask(".") | d_raw["E"] | d_raw["F"], 1, -1),
             "k": np.where(get_mask("K"), 1, -1),
-            "d": np.where(get_mask("D"), 1, -1),
+            "d": np.where(get_mask("d"), 1, -1),
             "w": np.where(get_mask("#"), 1, -1),
             "<": np.where(get_mask("<"), 1, -1),
             ">": np.where(get_mask(">"), 1, -1),
@@ -507,7 +696,7 @@ def main(
 
     if im_values is not None:
         fig_values.colorbar(im_values, ax=axes_values, fraction=0.046, pad=0.04)
-    fig_values.savefig(RESULTS_DIR / "rooms_discrete_ma_timed_was_root_values.png", dpi=200, bbox_inches="tight")
+    fig_values.savefig(RESULTS_DIR / "rooms_discrete_ma_timed_was_root_values.png", dpi=500, bbox_inches="tight")
     plt.close(fig_values)
 
     feasible_states = np.where(value >= 0)[0]
@@ -539,179 +728,184 @@ def main(
     # Rollout optimal policy for spec (no filtering)
 
     rollouter = MinTimeRollout(dyn_ma, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions)
-    # Tp1_states, T_actions, T_curnode_idxs = rollouter.rollout(start_state, max_steps=TMAX)
+
+    if onlyfilter:
+        Tp1_states, T_actions, T_curnode_idxs = rollouter.rollout(start_state, max_steps=TMAX)
+        T_a_nom = T_a_nom_ag1 = T_a_nom_ag2 = T_a_filt = T_actions
+        T_hasfiltered = np.zeros_like(T_actions, dtype=bool)
 
     # ---------------------------------------------------------------------
     # Rollout safety filter.
-    state = start_state
-    Tp1_states = [state]
-    T_a_nom = []
-    T_a_nom_ag1, T_a_nom_ag2 = [], []
-    T_a_filt = []
-    T_hasfiltered = []
-    T_curnode_idxs = []
+    else:
+        state = start_state
+        Tp1_states = [state]
+        T_a_nom = []
+        T_a_nom_ag1, T_a_nom_ag2 = [], []
+        T_a_filt = []
+        T_hasfiltered = []
+        T_curnode_idxs = []
 
-    # State tracking for fancy preference (works but jank)
-    # recent_joint_states = deque(maxlen=8)
-    # joint_visit_counts = Counter()
-    # start_joint_state, _ = dyn_ma.decode_timed_state(state, which=np)
-    # start_joint_state = int(start_joint_state)
-    # recent_joint_states.append(start_joint_state)
-    # joint_visit_counts[start_joint_state] += 1
+        # State tracking for fancy preference (works but jank)
+        # recent_joint_states = deque(maxlen=8)
+        # joint_visit_counts = Counter()
+        # start_joint_state, _ = dyn_ma.decode_timed_state(state, which=np)
+        # start_joint_state = int(start_joint_state)
+        # recent_joint_states.append(start_joint_state)
+        # joint_visit_counts[start_joint_state] += 1
 
-    # def _joint_xy_from_joint_state(s_joint_: int) -> np.ndarray:
-    #     agent_states_ = dyn_ma_.decode_joint_state(s_joint_, which=np)
-    #     return np.array(
-    #         [dyn_ma_.base.decode_state(int(agent_state), which=np) for agent_state in agent_states_],
-    #         dtype=np.int32,
-    #     )
+        # def _joint_xy_from_joint_state(s_joint_: int) -> np.ndarray:
+        #     agent_states_ = dyn_ma_.decode_joint_state(s_joint_, which=np)
+        #     return np.array(
+        #         [dyn_ma_.base.decode_state(int(agent_state), which=np) for agent_state in agent_states_],
+        #         dtype=np.int32,
+        #     )
 
-    # def preference_fn(state_: StateInt, a_nom_: ActionInt) -> np.ndarray:
-    #     s_joint_, _ = dyn_ma.decode_timed_state(state_, which=np)
-    #     s_joint_ = int(s_joint_)
-    #     cur_xy = _joint_xy_from_joint_state(s_joint_)
+        # def preference_fn(state_: StateInt, a_nom_: ActionInt) -> np.ndarray:
+        #     s_joint_, _ = dyn_ma.decode_timed_state(state_, which=np)
+        #     s_joint_ = int(s_joint_)
+        #     cur_xy = _joint_xy_from_joint_state(s_joint_)
 
-    #     s_nom_next = int(dyn_ma.step(state_, a_nom_, which=np))
-    #     s_nom_next_joint, _ = dyn_ma.decode_timed_state(s_nom_next, which=np)
-    #     s_nom_next_joint = int(s_nom_next_joint)
-    #     nom_xy = _joint_xy_from_joint_state(s_nom_next_joint)
-    #     nom_disp = nom_xy - cur_xy
+        #     s_nom_next = int(dyn_ma.step(state_, a_nom_, which=np))
+        #     s_nom_next_joint, _ = dyn_ma.decode_timed_state(s_nom_next, which=np)
+        #     s_nom_next_joint = int(s_nom_next_joint)
+        #     nom_xy = _joint_xy_from_joint_state(s_nom_next_joint)
+        #     nom_disp = nom_xy - cur_xy
 
-    #     costs = np.full(dyn_ma.n_actions, np.inf, dtype=np.float32)
-    #     for a in range(dyn_ma.n_actions):
-    #         s_next = int(dyn_ma.step(state_, a, which=np))
-    #         value_next = float(dict_vars[safety_filter.cur_node_id][s_next])
-    #         if value_next < 0:
-    #             continue
+        #     costs = np.full(dyn_ma.n_actions, np.inf, dtype=np.float32)
+        #     for a in range(dyn_ma.n_actions):
+        #         s_next = int(dyn_ma.step(state_, a, which=np))
+        #         value_next = float(dict_vars[safety_filter.cur_node_id][s_next])
+        #         if value_next < 0:
+        #             continue
 
-    #         s_next_joint, _ = dyn_ma.decode_timed_state(s_next, which=np)
-    #         s_next_joint = int(s_next_joint)
-    #         next_xy = _joint_xy_from_joint_state(s_next_joint)
-    #         disp = next_xy - cur_xy
+        #         s_next_joint, _ = dyn_ma.decode_timed_state(s_next, which=np)
+        #         s_next_joint = int(s_next_joint)
+        #         next_xy = _joint_xy_from_joint_state(s_next_joint)
+        #         disp = next_xy - cur_xy
 
-    #         align = float(np.sum(disp * nom_disp))
-    #         dev = float(np.abs(next_xy - nom_xy).sum())
-    #         stuck = float(s_next_joint == s_joint_)
-    #         waiting_agents = float(np.sum(np.all(disp == 0, axis=1)))
-    #         revisit = float(joint_visit_counts[s_next_joint] + 2 * (s_next_joint in recent_joint_states))
+        #         align = float(np.sum(disp * nom_disp))
+        #         dev = float(np.abs(next_xy - nom_xy).sum())
+        #         stuck = float(s_next_joint == s_joint_)
+        #         waiting_agents = float(np.sum(np.all(disp == 0, axis=1)))
+        #         revisit = float(joint_visit_counts[s_next_joint] + 2 * (s_next_joint in recent_joint_states))
 
-    #         costs[a] = (
-    #             10.0 * stuck
-    #             + 3.0 * waiting_agents
-    #             + 2.0 * revisit
-    #             + 1.0 * dev
-    #             - 1.5 * align
-    #             - 0.1 * value_next
-    #         )
+        #         costs[a] = (
+        #             10.0 * stuck
+        #             + 3.0 * waiting_agents
+        #             + 2.0 * revisit
+        #             + 1.0 * dev
+        #             - 1.5 * align
+        #             - 0.1 * value_next
+        #         )
 
-    #     return costs
+        #     return costs
 
-    gotten_key = False
+        gotten_key = False
 
-    for kk in range(TMAX):
-        logger.debug(f"> kk={kk}")
+        for kk in range(TMAX):
+            logger.debug(f"> kk={kk}")
 
-        s_joint, _ = dyn_ma.decode_timed_state(state, which=np)
-        state_ag1, state_ag2 = dyn_ma_.decode_joint_state(s_joint, which=np)
-        state_ag1_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag1)]
-        state_ag2_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag2)]
-        logger.debug("    Current state: agent1 at {}, agent2 at {}".format(state_ag1_tup, state_ag2_tup))
+            s_joint, _ = dyn_ma.decode_timed_state(state, which=np)
+            state_ag1, state_ag2 = dyn_ma_.decode_joint_state(s_joint, which=np)
+            state_ag1_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag1)]
+            state_ag2_tup = [int(n) for n in dyn_ma_.base.decode_state(state_ag2)]
+            logger.debug("    Current state: agent1 at {}, agent2 at {}".format(state_ag1_tup, state_ag2_tup))
 
-        logger.debug("    Agent 1 policy...")
-        a_nom_ag1_joint, ag1_isdone = pol_ag1.get_action(s_joint, which=np, kk=kk, debug=True)
-        logger.debug("    Agent 1 policy... done!")
-        if ag1_isdone:
-            logger.debug("    Agent 1 policy is done. Using no-op.")
-            a_nom_ag1 = dyn_untimed.str_to_action(".")
-        else:
-            a_nom_ag1 = dyn_ma_.decode_joint_action(a_nom_ag1_joint, which=np)[0]
+            logger.debug("    Agent 1 policy...")
+            a_nom_ag1_joint, ag1_isdone = pol_ag1.get_action(s_joint, which=np, kk=kk, debug=True)
+            logger.debug("    Agent 1 policy... done!")
+            if ag1_isdone:
+                logger.debug("    Agent 1 policy is done. Using no-op.")
+                a_nom_ag1 = dyn_untimed.str_to_action(".")
+            else:
+                a_nom_ag1 = dyn_ma_.decode_joint_action(a_nom_ag1_joint, which=np)[0]
 
-        logger.debug("    Agent 2 policy...")
-        a_nom_ag2_joint, ag2_isdone = pol_ag2.get_action(s_joint)
-        logger.debug("    Agent 2 policy... done! {}".format(dyn_ma_.action_to_str(a_nom_ag2_joint)))
-        a_nom_ag2 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[1]
-        # if ag2_isdone:
-        #     logger.debug("    Agent 2 policy is done! Using no-op.")
-        #     a_nom_ag2 = dyn_untimed.str_to_action(".")
-        # else:
-        #     a_nom_ag2 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[1]
+            logger.debug("    Agent 2 policy...")
+            a_nom_ag2_joint, ag2_isdone = pol_ag2.get_action(s_joint)
+            logger.debug("    Agent 2 policy... done! {}".format(dyn_ma_.action_to_str(a_nom_ag2_joint)))
+            a_nom_ag2 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[1]
+            # if ag2_isdone:
+            #     logger.debug("    Agent 2 policy is done! Using no-op.")
+            #     a_nom_ag2 = dyn_untimed.str_to_action(".")
+            # else:
+            #     a_nom_ag2 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[1]
 
-        if isinstance(dag_nodes[safety_filter.cur_node_id], DAGGUMinN):
-            # At the GU, just set nominal action to agent 2's action to prevent deadlocks.
-            a_nom_ag1 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[0]
+            if isinstance(dag_nodes[safety_filter.cur_node_id], DAGGUMinN):
+                # At the GU, just set nominal action to agent 2's action to prevent deadlocks.
+                a_nom_ag1 = dyn_ma_.decode_joint_action(a_nom_ag2_joint, which=np)[0]
 
-        a_nom = dyn_ma_.encode_joint_action([a_nom_ag1, a_nom_ag2], which=np)
+            a_nom = dyn_ma_.encode_joint_action([a_nom_ag1, a_nom_ag2], which=np)
 
-        if a_nom_ag1 == dyn_untimed.str_to_action(".") and a_nom_ag2 == dyn_untimed.str_to_action("."):
-            logger.debug("Both agents want to stay still!")
-            a_nom = a_nom_ag2_joint
+            if a_nom_ag1 == dyn_untimed.str_to_action(".") and a_nom_ag2 == dyn_untimed.str_to_action("."):
+                logger.debug("Both agents want to stay still!")
+                a_nom = a_nom_ag2_joint
 
-        # a_safe = safety_filter.filter_action(state, a_nom, preference_fn) # preference not helping here
+            # a_safe = safety_filter.filter_action(state, a_nom, preference_fn) # preference not helping here
 
-        def preference_fn(_: StateInt, a_nom_: ActionInt) -> np.ndarray:
-            # If agent1 is staying still, then prefer actions where the agent2 action matches a_nom_.
-            # Otherwise, prefer actions where agent1 action matches a_nom_.
-            N_actions = dyn_ma_.decode_joint_action(a_nom_, which=np)
-            assert N_actions.shape == (2,)
-            a1_nom, a2_nom = N_actions
+            def preference_fn(_: StateInt, a_nom_: ActionInt) -> np.ndarray:
+                # If agent1 is staying still, then prefer actions where the agent2 action matches a_nom_.
+                # Otherwise, prefer actions where agent1 action matches a_nom_.
+                N_actions = dyn_ma_.decode_joint_action(a_nom_, which=np)
+                assert N_actions.shape == (2,)
+                a1_nom, a2_nom = N_actions
 
-            STILL_ACTION = dyn_ma_.base.str_to_action(".")
+                STILL_ACTION = dyn_ma_.base.str_to_action(".")
 
-            costs = np.zeros(dyn_ma.n_actions, dtype=np.float32)
-            for a in range(dyn_ma.n_actions):
-                N_a = dyn_ma_.decode_joint_action(a, which=np)
-                a1, a2 = N_a
+                costs = np.zeros(dyn_ma.n_actions, dtype=np.float32)
+                for a in range(dyn_ma.n_actions):
+                    N_a = dyn_ma_.decode_joint_action(a, which=np)
+                    a1, a2 = N_a
 
-                if a1_nom == STILL_ACTION:  # Agent 1 is staying still
-                    # High cost if agent 2 action doesn't match nom, lower cost if agent 1 action doesn't match nom
-                    costs[a] += 0.0 if a2 == a2_nom else 2.0
-                    costs[a] += 0.0 if ((a1 == a1_nom) | (a1_nom == STILL_ACTION)) else 1.0
-                else:
-                    # High cost if agent 1 action doesn't match nom, lower cost if agent 2 action doesn't match nom
-                    costs[a] += 0.0 if a1 == a1_nom else 2.0
-                    costs[a] += 0.0 if ((a2 == a2_nom) | (a2_nom == STILL_ACTION)) else 1.0
+                    if a1_nom == STILL_ACTION:  # Agent 1 is staying still
+                        # High cost if agent 2 action doesn't match nom, lower cost if agent 1 action doesn't match nom
+                        costs[a] += 0.0 if a2 == a2_nom else 2.0
+                        costs[a] += 0.0 if ((a1 == a1_nom) | (a1_nom == STILL_ACTION)) else 1.0
+                    else:
+                        # High cost if agent 1 action doesn't match nom, lower cost if agent 2 action doesn't match nom
+                        costs[a] += 0.0 if a1 == a1_nom else 2.0
+                        costs[a] += 0.0 if ((a2 == a2_nom) | (a2_nom == STILL_ACTION)) else 1.0
 
-                # # High cost for both agents not moving.
-                # if (a1 == STILL_ACTION) and (a2 == STILL_ACTION):
-                #     costs[a] += 5.0
+                    # # High cost for both agents not moving.
+                    # if (a1 == STILL_ACTION) and (a2 == STILL_ACTION):
+                    #     costs[a] += 5.0
 
-            return costs
+                return costs
 
-        if nofilter:
-            a_safe = a_nom
-            hasfiltered = False
-        else:
-            # a_safe = safety_filter.filter_action(state, a_nom)
-            a_safe = safety_filter.filter_action(state, a_nom, preference_fn=preference_fn)
-            hasfiltered = a_safe != a_nom
+            if nofilter:
+                a_safe = a_nom
+                hasfiltered = False
+            else:
+                a_safe = safety_filter.filter_action(state, a_nom)
+                # a_safe = safety_filter.filter_action(state, a_nom, preference_fn=preference_fn)
+                hasfiltered = a_safe != a_nom
 
-        state = dyn_ma.step(state, a_safe)
+            state = dyn_ma.step(state, a_safe)
 
-        T_a_nom_ag1.append(a_nom_ag1_joint)
-        T_a_nom_ag2.append(a_nom_ag2_joint)
-        T_a_nom.append(a_nom)
-        T_a_filt.append(a_safe)
-        Tp1_states.append(state)
-        T_hasfiltered.append(hasfiltered)
-        T_curnode_idxs.append(safety_filter.cur_node_id)
+            T_a_nom_ag1.append(a_nom_ag1_joint)
+            T_a_nom_ag2.append(a_nom_ag2_joint)
+            T_a_nom.append(a_nom)
+            T_a_filt.append(a_safe)
+            Tp1_states.append(state)
+            T_hasfiltered.append(hasfiltered)
+            T_curnode_idxs.append(safety_filter.cur_node_id)
 
-        if safety_filter.dict_vars[safety_filter.cur_node_id][state] < 0:
-            logger.warning("Reached infeasible state at step {}: {}".format(kk, state))
-            break
+            if safety_filter.dict_vars[safety_filter.cur_node_id][state] < 0:
+                logger.warning("Reached infeasible state at step {}: {}".format(kk, state))
+                break
 
-        if dict_predicates["k"][state] == 1:
-            gotten_key = True
+            if dict_predicates["k"][state] == 1:
+                gotten_key = True
 
-        if kk > TIME_KEY and not gotten_key:
-            logger.warning("Haven't gotten the key by step {}: {}".format(kk, state))
-            break
+            if kk > TIME_KEY and not gotten_key and 'TleKey' in TASK_SOURCE:
+                logger.warning("Haven't gotten the key by step {}: {}".format(kk, state))
+                break
 
-        # s_joint_new, _ = dyn_ma.decode_timed_state(state, which=np)
-        # s_joint_new = int(s_joint_new)
-        # recent_joint_states.append(s_joint_new)
-        # joint_visit_counts[s_joint_new] += 1
+            # s_joint_new, _ = dyn_ma.decode_timed_state(state, which=np)
+            # s_joint_new = int(s_joint_new)
+            # recent_joint_states.append(s_joint_new)
+            # joint_visit_counts[s_joint_new] += 1
 
-    T_hasfiltered = np.array(T_hasfiltered)
+        T_hasfiltered = np.array(T_hasfiltered)
 
     # ---------------------------------------------------------------------
 
@@ -781,6 +975,8 @@ def main(
     anim = FuncAnimation(fig_anim, update_fn, n_frames, init_fn, blit=True)
     if nofilter:
         name = f"rooms_discrete_rollout_multiagent_timed_was_{TGT}_nofilter.mp4"
+    elif onlyfilter:
+        name = f"rooms_discrete_rollout_multiagent_timed_was_{TGT}_onlyfilter.mp4"
     else:
         if safetyonly:
             name = f"rooms_discrete_rollout_multiagent_timed_was_{TGT}_safetyonly.mp4"
@@ -789,70 +985,69 @@ def main(
     anim.save(RESULTS_DIR / name, fps=5, dpi=200)
     plt.close(fig_anim)
 
-    fig_still, ax_still = plt.subplots(frameon=False, figsize=(4, 4))
-    draw_room_map(fig_still, ax_still, empty_map, cmap, d_raw_viz, w, h, alpha=0.5)
-
-    steps_to_plot = 50
-    n_plot_steps = min(steps_to_plot, len(Tp1_states))
-    Tp1_states_plot = Tp1_states[:n_plot_steps]
-    T_curnode_idxs_plot = T_curnode_idxs[: max(n_plot_steps - 1, 0)]
-
-    decoded_joint_states = []
-    for joint_state in Tp1_states_plot:
-        joint_state_untimed, _ = dyn_ma.decode_timed_state(int(joint_state), which=np)
-        decoded_joint_states.append(dyn_ma_.decode_joint_state(int(joint_state_untimed)))
-    decoded_joint_states = np.array(decoded_joint_states)
-
-    node_cmap = plt.get_cmap("tab20", max(len(dag_nodes), 1))
-    offset_radius = 0.14
-    if n_agents == 1:
-        agent_plot_offsets = np.zeros((1, 2))
-    elif n_agents == 2:
-        agent_plot_offsets = offset_radius * np.array([[1.0, 1.0], [-1.0, -1.0]]) / np.sqrt(2.0)
-    else:
-        offset_angles = np.linspace(np.pi / 4.0, np.pi / 4.0 + 2.0 * np.pi, n_agents, endpoint=False)
-        agent_plot_offsets = offset_radius * np.column_stack((np.cos(offset_angles), np.sin(offset_angles)))
-
-    for ii in range(n_agents):
-        agent_state_traj = decoded_joint_states[:, ii]
-        coords = np.array([dyn_untimed.decode_state(int(state)) for state in agent_state_traj])
-        offset_y, offset_x = agent_plot_offsets[ii]
-        ys = coords[:, 0] + offset_y
-        xs = coords[:, 1] + offset_x
-        color = agent_colors[ii]
-
-        ax_still.plot(xs, ys, color=color, linewidth=1.5, alpha=0.6, zorder=4)
-        for step_idx in range(len(xs) - 1):
-            start = np.array([xs[step_idx], ys[step_idx]], dtype=float)
-            end = np.array([xs[step_idx + 1], ys[step_idx + 1]], dtype=float)
-            delta = end - start
-            if np.allclose(delta, 0.0):
-                continue
-            node_color = node_cmap(int(T_curnode_idxs_plot[step_idx]))
-            direction = delta / np.linalg.norm(delta)
-            shrink = 0.08 * direction
-            arrow = FancyArrowPatch(
-                posA=tuple(start + shrink),
-                posB=tuple(end - shrink),
-                arrowstyle="-|>",
-                mutation_scale=12,
-                linewidth=0.5,
-                facecolor=to_rgba(node_color, alpha=1.0),
-                zorder=5,
-            )
-            ax_still.add_patch(arrow)
-        ax_still.plot(xs[0], ys[0], marker="o", color=color, ms=6, zorder=6)
-        ax_still.plot(xs[-1], ys[-1], marker="s", color=color, ms=5, zorder=6)
-
     if nofilter:
         name = f"rooms_discrete_rollout_multiagent_timed_was_{TGT}_paths_nofilter.png"
+    elif onlyfilter:
+        name = f"rooms_discrete_rollout_multiagent_timed_was_{TGT}_paths_onlyfilter.png"
     else:
         if safetyonly:
             name = f"rooms_discrete_rollout_multiagent_timed_was_{TGT}_paths_safetyonly.png"
         else:
             name = f"rooms_discrete_rollout_multiagent_timed_was_{TGT}_paths.png"
-    fig_still.savefig(RESULTS_DIR / name, dpi=200, pad_inches=0)
-    plt.close(fig_still)
+    decoded_joint_states = decode_rollout_joint_states(dyn_ma, dyn_ma_, Tp1_states)
+    spec_arrow_colors = get_spec_arrow_colors(T_curnode_idxs, d_raw_viz, cmap)
+    save_rollout_still(
+        RESULTS_DIR / name,
+        dyn_untimed,
+        decoded_joint_states,
+        T_curnode_idxs,
+        spec_arrow_colors,
+        dag_nodes,
+        empty_map,
+        cmap,
+        d_raw_viz,
+        w,
+        h,
+        agent_colors,
+        colorbynode,
+    )
+
+    segment_name_stem = pathlib.Path(name).stem
+    save_rollout_still(
+        RESULTS_DIR / f"{segment_name_stem}_t0.png",
+        dyn_untimed,
+        decoded_joint_states[:1],
+        [],
+        [],
+        dag_nodes,
+        empty_map,
+        cmap,
+        d_raw_viz,
+        w,
+        h,
+        agent_colors,
+        colorbynode,
+    )
+
+    for seg_idx, (start_idx, end_idx) in enumerate(get_switch_segment_bounds(T_curnode_idxs, len(Tp1_states)), start=1):
+        segment_states = decoded_joint_states[start_idx : end_idx + 1]
+        segment_node_idxs = T_curnode_idxs[start_idx:end_idx]
+        segment_spec_arrow_colors = spec_arrow_colors[start_idx:end_idx]
+        save_rollout_still(
+            RESULTS_DIR / f"{segment_name_stem}_segment_{seg_idx:02d}_{start_idx:03d}_{end_idx:03d}.png",
+            dyn_untimed,
+            segment_states,
+            segment_node_idxs,
+            segment_spec_arrow_colors,
+            dag_nodes,
+            empty_map,
+            cmap,
+            d_raw_viz,
+            w,
+            h,
+            agent_colors,
+            colorbynode,
+        )
 
 
 def outline_mask_cells(
