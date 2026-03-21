@@ -1,5 +1,5 @@
 from valtr.dag_graphviz import visualize_dag
-from valtr.dag_passes import PassFoldConstBool, PassRAToR, PassToMinGuard
+from valtr.dag_passes import PassFoldConstBool, PassRAToR, PassToMinGuard, PassAbsorbGU, PassMergePropMin
 from valtr.ir_builder import IRBuilder
 from valtr.ir_graphviz import visualize_ir
 from valtr.ir_pass import PassCombineGloballySegments, PassFinallyToUntil
@@ -9,7 +9,7 @@ from valtr.tl_lexer import TLLexer
 from valtr.tl_parser import TLParser
 
 
-def to_dag(spec: str, ir_filename: str | None = None, dag_filename: str | None = None):
+def to_dag(spec: str, ir_filename: str | None = None, dag_filename: str | None = None, transform_dag: bool = True):
     lexer = TLLexer()
     tokens = list(lexer.tokenize(spec))
     ast = TLParser(tokens).parse()
@@ -28,13 +28,13 @@ def to_dag(spec: str, ir_filename: str | None = None, dag_filename: str | None =
         dot_ir = visualize_ir(ir, ir_root_id, filename=ir_filename, view=False)
 
     # IR -> DAG
-    value_tree_dag, dag_root = lower_ir_to_dag(ir, ir_root_id)
+    value_tree_dag, dag_root = lower_ir_to_dag(ir, ir_root_id, transform=transform_dag)
 
     n_changes = 0
     # visualize_dag(value_tree_dag, dag_root, filename="rooms_discrete_dag0", view=view_pdf)
 
     # Perform constant folding.
-    passes = [PassFoldConstBool, PassRAToR]
+    passes = [PassFoldConstBool, PassRAToR, PassMergePropMin]
     for p_cls in passes:
         changed = True
         while changed:

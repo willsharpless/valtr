@@ -116,11 +116,15 @@ MAP8 = """
 """
 # just for dag
 
-MAP_NUM = 6
+MAP9 = """
+A
+"""
+
+MAP_NUM = 9
 
 
 def get_rooms():
-    map_str = [None, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6, MAP7, MAP8][MAP_NUM]
+    map_str = [None, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6, MAP7, MAP8, MAP9][MAP_NUM]
     if MAP_NUM == 0:
         s = MAP0
         dyn, d_raw = parse_rooms(s)
@@ -200,6 +204,13 @@ def get_rooms():
             "q": np.where(d_raw["."] | d_raw["a"] | d_raw["b"], 1, -1),
         }
         return dyn, d
+    elif MAP_NUM == 9:
+        dyn, d_raw = parse_rooms(MAP9)
+        d = {
+            "A": np.where(d_raw["A"], 1, -1),
+            "B": np.where(d_raw["A"], 1, -1),
+        }
+        return dyn, d
     else:
         raise NotImplementedError("")
 
@@ -243,7 +254,9 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
     elif MAP_NUM == 7:
         TASK_SOURCE = "(!q U g) && F( g && F G ( (q U (A && q )) && (q U (B && q )) ) )"
     elif MAP_NUM == 8:
-        TASK_SOURCE = "(!q U g) && G( !w ) && F( g && F G ( (q U (A && q )) && (q U (B && q )) ) )" # nice dag plot
+        TASK_SOURCE = "(!q U g) && G( !w ) && F( g && F G ( (q U (A && q )) && (q U (B && q )) ) )"  # nice dag plot
+    elif MAP_NUM == 9:
+        TASK_SOURCE = "G F A && G F B"
     else:
         raise ValueError("Invalid MAP_NUM")
 
@@ -274,7 +287,7 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
     # Visualize the map.
     # Use a different color for each symbol.
 
-    map_str = [MAP0, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6, MAP7][MAP_NUM]
+    map_str = [MAP0, MAP1, MAP2, MAP3, MAP4, MAP5, MAP6, MAP7, MAP8, MAP9][MAP_NUM]
     if MAP_NUM == 3:
         d_raw = parse_rooms(MAP3)[1]
         d_raw_drift = parse_rooms(MAP3_DRIFT)[1]
@@ -309,45 +322,45 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
 
     if "A" in d_raw:
         space_idx = list(d_raw.keys()).index("A")
-        colors[space_idx] = np.array([77/255, 114/255, 176/255, 1.0])
+        colors[space_idx] = np.array([77 / 255, 114 / 255, 176 / 255, 1.0])
 
     if "B" in d_raw:
         space_idx = list(d_raw.keys()).index("B")
-        colors[space_idx] = np.array([85/255, 168/255, 104/255, 1.0])
+        colors[space_idx] = np.array([85 / 255, 168 / 255, 104 / 255, 1.0])
 
     if "g" in d_raw:
         space_idx = list(d_raw.keys()).index("g")
-        colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0])
+        colors[space_idx] = np.array([221 / 255, 132 / 255, 83 / 255, 1.0])
 
     if "C" in d_raw:
         space_idx = list(d_raw.keys()).index("C")
-        colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0])
+        colors[space_idx] = np.array([221 / 255, 132 / 255, 83 / 255, 1.0])
 
     if "K" in d_raw:
         space_idx = list(d_raw.keys()).index("K")
-        colors[space_idx] = np.array([221/255, 132/255, 83/255, 1.0])
+        colors[space_idx] = np.array([221 / 255, 132 / 255, 83 / 255, 1.0])
 
     if "D" in d_raw:
         space_idx = list(d_raw.keys()).index("D")
-        colors[space_idx] = np.array([147/255, 120/255, 96/255, 1.0])
+        colors[space_idx] = np.array([147 / 255, 120 / 255, 96 / 255, 1.0])
 
     if "#" in d_raw:
         space_idx = list(d_raw.keys()).index("#")
         # colors[space_idx] = np.array([220/255, 100/255, 120/255, 0.7])
-        colors[space_idx] = np.array([140/255, 114/255, 179/255, 0.3])
+        colors[space_idx] = np.array([140 / 255, 114 / 255, 179 / 255, 0.3])
 
     if "1" in d_raw:
         space_idx = list(d_raw.keys()).index("1")
         # muted red
-        colors[space_idx] = np.array([0.8,0.4,0.4, 1.0])
+        colors[space_idx] = np.array([0.8, 0.4, 0.4, 1.0])
 
     if "2" in d_raw:
         space_idx = list(d_raw.keys()).index("2")
-        colors[space_idx] = np.array([147/255, 120/255, 96/255, 0.7])
+        colors[space_idx] = np.array([147 / 255, 120 / 255, 96 / 255, 0.7])
 
     if "^" in d_raw:
         space_idx = list(d_raw.keys()).index("^")
-        colors[space_idx] = np.array([0.8,0.4,0.4, 1.0])
+        colors[space_idx] = np.array([0.8, 0.4, 0.4, 1.0])
 
     cmap = ListedColormap(colors)
 
@@ -356,8 +369,8 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
     cbar.ax.set_yticklabels(list(d_raw.keys()))
     ax.set_title("Map visualization")
     # Set ticks with blank labels
-    ax.set_xticks(np.arange(w + 1) - 0.5, [''] * (w + 1))
-    ax.set_yticks(np.arange(h + 1) - 0.5, [''] * (h + 1))
+    ax.set_xticks(np.arange(w + 1) - 0.5, [""] * (w + 1))
+    ax.set_yticks(np.arange(h + 1) - 0.5, [""] * (h + 1))
     fig.savefig("rooms_discrete.pdf")
     fig.savefig("rooms_discrete.png")
     plt.close(fig)
@@ -398,7 +411,15 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
             "map_num": MAP_NUM,
         }
         save_discrete_sol(
-            pkl_path, dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras=extras
+            pkl_path,
+            dyn,
+            dag_nodes,
+            dag_root,
+            dict_vars,
+            dict_actions,
+            dict_GU_vars,
+            dict_GU_actions,
+            extras=extras,
         )
 
     dyn, dag_nodes, dag_root, dict_vars, dict_actions, dict_GU_vars, dict_GU_actions, extras = load_discrete_sol(
@@ -420,7 +441,7 @@ def main(view_pdf: bool = False, room: int = 1, gamma: float | None = None, reso
 
     #     value
     ax = axes[1]
-    im = ax.imshow(dict_vars[dag_root].reshape(dyn.shape), vmin=-1, vmax=1, cmap='viridis')
+    im = ax.imshow(dict_vars[dag_root].reshape(dyn.shape), vmin=-1, vmax=1, cmap="viridis")
     ax.set_xticks(np.arange(w + 1) - 0.5)
     ax.set_yticks(np.arange(h + 1) - 0.5)
     cbar = fig.colorbar(im, ax=ax)

@@ -2,9 +2,10 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import graphviz
 import ipdb
+from loguru import logger
 
-from valtr.reachability import (DAGAvoid, DagBuilder, DAGConst, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN, DAGMinGuard,
-                                DAGNegate, DAGNode, DAGReach, DAGReachAvoid, DAGVar)
+from valtr.reachability import (DAGAvoid, DagBuilder, DAGConst, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinGuard,
+                                DAGMinN, DAGNegate, DAGNode, DAGReach, DAGReachAvoid, DAGVar, has_temporal_children)
 
 
 class DagRewriter:
@@ -71,7 +72,7 @@ class DagRewriter:
             case DAGGUMinN(args=args):
                 new_args = [self.visit(a) for a in args]
                 out = self.dst.GU_min_n(new_args)
-            
+
             case DAGMinGuard(temporal_arg=temporal_arg, nontemporal_arg=nontemporal_arg):
                 new_temporal_arg = self.visit(temporal_arg)
                 new_nontemporal_arg = self.visit(nontemporal_arg)
@@ -463,6 +464,7 @@ class PassRAToR(DagRewriter):
         # self.memo[i] = out
         return out
 
+
 class PassToMinGuard(DagRewriter):
     """
     Orgnaize the mins by splitting the nodes into either temporal nodes and non-temporal nodes.
@@ -501,6 +503,71 @@ class PassToMinGuard(DagRewriter):
         self.memo[i] = out
         return out
 
+
+class PassAbsorbGU(DagRewriter):
+    """
+    Converts:
+        (q1 U r1) AND G( AND_i q_i U r_i )
+    to:
+        ( (q1 AND AND_i (q_i OR r_i)) U (r1 AND G( AND_i q_i U r_i )) )
+
+    Pattern: a DAGMinN containing exactly one DAGReachAvoid and >=1 DAGGUSingle children
+    (no other child types). The DAGGUSingle children collectively represent G(AND_i q_i U r_i).
+    """
+
+    def visit(self, rid: DAGId) -> DAGId:
+        i = rid
+        if i in self.memo:
+            return self.memo[i]
+        n = self.src.nodes[i]
+
+        match n:
+            case DAGMinN(args=args):
+                ra_nodes = []  # (id, DAGReachAvoid)
+                gu_nodes = []  # (id, DAGGUSingle)
+                other_ids = []
+
+                for a_id in args:
+                    a_node = self.src.nodes[a_id]
+                    match a_node:
+                        case DAGReachAvoid():
+                            ra_nodes.append((a_id, a_node))
+                        case DAGGUMinN(args=args):
+                            for gu_node_idx in args:
+                                gu_node = self.src.nodes[gu_node_idx]
+                                gu_nodes.append((a_id, gu_node))
+                        case _:
+                            other_ids.append(a_id)
+
+                # logger.debug(f"[Node %{rid}] Found {len(ra_nodes)} RA nodes, {len(gu_nodes)} GU nodes, {len(other_ids)} other nodes")
+                if len(ra_nodes) == 1 and len(gu_nodes) >= 1 and len(other_ids) == 0:
+                    _, ra = ra_nodes[0]
+                    q1 = self.visit(ra.avoid)
+                    r1 = self.visit(ra.reach)
+
+                    qi_or_ri_list = []
+                    new_gu_single_ids = []
+                    for _, gu in gu_nodes:
+                        new_qi = self.visit(gu.avoid)
+                        new_ri = self.visit(gu.reach)
+                        qi_or_ri_list.append(self.dst.max_n([new_qi, new_ri]))
+                        new_gu_single_ids.append(self.dst.GU_single(new_ri, new_qi))
+
+                    new_gu = self.dst.GU_min_n(new_gu_single_ids)
+
+                    new_avoid = self.dst.min_n([q1] + qi_or_ri_list)
+                    new_reach = self.dst.min_n([r1, new_gu])
+                    out = self.dst.reachavoid(reach=new_reach, stay=new_avoid)
+                    self.changed = True
+                else:
+                    out = super().visit(rid)
+            case _:
+                out = super().visit(rid)
+
+        self.memo[i] = out
+        return out
+
+
 class PassKeepReachable(DagRewriter):
     """
     Remove all nodes that are not reachable from the root.
@@ -508,3 +575,177 @@ class PassKeepReachable(DagRewriter):
 
     def run(self, root: DAGId) -> Tuple[DAGId, DagBuilder, bool]:
         return super().run(root)
+
+
+class PassReachUInFiniteTime(DagRewriter):
+    """If there are any reach-avoid nodes, then make the avoid parts have a min(TleX, ...)."""
+
+    def visit(self, rid: DAGId) -> DAGId:
+        i = rid
+        if i in self.memo:
+            return self.memo[i]
+        n = self.src.nodes[i]
+
+        var_name = "U_in_finite_time"
+
+        if not isinstance(n, DAGReachAvoid):
+            out = super().visit(rid)
+            self.memo[i] = out
+            return out
+
+        reach_id = n.reach
+        avoid_id = n.avoid
+
+        avoid_node = self.src.nodes[avoid_id]
+        if isinstance(avoid_node, DAGMinN):
+            has_var = False
+            for a_id in avoid_node.args:
+                a_node = self.src.nodes[a_id]
+                if isinstance(a_node, DAGVar) and a_node.name == var_name:
+                    has_var = True
+                    break
+
+            if not has_var:
+                # Rebuild avoid args.
+                new_avoid_args = [self.visit(a_id) for a_id in avoid_node.args]
+
+                new_avoid = self.dst.min_n([*new_avoid_args, self.dst.var(var_name)])
+                new_reach = self.visit(reach_id)
+                out = self.dst.reachavoid(reach=new_reach, stay=new_avoid)
+                self.changed = True
+                self.memo[i] = out
+                return out
+        else:
+            new_avoid = self.dst.min_n([self.visit(avoid_id), self.dst.var(var_name)])
+            new_reach = self.visit(reach_id)
+            out = self.dst.reachavoid(reach=new_reach, stay=new_avoid)
+            self.changed = True
+            self.memo[i] = out
+            return out
+
+        out = super().visit(rid)
+        self.memo[i] = out
+        return out
+
+
+class PassReachGUInFiniteTime(DagRewriter):
+    """
+    if there are any reach-avoid nodes with a reach that is just a GU node, then make it min(TleX, GU) to
+    force the GU to be reached within finite tine.
+    """
+
+    def visit(self, rid: DAGId) -> DAGId:
+        i = rid
+        if i in self.memo:
+            return self.memo[i]
+        n = self.src.nodes[i]
+
+        var_name = "GU_in_finite_time"
+
+        if isinstance(n, DAGGUSingle):
+            # Add a GU_in_finite_time variable to the GU node if it doesn't already have one.
+            avoid_idx = n.avoid
+            avoid_node = self.src.nodes[avoid_idx]
+            if isinstance(avoid_node, DAGMinN):
+                has_var = False
+                for a_id in avoid_node.args:
+                    a_node = self.src.nodes[a_id]
+                    if isinstance(a_node, DAGVar) and a_node.name == var_name:
+                        has_var = True
+                        break
+
+                if not has_var:
+                    # Rebuild avoid args.
+                    new_avoid_args = [self.visit(a_id) for a_id in avoid_node.args]
+
+                    new_avoid = self.dst.min_n([*new_avoid_args, self.dst.var(var_name)])
+                    new_reach = self.visit(n.reach)
+                    out = self.dst.GU_single(new_reach, new_avoid)
+                    self.changed = True
+                    self.memo[i] = out
+                    return out
+            else:
+                new_avoid = self.dst.min_n([self.visit(avoid_idx), self.dst.var(var_name)])
+                new_reach = self.visit(n.reach)
+                out = self.dst.GU_single(new_reach, new_avoid)
+                self.changed = True
+                self.memo[i] = out
+                return out
+
+            # Manually rebuild.
+            rebuilt_reach = super().visit(n.reach)
+            rebuilt_avoid = super().visit(n.avoid)
+            out = self.dst.GU_single(rebuilt_reach, rebuilt_avoid)
+            self.memo[i] = out
+            return out
+
+        if not isinstance(n, DAGReachAvoid):
+            out = super().visit(rid)
+            self.memo[i] = out
+            return out
+
+        reach_id = n.reach
+        reach_node = self.src.nodes[reach_id]
+        if not isinstance(reach_node, DAGGUMinN):
+            out = super().visit(rid)
+            self.memo[i] = out
+            return out
+
+        # If we get here, we have a ReachAvoid with a GU reach. Modify it to min(LE, GU).
+        rebuilt_avoid = self.visit(n.avoid)
+
+        rebuilt_gu = self.visit(reach_id)
+
+        # Create a var.
+        GU_guard_id = self.dst.var(var_name)
+        reach_id_new = self.dst.min_n([GU_guard_id, rebuilt_gu])
+
+        # Also do a min on the avoid.
+        avoid_new = self.dst.min_n([rebuilt_avoid, rebuilt_gu])
+
+        out = self.dst.reachavoid(reach=reach_id_new, stay=avoid_new)
+        self.changed = True
+        self.memo[i] = out
+        return out
+
+
+class PassMergePropMin(DagRewriter):
+    """Merge min(p, min(q, r)) to min(p, q, r) if all variables are non-temporal."""
+
+    def visit(self, rid: DAGId) -> DAGId:
+        i = rid
+        if i in self.memo:
+            return self.memo[i]
+        n = self.src.nodes[i]
+
+        match n:
+            case DAGMinN(args=args):
+                # If any of the direct children are temporal or GU, then don't pull up the inner MinN.
+                for inner_id in args:
+                    node = self.src.nodes[inner_id]
+                    if node.is_temporal() or isinstance(node, DAGGUMinN):
+                        out = super().visit(rid)
+                        self.memo[i] = out
+                        return out
+
+                flat_args = []
+                any_flattened = False
+                for inner_id in args:
+                    inner_node = self.src.nodes[inner_id]
+                    # Pull up inner MinN args only if all its direct children are non-temporal.
+                    if isinstance(inner_node, DAGMinN) and not has_temporal_children(
+                        inner_id, self.src.nodes, include_self=True
+                    ):
+                        flat_args.extend(inner_node.args)
+                        any_flattened = True
+                    else:
+                        flat_args.append(inner_id)
+                flat_args_dst = [self.visit(a) for a in flat_args]
+                out = self.dst.min_n(flat_args_dst)
+                if any_flattened:
+                    self.changed = True
+            case _:
+                out = super().visit(rid)
+
+        self.memo[i] = out
+        return out

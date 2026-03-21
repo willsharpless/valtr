@@ -22,7 +22,14 @@ WIND_V = 0.1
 class Point(dynamics.ControlAndDisturbanceAffineDynamics):
 
     def __init__(
-        self, u_bd=0.0, d_bd=0.0, N=1, alpha=0.0, control_mode="min", disturbance_mode="max", input_shape="ball"
+        self,
+        u_bd=0.0,
+        d_bd=0.0,
+        N=1,
+        alpha=0.0,
+        control_mode="min",
+        disturbance_mode="max",
+        input_shape="ball",
     ):
         self.N = N
         self.dim = 2 * N
@@ -233,7 +240,13 @@ def solveplot(
             else:
                 # print("Window", -times[ti-1], -times[ti])
                 values = hj.step(
-                    solver_settings, diffgame, grid, -times[ti - 1], values, -times[ti], progress_bar=progress_bar
+                    solver_settings,
+                    diffgame,
+                    grid,
+                    -times[ti - 1],
+                    values,
+                    -times[ti],
+                    progress_bar=progress_bar,
                 )
                 # values = hj.solve(solver_settings, diffgame, grid, -times[ti-1], values, -times[ti], progress_bar=False)
             plot_values = values[:, :].T
@@ -441,7 +454,8 @@ _, BRAAT_fig_2 = solveplot(
 def BRRAAT(t, v, vA, V1AA, V2AA, times, rBC1, rBC2, aBC):
     i = jnp.argmin(jnp.abs(t - times))  # nearest ix
     return jnp.maximum(
-        aBC, jnp.minimum(v, jnp.minimum(jnp.maximum(rBC1, V2AA[i, ...]), jnp.maximum(rBC2, V1AA[i, ...])))
+        aBC,
+        jnp.minimum(v, jnp.minimum(jnp.maximum(rBC1, V2AA[i, ...]), jnp.maximum(rBC2, V1AA[i, ...]))),
     )
 
 
