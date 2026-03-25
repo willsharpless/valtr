@@ -56,6 +56,9 @@ def get_values(
     if values is None:
         values: dict[DAGId, np.ndarray] = {}
 
+    if dag_root in values:
+        return values[dag_root]
+
     node = dag_nodes[dag_root]
     match node:
         case DAGConst(value=value):
