@@ -20,7 +20,7 @@ def evaluate_ltl_finite_dag_iterative(dag_nodes: list[DAGId], dag_root: DAGId, T
     curr = [None] * N
     next_vals = [None] * N
 
-    for t in tqdm.trange(T - 1, -1, -1):
+    for t in tqdm.trange(T - 1, -1, -1, leave=False):
         is_terminal = t == T - 1
 
         for node_id, node in enumerate(dag_nodes):
