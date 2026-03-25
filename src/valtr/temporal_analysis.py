@@ -1,4 +1,5 @@
 import ipdb
+import tqdm
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -8,6 +9,83 @@ from valtr.reachability import (DAGAvoid, DAGConst, DAGGUMinN, DAGGUSingle, DAGI
 
 
 def evaluate_ltl_finite_dag(dag_nodes: list[DAGId], dag_root, T_pred: dict[str, np.ndarray], which=jnp):
+    return evaluate_ltl_finite_dag_iterative(dag_nodes, dag_root, T_pred, which=which)
+
+
+def evaluate_ltl_finite_dag_iterative(dag_nodes: list[DAGId], dag_root: DAGId, T_pred: dict[str, np.ndarray], which=np):
+    sample = next(iter(T_pred.values()))
+    (T,) = sample.shape
+    N = len(dag_nodes)
+
+    curr = [None] * N
+    next_vals = [None] * N
+
+    for t in tqdm.trange(T - 1, -1, -1):
+        is_terminal = t == T - 1
+
+        for node_id, node in enumerate(dag_nodes):
+            match node:
+                case DAGConst(value=value):
+                    val = which.full((), value)
+
+                case DAGVar(name=name):
+                    val = T_pred[name][t]
+
+                case DAGNegate(arg=arg_id):
+                    val = -curr[arg_id]
+
+                case DAGMaxN(args=args_ids):
+                    val = curr[args_ids[0]]
+                    for arg_id in args_ids[1:]:
+                        val = which.maximum(val, curr[arg_id])
+
+                case DAGMinN(args=args_ids):
+                    val = curr[args_ids[0]]
+                    for arg_id in args_ids[1:]:
+                        val = which.minimum(val, curr[arg_id])
+
+                case DAGReach(reach=reach_id):
+                    reach_val = curr[reach_id]
+                    val = reach_val if is_terminal else which.maximum(reach_val, next_vals[node_id])
+
+                case DAGAvoid(avoid=stay_id):
+                    stay_val = curr[stay_id]
+                    val = stay_val if is_terminal else which.minimum(stay_val, next_vals[node_id])
+
+                case DAGReachAvoid(reach=reach_id, avoid=stay_id):
+                    reach_val = curr[reach_id]
+                    stay_val = curr[stay_id]
+                    val = (
+                        reach_val
+                        if is_terminal
+                        else which.maximum(reach_val, which.minimum(stay_val, next_vals[node_id]))
+                    )
+
+                case DAGGUMinN(args=args_ids):
+                    val = curr[args_ids[0]]
+                    for arg_id in args_ids[1:]:
+                        val = which.minimum(val, curr[arg_id])
+
+                case DAGGUSingle(reach=reach_id, avoid=stay_id):
+                    reach_val = curr[reach_id]
+                    stay_val = curr[stay_id]
+                    val = (
+                        reach_val
+                        if is_terminal
+                        else which.maximum(reach_val, which.minimum(stay_val, next_vals[node_id]))
+                    )
+
+                case _:
+                    raise NotImplementedError(type(node))
+
+            curr[node_id] = val
+
+        curr, next_vals = next_vals, curr
+
+    return {i: next_vals[i] for i in range(N)}
+
+
+def evaluate_ltl_finite_dag_old(dag_nodes: list[DAGId], dag_root, T_pred: dict[str, np.ndarray], which=jnp):
     """Evaluate whether the LTL formula (when treated as finite) holds over the finite trace.
     Solve using dynamic programming."""
 
@@ -17,7 +95,7 @@ def evaluate_ltl_finite_dag(dag_nodes: list[DAGId], dag_root, T_pred: dict[str, 
     # 1. Obtain the final value.
     pred_final = {k: v[-1] for k, v in T_pred.items()}
     dag_values = {}
-    get_values(dag_nodes, dag_root, pred_final, next_values=None, which=which, values=dag_values)
+    get_values_old(dag_nodes, dag_root, pred_final, next_values=None, which=which, values=dag_values)
     assert len(dag_values) == len(dag_nodes)
     dag_values_curr = dag_values
 
@@ -28,12 +106,12 @@ def evaluate_ltl_finite_dag(dag_nodes: list[DAGId], dag_root, T_pred: dict[str, 
 
             dag_values_next = dag_values_curr
             dag_values_curr = {}
-            get_values(dag_nodes, dag_root, pred, next_values=dag_values_next, which=np, values=dag_values_curr)
+            get_values_old(dag_nodes, dag_root, pred, next_values=dag_values_next, which=np, values=dag_values_curr)
     else:
         # 2. Move backwards using scan.
         def step(dag_values_next, pred):
             dag_values_curr_ = {}
-            get_values(dag_nodes, dag_root, pred, next_values=dag_values_next, which=which, values=dag_values_curr_)
+            get_values_old(dag_nodes, dag_root, pred, next_values=dag_values_next, which=which, values=dag_values_curr_)
             return dag_values_curr_, None
 
         T_pred_prefix_reversed = {k: v[:-1][::-1] for k, v in T_pred.items()}
@@ -42,7 +120,7 @@ def evaluate_ltl_finite_dag(dag_nodes: list[DAGId], dag_root, T_pred: dict[str, 
     return dag_values_curr
 
 
-def get_values(
+def get_values_old(
     dag_nodes: list[DAGNode],
     dag_root: DAGId,
     predicates: dict[str, np.ndarray],
