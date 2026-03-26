@@ -1,11 +1,11 @@
 import ipdb
-import tqdm
 import jax
 import jax.numpy as jnp
 import numpy as np
+import tqdm
 
 from valtr.reachability import (DAGAvoid, DAGConst, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN, DAGNegate, DAGNode,
-                                DAGReach, DAGReachAvoid, DAGVar)
+                                DAGReach, DAGReachAvoid, DAGVar, has_temporal_children)
 
 
 def evaluate_ltl_finite_dag(dag_nodes: list[DAGId], dag_root, T_pred: dict[str, np.ndarray], which=jnp):
@@ -130,6 +130,7 @@ def get_values_old(
     allow_const: bool = False,
 ):
     is_terminal = next_values is None
+    get_values = get_values_old
 
     if values is None:
         values: dict[DAGId, np.ndarray] = {}
@@ -202,3 +203,44 @@ def get_values_old(
 
     values[dag_root] = val
     return val
+
+
+def eval_guard_condition(dag_nodes: list[DAGNode], dag_root: DAGId, predicates: dict[str, np.ndarray], which=jnp):
+    # dag_root represents the reach part of either DAGReach, DAGReachAvoid or DAGGUSingle.
+    # - If it is a max, then compute the guard condition of all the arguments of the max, and take the max.
+    # - If it is a min, there should at most one temporal. Compute the value of all non-temporal, then take the min.
+    # - If it is non-temporal, then compute the value.
+    values = {}
+
+    node = dag_nodes[dag_root]
+    match node:
+        case DAGMaxN(args=args_ids):
+            guard_vals = [eval_guard_condition(dag_nodes, arg_id, predicates, which) for arg_id in args_ids]
+            guard_val = which.max(which.stack(guard_vals, axis=0), axis=0)
+            return guard_val
+        case DAGMinN(args=args_ids):
+            temporal_args = []
+            nontemporal_args = []
+            for arg_id in args_ids:
+                if has_temporal_children(arg_id, dag_nodes, include_self=True):
+                    temporal_args.append(arg_id)
+                else:
+                    nontemporal_args.append(arg_id)
+
+            if len(temporal_args) > 1:
+                raise ValueError("Multiple temporal arguments in a Min is not supported.")
+
+            if len(nontemporal_args) == 0:
+                raise ValueError(
+                    "At least one non-temporal argument in a Min is required to compute the guard condition."
+                )
+
+            nontemporal_vals = [
+                get_values_old(dag_nodes, arg_id, predicates, None, which, values=values) for arg_id in nontemporal_args
+            ]
+            guard_val = which.min(which.stack(nontemporal_vals, axis=0), axis=0)
+            return guard_val
+        case _:
+            if has_temporal_children(dag_root, dag_nodes, include_self=True):
+                raise ValueError("Temporal node with non-Max/Min root is not supported.")
+            return get_values_old(dag_nodes, dag_root, predicates, None, which, values)
