@@ -5,7 +5,7 @@ from collections.abc import Iterable
 import graphviz
 
 from .lexer import Position, Span
-from .ltl_ir import And, Const, Expr, ExprId, Finally, Globally, Interval, Next, Not, Or, Release, Until, Var
+from .ltl_ir import And, Const, ExistsPaths, Expr, ExprId, Finally, ForAllPaths, Globally, Interval, Next, Not, Or, Release, Until, Var
 
 
 def _pos_str(pos: Position) -> str:
@@ -37,6 +37,10 @@ def _expr_title(node: Expr) -> str:
         return f"Or ({len(node.args)})"
     if isinstance(node, Next):
         return f"Next {_interval_str(node.interval)}".rstrip()
+    if isinstance(node, ForAllPaths):
+        return "ForAllPaths"
+    if isinstance(node, ExistsPaths):
+        return "ExistsPaths"
     if isinstance(node, Finally):
         return f"Finally {_interval_str(node.interval)}".rstrip()
     if isinstance(node, Globally):
@@ -76,7 +80,7 @@ def _node_style(node: Expr) -> tuple[str, str]:
         return "#E67E22", "box"
     if isinstance(node, (And, Or)):
         return "#16A085", "box3d"
-    if isinstance(node, (Next, Finally, Globally)):
+    if isinstance(node, (Next, ForAllPaths, ExistsPaths, Finally, Globally)):
         return "#F39C12", "box"
     if isinstance(node, (Until, Release)):
         return "#8E44AD", "diamond"
@@ -130,7 +134,7 @@ def visualize_ltl_ir(
         node = nodes[node_id]
         if isinstance(node, Not):
             dot.edge(f"n{node_id}", f"n{int(node.arg)}", label="arg")
-        elif isinstance(node, (Next, Finally, Globally)):
+        elif isinstance(node, (Next, ForAllPaths, ExistsPaths, Finally, Globally)):
             dot.edge(f"n{node_id}", f"n{int(node.arg)}", label="arg")
         elif isinstance(node, (Until, Release)):
             left = int(node.left)

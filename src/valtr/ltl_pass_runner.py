@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .ctl_star_validator import contains_path_quantifier
 from .ltl_builder import LTLBuilder
 from .ltl_ir import ExprId
 from .ltl_passes import LOOP_PASSES, PRE_PASSES
@@ -19,6 +20,9 @@ class LTLPassRunner:
         self.max_rounds = max_rounds
 
     def run(self, builder: LTLBuilder, root: ExprId) -> LTLPipelineResult:
+        if contains_path_quantifier(builder.nodes, root):
+            raise ValueError("CTL* formulas with A/E path quantifiers are not supported by the LTL pass runner")
+
         current_builder = builder
         current_root = root
 

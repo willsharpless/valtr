@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .ltl_builder import LTLBuilder
-from .ltl_ir import And, Const, Expr, ExprId, Finally, Globally, Next, Not, Or, Origin, Release, Until, Var
+from .ltl_ir import And, Const, ExistsPaths, Expr, ExprId, Finally, ForAllPaths, Globally, Next, Not, Or, Origin, Release, Until, Var
 
 
 class LTLRewriter:
@@ -41,6 +41,10 @@ class LTLRewriter:
             out = self.rewrite_or(node, tuple(self.visit(arg) for arg in node.args))
         elif isinstance(node, Next):
             out = self.rewrite_next(node, self.visit(node.arg))
+        elif isinstance(node, ForAllPaths):
+            out = self.rewrite_forall_paths(node, self.visit(node.arg))
+        elif isinstance(node, ExistsPaths):
+            out = self.rewrite_exists_paths(node, self.visit(node.arg))
         elif isinstance(node, Finally):
             out = self.rewrite_finally(node, self.visit(node.arg))
         elif isinstance(node, Globally):
@@ -72,6 +76,12 @@ class LTLRewriter:
 
     def rewrite_next(self, node: Next, arg: ExprId) -> ExprId:
         return self.dst.next(arg, node.interval, node.origin)
+
+    def rewrite_forall_paths(self, node: ForAllPaths, arg: ExprId) -> ExprId:
+        return self.dst.forall_paths(arg, node.origin)
+
+    def rewrite_exists_paths(self, node: ExistsPaths, arg: ExprId) -> ExprId:
+        return self.dst.exists_paths(arg, node.origin)
 
     def rewrite_finally(self, node: Finally, arg: ExprId) -> ExprId:
         return self.dst.finally_(arg, node.interval, node.origin)

@@ -39,6 +39,8 @@ class UnaryOpKind(Enum):
     FINALLY = auto()
     GLOBALLY = auto()
     NEXT = auto()
+    FORALL_PATH = auto()
+    EXISTS_PATH = auto()
 
     @staticmethod
     def from_token_type(ttype: TokenType) -> "UnaryOpKind":
@@ -47,6 +49,8 @@ class UnaryOpKind(Enum):
             TokenType.FINALLY: UnaryOpKind.FINALLY,
             TokenType.GLOBALLY: UnaryOpKind.GLOBALLY,
             TokenType.NEXT: UnaryOpKind.NEXT,
+            TokenType.FORALL_PATH: UnaryOpKind.FORALL_PATH,
+            TokenType.EXISTS_PATH: UnaryOpKind.EXISTS_PATH,
         }
         if ttype in mapping:
             return mapping[ttype]
@@ -129,7 +133,7 @@ class TLParser:
       - Interval (attached as field)
 
     Supports:
-        Prefix: !, G, F, X (each optionally with _[lo,hi])
+        Prefix: !, A, E, G, F, X (each optionally with _[lo,hi] where supported)
         Infix:  U, R (each optionally with _[lo,hi]), &&, ||, ->
         Grouping: ( expr )
         Primaries: identifiers
@@ -192,7 +196,14 @@ class TLParser:
         if tt == TokenType.ID:
             return Identifier(name=tok.value, span=tok.span)
 
-        if tt in (TokenType.NOT, TokenType.GLOBALLY, TokenType.FINALLY, TokenType.NEXT):
+        if tt in (
+            TokenType.NOT,
+            TokenType.GLOBALLY,
+            TokenType.FINALLY,
+            TokenType.NEXT,
+            TokenType.FORALL_PATH,
+            TokenType.EXISTS_PATH,
+        ):
             interval = (
                 self._maybe_interval_suffix() if tt in (TokenType.GLOBALLY, TokenType.FINALLY, TokenType.NEXT) else None
             )
@@ -284,6 +295,10 @@ def _unary_label(tt: UnaryOpKind, iv: Interval | None) -> str:
         base = "G"
     elif tt == UnaryOpKind.NEXT:
         base = "X"
+    elif tt == UnaryOpKind.FORALL_PATH:
+        base = "A"
+    elif tt == UnaryOpKind.EXISTS_PATH:
+        base = "E"
     else:
         base = tt.name
     return f"{base}{_interval_suffix(iv)}"

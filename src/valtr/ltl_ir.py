@@ -98,6 +98,22 @@ class Next(Expr):
 
 
 @dataclass(frozen=True, slots=True)
+class ForAllPaths(Expr):
+    arg: ExprId
+
+    def children(self) -> tuple[ExprId, ...]:
+        return (self.arg,)
+
+
+@dataclass(frozen=True, slots=True)
+class ExistsPaths(Expr):
+    arg: ExprId
+
+    def children(self) -> tuple[ExprId, ...]:
+        return (self.arg,)
+
+
+@dataclass(frozen=True, slots=True)
 class Finally(Expr):
     arg: ExprId
     interval: Interval | None = None
@@ -135,7 +151,7 @@ class Release(Expr):
         return (self.left, self.right)
 
 
-TEMPORAL_EXPR_TYPES = (Next, Finally, Globally, Until, Release)
+TEMPORAL_EXPR_TYPES = (Next, ForAllPaths, ExistsPaths, Finally, Globally, Until, Release)
 
 
 def is_temporal_expr(node: Expr) -> bool:

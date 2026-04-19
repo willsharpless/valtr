@@ -18,6 +18,8 @@ class TokenType(Enum):
     GLOBALLY = auto()  # G
     FINALLY = auto()  # F
     NEXT = auto()  # X
+    FORALL_PATH = auto()  # A
+    EXISTS_PATH = auto()  # E
     UNTIL = auto()  # U
     RELEASE = auto()  # R
 
@@ -56,6 +58,8 @@ RULES = [
 ]
 
 KEYWORDS = [
+    (TokenType.FORALL_PATH, r"A"),
+    (TokenType.EXISTS_PATH, r"E"),
     (TokenType.GLOBALLY, r"G"),
     (TokenType.FINALLY, r"F"),
     (TokenType.NEXT, r"X"),
@@ -66,4 +70,4 @@ KEYWORDS = [
 
 class TLLexer(Lexer):
     def __init__(self):
-        super().__init__(tok_cls=TokenType, rules=RULES, keywords=KEYWORDS, keyword_split_follow="GFXUR")
+        super().__init__(tok_cls=TokenType, rules=RULES, keywords=KEYWORDS, keyword_split_follow="AEGFXUR")

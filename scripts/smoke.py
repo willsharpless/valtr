@@ -21,6 +21,10 @@ def main():
     plot_dir = get_plot_dir()
     dot = visualize_ltl_ir(builder.nodes, root, filename=plot_dir / "smoke_test.pdf")
 
+    tokens = list(TLLexer().tokenize("F a & G E F b"))
+    ast = TLParser(tokens).parse()
+    lowerer = ASTToLTLLowerer()
+    root = lowerer.lower(ast)
 
 if __name__ == "__main__":
     main()

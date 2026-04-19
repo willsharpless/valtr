@@ -7,9 +7,11 @@ from typing import Any
 from .ltl_ir import (
     And,
     Const,
+    ExistsPaths,
     Expr,
     ExprId,
     Finally,
+    ForAllPaths,
     Globally,
     Interval,
     Next,
@@ -170,6 +172,18 @@ class LTLBuilder:
         return self._intern_node(
             self._key("Next", int(arg), interval),
             Next(origin=origin, arg=arg, interval=interval),
+        )
+
+    def forall_paths(self, arg: ExprId, origin: Origin) -> ExprId:
+        return self._intern_node(
+            self._key("ForAllPaths", int(arg)),
+            ForAllPaths(origin=origin, arg=arg),
+        )
+
+    def exists_paths(self, arg: ExprId, origin: Origin) -> ExprId:
+        return self._intern_node(
+            self._key("ExistsPaths", int(arg)),
+            ExistsPaths(origin=origin, arg=arg),
         )
 
     def finally_(self, arg: ExprId, interval: Interval | None, origin: Origin) -> ExprId:

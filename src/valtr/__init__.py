@@ -1,18 +1,21 @@
 """Live valtr package for the rewrite in progress.
 
-This package currently keeps only the lexer/parser frontend in the active
-namespace plus the new LTL rewrite IR. Legacy lowering, DAG, and solver code
+This package currently keeps the lexer/parser frontend and the live LTL/CTL*
+rewrite IR in the active namespace. Legacy lowering, DAG, and solver code
 lives under ``valtr.old``.
 """
 
+from .ctl_star_validator import CTLStarClassification, CTLStarValidationError, CTLStarValidator, validate_ctl_star
 from .lexer import LexError, Lexer, Position, Span, Token
 from .ltl_builder import LTLBuilder
 from .ltl_ir import (
     And,
     Const,
+    ExistsPaths,
     Expr,
     ExprId,
     Finally,
+    ForAllPaths,
     Globally,
     Interval as LTLInterval,
     Next,
@@ -49,11 +52,16 @@ __all__ = [
     "And",
     "BinaryOp",
     "BinaryOpKind",
+    "CTLStarClassification",
+    "CTLStarValidationError",
+    "CTLStarValidator",
     "Const",
     "ConstNode",
+    "ExistsPaths",
     "Expr",
     "ExprId",
     "Finally",
+    "ForAllPaths",
     "Globally",
     "Identifier",
     "Interval",
@@ -84,4 +92,5 @@ __all__ = [
     "UnaryOpKind",
     "Var",
     "pretty_ltl",
+    "validate_ctl_star",
 ]

@@ -32,6 +32,10 @@ class ASTToLTLLowerer:
             interval = _to_interval(node.interval)
             if node.op == UnaryOpKind.NOT:
                 return self.builder.not_(arg, origin)
+            if node.op == UnaryOpKind.FORALL_PATH:
+                return self.builder.forall_paths(arg, origin)
+            if node.op == UnaryOpKind.EXISTS_PATH:
+                return self.builder.exists_paths(arg, origin)
             if node.op == UnaryOpKind.FINALLY:
                 return self.builder.finally_(arg, interval, origin)
             if node.op == UnaryOpKind.GLOBALLY:

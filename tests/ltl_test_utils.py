@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from valtr.ltl_builder import LTLBuilder
-from valtr.ltl_ir import And, Const, Expr, ExprId, Finally, Globally, Next, Not, Or, Release, Until, Var
+from valtr.ltl_ir import And, Const, ExistsPaths, Expr, ExprId, Finally, ForAllPaths, Globally, Next, Not, Or, Release, Until, Var
 from valtr.ltl_lowering import ASTToLTLLowerer
 from valtr.tl_lexer import TLLexer
 from valtr.tl_parser import TLParser
@@ -51,6 +51,10 @@ def _canonical_ltl_key(nodes: list[Expr], expr_id: ExprId) -> tuple:
         return ("Or", tuple(sorted(_flatten_nary_key(nodes, node.args, Or))))
     if isinstance(node, Next):
         return ("Next", node.interval, _canonical_ltl_key(nodes, node.arg))
+    if isinstance(node, ForAllPaths):
+        return ("ForAllPaths", _canonical_ltl_key(nodes, node.arg))
+    if isinstance(node, ExistsPaths):
+        return ("ExistsPaths", _canonical_ltl_key(nodes, node.arg))
     if isinstance(node, Finally):
         return ("Finally", node.interval, _canonical_ltl_key(nodes, node.arg))
     if isinstance(node, Globally):

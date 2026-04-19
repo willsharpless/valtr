@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .ltl_ir import And, Const, Expr, ExprId, Finally, Globally, Next, Not, Or, Release, Until, Var
+from .ltl_ir import And, Const, ExistsPaths, Expr, ExprId, Finally, ForAllPaths, Globally, Next, Not, Or, Release, Until, Var
 
 
 def pretty_ltl(nodes: list[Expr], root: ExprId) -> str:
@@ -21,6 +21,10 @@ def _pretty(nodes: list[Expr], expr_id: ExprId) -> str:
         return " || ".join(_wrap(nodes, arg) for arg in node.args)
     if isinstance(node, Next):
         return f"X {_wrap(nodes, node.arg)}"
+    if isinstance(node, ForAllPaths):
+        return f"A {_wrap(nodes, node.arg)}"
+    if isinstance(node, ExistsPaths):
+        return f"E {_wrap(nodes, node.arg)}"
     if isinstance(node, Finally):
         return f"F {_wrap(nodes, node.arg)}"
     if isinstance(node, Globally):
