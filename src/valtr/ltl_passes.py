@@ -20,10 +20,14 @@ from .ltl_rewriter import LTLRewriter
 
 
 class PassNormalizeBoolean(LTLRewriter):
+    """Builder-driven boolean flattening, deduplication, and constant folding."""
+
     pass
 
 
 class PassLowerFinally(LTLRewriter):
+    """F p -> T U p"""
+
     def rewrite_finally(self, node: Finally, arg: ExprId) -> ExprId:
         if node.interval is not None:
             return super().rewrite_finally(node, arg)
@@ -33,6 +37,8 @@ class PassLowerFinally(LTLRewriter):
 
 
 class PassLowerRelease(LTLRewriter):
+    """r R q -> (q U (r && q)) || G q"""
+
     def rewrite_release(self, node: Release, left: ExprId, right: ExprId) -> ExprId:
         if node.interval is not None:
             return super().rewrite_release(node, left, right)
@@ -56,6 +62,8 @@ class PassLowerRelease(LTLRewriter):
 
 
 class PassSimplifyTemporal(LTLRewriter):
+    """Applies simple temporal identities like G G p -> G p and p U p -> p."""
+
     def rewrite_globally(self, node: Globally, arg: ExprId) -> ExprId:
         if node.interval is None:
             inner = get_node(self.dst.nodes, arg)
@@ -88,6 +96,8 @@ class PassSimplifyTemporal(LTLRewriter):
 
 
 class AndRulePass(LTLRewriter):
+    """Base class for passes that rewrite one temporal redex inside an And node."""
+
     def rewrite_and(self, node: And, args: tuple[ExprId, ...]) -> ExprId:
         rewritten = self.try_rewrite_and(args, node.origin)
         if rewritten is not None:
@@ -100,6 +110,8 @@ class AndRulePass(LTLRewriter):
 
 
 class PassUntilAndFG(AndRulePass):
+    """q U r ∧ F G b -> q U (r ∧ F G b)"""
+
     def try_rewrite_and(self, args: tuple[ExprId, ...], origin) -> ExprId | None:
         until_id: ExprId | None = None
         fg_id: ExprId | None = None
@@ -132,6 +144,8 @@ class PassUntilAndFG(AndRulePass):
 
 
 class PassUntilGloballyAndGlobally(AndRulePass):
+    """q U G b ∧ G c -> (q ∧ c) U G(b ∧ c)"""
+
     def try_rewrite_and(self, args: tuple[ExprId, ...], origin) -> ExprId | None:
         ug_id: ExprId | None = None
         g_id: ExprId | None = None
@@ -170,6 +184,8 @@ class PassUntilGloballyAndGlobally(AndRulePass):
 
 
 class PassUntilAndGlobally(AndRulePass):
+    """q U r ∧ G b -> (q ∧ b) U (r ∧ G b)"""
+
     def try_rewrite_and(self, args: tuple[ExprId, ...], origin) -> ExprId | None:
         until_id: ExprId | None = None
         g_id: ExprId | None = None
@@ -207,6 +223,8 @@ class PassUntilAndGlobally(AndRulePass):
 
 
 class PassUntilAndUntil(AndRulePass):
+    """q1 U r1 ∧ q2 U r2 -> (q1 ∧ q2) U ((r1 ∧ (q2 U r2)) ∨ (r2 ∧ (q1 U r1)))"""
+
     def try_rewrite_and(self, args: tuple[ExprId, ...], origin) -> ExprId | None:
         first_id: ExprId | None = None
         second_id: ExprId | None = None
@@ -253,6 +271,8 @@ class PassUntilAndUntil(AndRulePass):
 
 
 class PassGloballyUntilAndUntil(AndRulePass):
+    """G(q1 U r1) ∧ (q2 U r2) -> (((q1 ∨ r1) ∧ q2) U (r2 ∧ G(q1 U r1)))"""
+
     def try_rewrite_and(self, args: tuple[ExprId, ...], origin) -> ExprId | None:
         gu_id: ExprId | None = None
         until_id: ExprId | None = None
@@ -293,6 +313,8 @@ class PassGloballyUntilAndUntil(AndRulePass):
 
 
 class PassCollectPlainGlobalGuards(AndRulePass):
+    """Collects plain propositional global guards into one shared G(...)."""
+
     def try_rewrite_and(self, args: tuple[ExprId, ...], origin) -> ExprId | None:
         guard_ids = [expr_id for expr_id in args if is_plain_global_guard(expr_id, self.dst.nodes)]
         if len(guard_ids) < 2:
@@ -315,10 +337,12 @@ class PassCollectPlainGlobalGuards(AndRulePass):
 
 
 class PassRestrictedGlobalGuardMerge(PassCollectPlainGlobalGuards):
-    """Backward-compatible alias for the original pass name."""
+    """Backward-compatible alias for PassCollectPlainGlobalGuards."""
 
 
 class PassApplyCollectedPlainGlobalGuardsToGU(AndRulePass):
+    """Applies a collected plain G(b) guard to every sibling G(q U r) term."""
+
     def try_rewrite_and(self, args: tuple[ExprId, ...], origin) -> ExprId | None:
         guard_ids = [expr_id for expr_id in args if is_plain_global_guard(expr_id, self.dst.nodes)]
         if len(guard_ids) != 1:
@@ -369,6 +393,8 @@ class PassApplyCollectedPlainGlobalGuardsToGU(AndRulePass):
 
 
 class PassDistributeAndOverOr(AndRulePass):
+    """(A ∧ (B1 ∨ ... ∨ Bn)) -> (A ∧ B1) ∨ ... ∨ (A ∧ Bn), unless everything is propositional."""
+
     def try_rewrite_and(self, args: tuple[ExprId, ...], origin) -> ExprId | None:
         or_id: ExprId | None = None
         for expr_id in args:
@@ -403,6 +429,8 @@ class PassDistributeAndOverOr(AndRulePass):
 
 
 class PassGUBaseCase(AndRulePass):
+    """∧i G(qi U ri) ∧ G b -> ∧i G((qi ∧ b) U (ri ∧ b))"""
+
     def try_rewrite_and(self, args: tuple[ExprId, ...], origin) -> ExprId | None:
         if any(get_until(expr_id, self.dst.nodes) is not None for expr_id in args):
             return None
