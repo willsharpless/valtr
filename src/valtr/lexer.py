@@ -51,20 +51,30 @@ class Lexer:
         tok_cls: Type[TokenType],
         rules: Iterable[tuple[TokenType, str]],
         keywords: Iterable[tuple[TokenType, str]],
+        keyword_split_follow: str = "",
     ):
         self.tok_cls = tok_cls
         self.rules: list[tuple[TokenType, str]] = list(rules)
         self.keywords: list[tuple[TokenType, str]] = list(keywords or [])
+        self.keyword_split_follow = keyword_split_follow
 
         parts: list[str] = []
 
         # 1) Add KEYWORDS first, with a lookahead that allows '_' OR a non-ID follow.
+        #    Optionally, specific follow characters can also trigger a split, which is
+        #    useful for chained one-letter operators like "GF a" -> "G" "F" "a".
         #    This prevents splitting 'Go' into 'G' + 'o', but allows 'G_' to split.
         #    We wrap the user-supplied keyword pattern in a non-capturing group.
-        #    Lookahead: (?:(?=_)|(?![A-Za-z0-9_]))  -> either next is '_' OR next isn't an ID char.
+        #    Lookahead: next is '_' OR next is an allowed keyword-split follow char
+        #    OR next isn't an ID char.
+        split_follow = re.escape(self.keyword_split_follow)
+        if split_follow:
+            guarded_follow = f"(?:(?=_)|(?=[{split_follow}])|(?!{self._ID_FOLLOW}))"
+        else:
+            guarded_follow = f"(?:(?=_)|(?!{self._ID_FOLLOW}))"
 
         for tok_type, kw_rx in self.keywords:
-            guarded_kw = f"(?:{kw_rx})(?:(?=_)|(?!{self._ID_FOLLOW}))"
+            guarded_kw = f"(?:{kw_rx}){guarded_follow}"
             parts.append(f"(?P<{tok_type.name}>{guarded_kw})")
 
             # 2) Add the normal token rules.

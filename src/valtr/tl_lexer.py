@@ -9,8 +9,8 @@ from valtr.lexer import Lexer
 
 class TokenType(Enum):
     # Operators
-    AND = auto()  # &&
-    OR = auto()  # ||
+    AND = auto()  # & or &&
+    OR = auto()  # | or ||
     NOT = auto()  # !
     IMPLIES = auto()  # ->
 
@@ -37,9 +37,9 @@ class TokenType(Enum):
 
 
 RULES = [
-    # Operators (multi-char first)
-    (TokenType.AND, r"\&\&"),
-    (TokenType.OR, r"\|\|"),
+    # Operators (multi-char spellings first so they win over single-char fallbacks)
+    (TokenType.AND, r"\&\&|\&"),
+    (TokenType.OR, r"\|\||\|"),
     (TokenType.IMPLIES, r"\->"),
     (TokenType.NOT, r"\!"),
     # Punctuation / brackets
@@ -66,4 +66,4 @@ KEYWORDS = [
 
 class TLLexer(Lexer):
     def __init__(self):
-        super().__init__(tok_cls=TokenType, rules=RULES, keywords=KEYWORDS)
+        super().__init__(tok_cls=TokenType, rules=RULES, keywords=KEYWORDS, keyword_split_follow="GFXUR")

@@ -1,3 +1,4 @@
+from valtr.tl_lexer import TLLexer
 from valtr.ltl_pass_runner import run_default_ltl_passes
 from valtr.ltl_pretty import pretty_ltl
 from tests.ltl_test_utils import assert_ltl_equivalent, canonical_ltl_key, parse_ltl_spec
@@ -21,6 +22,34 @@ def test_canonical_ltl_key_is_order_invariant_for_and_or_only():
     lhs_builder, lhs_root = parse_ltl_spec("a U b")
     rhs_builder, rhs_root = parse_ltl_spec("b U a")
     assert canonical_ltl_key(lhs_builder.nodes, lhs_root) != canonical_ltl_key(rhs_builder.nodes, rhs_root)
+
+
+def test_single_and_double_character_boolean_operators_parse_the_same():
+    double_builder, double_root = parse_ltl_spec("(a && b) || (c && d)")
+    single_builder, single_root = parse_ltl_spec("(a & b) | (c & d)")
+    mixed_builder, mixed_root = parse_ltl_spec("(a && b) | (c & d)")
+
+    double_key = canonical_ltl_key(double_builder.nodes, double_root)
+    assert double_key == canonical_ltl_key(single_builder.nodes, single_root)
+    assert double_key == canonical_ltl_key(mixed_builder.nodes, mixed_root)
+
+
+def test_adjacent_temporal_keywords_parse_as_chained_operators():
+    gf_builder, gf_root = parse_ltl_spec("GF a")
+    spaced_gf_builder, spaced_gf_root = parse_ltl_spec("G F a")
+    fg_builder, fg_root = parse_ltl_spec("FG a")
+    spaced_fg_builder, spaced_fg_root = parse_ltl_spec("F G a")
+
+    assert canonical_ltl_key(gf_builder.nodes, gf_root) == canonical_ltl_key(spaced_gf_builder.nodes, spaced_gf_root)
+    assert canonical_ltl_key(fg_builder.nodes, fg_root) == canonical_ltl_key(spaced_fg_builder.nodes, spaced_fg_root)
+
+
+def test_identifiers_are_not_split_just_because_they_start_with_temporal_letters():
+    tokens = [(token.type.name, token.value) for token in TLLexer().tokenize("Go")]
+    assert tokens == [("ID", "Go")]
+
+    tokens = [(token.type.name, token.value) for token in TLLexer().tokenize("Fa")]
+    assert tokens == [("ID", "Fa")]
 
 
 def test_master_formula_stays_in_clean_factored_form():
