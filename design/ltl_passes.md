@@ -44,6 +44,18 @@ $$
 F p \equiv \top U p
 $$
 
+### Nested Globally
+
+$$
+G G p \equiv G p
+$$
+
+### Nested Finally
+
+$$
+F F p \equiv F p
+$$
+
 ### Globally Commutes with Conjunction
 
 $$
@@ -77,6 +89,20 @@ $$
 r_i \land \bigwedge_{j \in N^{-i}} q_j U r_j
 \right)
 \right)
+$$
+
+### Degenerate Until
+
+$$
+p U p \equiv p
+$$
+
+$$
+\bot U p \equiv p
+$$
+
+$$
+p U \top \equiv \top
 $$
 
 ### Release as Until or Globally
