@@ -1,0 +1,1069 @@
+from enum import Enum, auto
+from typing import Dict, Iterable, List, NamedTuple, NewType, Optional, Set, Tuple
+
+import graphviz
+import ipdb
+from attrs import define, field, frozen
+
+from .ir import (Binary, BinaryIROpKind, ConstBool, IRId, IRNode, Nary, NaryKind, TemporalBinary, TemporalUnary,
+                      Unary, UnaryIROpKind, Var)
+from .ir_builder import IRBuilder
+from ..lexer import Position, Span
+from ..tl_parser import BinaryOpKind, UnaryOpKind
+
+
+class DAGId(int):
+    pass
+
+
+_TEMPORAL_CLASSES = set()
+
+
+@frozen
+class DAGNode:
+    def children(self) -> List[DAGId]:
+        return []
+
+    def is_temporal(self) -> bool:
+        return False
+
+    @staticmethod
+    def n_temporal_classes():
+        return len(_TEMPORAL_CLASSES)
+
+    @staticmethod
+    def get_temporal_classes():
+        return _TEMPORAL_CLASSES
+
+    @staticmethod
+    def get_temporal_classes_sorted():
+        return sorted(_TEMPORAL_CLASSES)
+
+
+def temporal(cls):
+    """Class decorator to mark a DAGNode subclass as temporal."""
+
+    original_is_temporal = cls.is_temporal
+
+    def new_is_temporal(self) -> bool:
+        return True
+
+    cls.is_temporal = new_is_temporal
+    cls_fullname = f"{cls.__module__}.{cls.__qualname__}"
+    _TEMPORAL_CLASSES.add(cls_fullname)
+    return cls
+
+
+@frozen
+class DAGConst(DAGNode):
+    value: bool
+
+
+@frozen
+class DAGVar(DAGNode):
+    name: str
+
+
+@frozen
+class DAGNegate(DAGNode):
+    arg: DAGId
+
+    def children(self) -> List[DAGId]:
+        return [self.arg]
+
+
+@frozen
+class DAGMinN(DAGNode):
+    args: Tuple[DAGId, ...]
+
+    def children(self) -> List[DAGId]:
+        return list(self.args)
+
+
+@frozen
+class DAGMinGuard(DAGNode):
+    temporal_arg: DAGId
+    nontemporal_arg: DAGId
+
+    def children(self) -> List[DAGId]:
+        return [self.temporal_arg, self.nontemporal_arg]
+
+
+@frozen
+class DAGMaxN(DAGNode):
+    args: Tuple[DAGId, ...]
+
+    def children(self) -> List[DAGId]:
+        return list(self.args)
+
+
+@frozen
+@temporal
+class DAGReachAvoid(DAGNode):
+    reach: DAGId
+    avoid: DAGId
+
+    def children(self) -> List[DAGId]:
+        return [self.reach, self.avoid]
+
+
+@frozen
+@temporal
+class DAGAvoid(DAGNode):
+    avoid: DAGId  # A(arg)
+
+    def children(self) -> List[DAGId]:
+        return [self.avoid]
+
+
+@frozen
+@temporal
+class DAGReach(DAGNode):
+    reach: DAGId  # A(arg)
+
+    def children(self) -> List[DAGId]:
+        return [self.reach]
+
+
+@frozen
+@temporal
+class DAGGUSingle(DAGNode):
+    """A single G( q U r )"""
+
+    reach: DAGId
+    avoid: DAGId
+
+    def children(self) -> List[DAGId]:
+        return [self.reach, self.avoid]
+
+
+@frozen
+class DAGGUMinN(DAGNode):
+    """Same as MinN, but for convenience indicates that all the children are DAGGUSingle."""
+
+    args: Tuple[DAGId, ...]
+
+    def children(self) -> List[DAGId]:
+        return list(self.args)
+
+
+# @frozen
+# @temporal
+# class DAGGU(DAGNode):
+#     """G( AND_i ( q_i U r_i ) )"""
+#
+#     args: list[tuple[DAGId, DAGId]]
+#
+#     def children(self) -> List[DAGId]:
+#         kids = []
+#         for q_i, r_i in self.args:
+#             kids.append(q_i)
+#             kids.append(r_i)
+#         return kids
+
+
+class DagBuilder:
+    def __init__(self):
+        self.nodes: List[DAGNode] = []
+        self._intern: Dict[tuple, DAGId] = {}
+
+    def _get(self, key: tuple, node: DAGNode) -> DAGId:
+        if key in self._intern:
+            return self._intern[key]
+        i = len(self.nodes)
+        self._intern[key] = i
+        self.nodes.append(node)
+        return i
+
+    def const(self, v: bool) -> DAGId:
+        # # Make each const literal is unique.
+        # i = len(self.nodes)
+        # node = DAGConst(v)
+        # self.nodes.append(node)
+        # return i
+        return self._get(("Const", v), DAGConst(v))
+
+    def var(self, name: str) -> DAGId:
+        return self._get(("Var", name), DAGVar(name))
+
+    def negate(self, arg: DAGId) -> DAGId:
+        key = ("Negate", arg)
+        return self._get(key, DAGNegate(arg))
+
+    def min_n(self, args: Iterable[DAGId]) -> DAGId:
+        s = tuple(sorted(set(args)))
+        if len(s) == 0:
+            raise ValueError("min_n requires at least 1 argument")
+        elif len(s) == 1:
+            return args[0]
+        else:
+            return self._get(("MinN", s), DAGMinN(s))
+
+    def min_guard(self, temporal_arg: DAGId, nontemporal_arg: DAGId) -> DAGId:
+        return self._get(("MinGuard", temporal_arg, nontemporal_arg), DAGMinGuard(temporal_arg, nontemporal_arg))
+
+    def max_n(self, args: Iterable[DAGId]) -> DAGId:
+        s = tuple(sorted(set(args)))
+        if len(s) <= 1:
+            raise ValueError("max_n requires at least 2 arguments")
+        return self._get(("MaxN", s), DAGMaxN(s))
+
+    def reachavoid(self, reach: DAGId, stay: DAGId) -> DAGId:
+        key = ("ReachAvoid", reach, stay)
+        return self._get(key, DAGReachAvoid(reach, stay))
+
+    def avoid(self, arg: DAGId) -> DAGId:
+        key = ("Avoid", arg)
+        return self._get(key, DAGAvoid(arg))
+
+    def reach(self, arg: DAGId) -> DAGId:
+        key = ("Reach", arg)
+        return self._get(key, DAGReach(arg))
+
+    def GU_single(self, reach: DAGId, stay: DAGId) -> DAGId:
+        key = ("GUSingle", reach, stay)
+        return self._get(key, DAGGUSingle(reach, stay))
+
+    def GU_min_n(self, args: Iterable[DAGId]) -> DAGId:
+        s = tuple(args)
+        return self._get(("GUMinN", s), DAGGUMinN(s))
+
+    # def GU(self, args: list[tuple[DAGId, DAGId]]) -> DAGId:
+    #     args_tup = tuple(args)
+    #
+    #     key = ("GU", args_tup)
+    #     return self._get(key, DAGGU(args))
+
+
+class LoweringError(Exception):
+    pass
+
+
+def lower_bool_leaf_expr_to_dag(irb: IRBuilder, dag: DagBuilder, rid: IRId) -> DAGId:
+    """
+    Lower a leaf boolean expression (const/var/AND/OR of those) into DAG.
+    Rejects any temporal nodes.
+
+    AND becomes min, OR becomes max.
+    """
+    n = irb.nodes[int(rid)]
+    match n:
+        case ConstBool(value=v):
+            return dag.const(v)
+        case Var(name=s):
+            return dag.var(s)
+        case Unary(kind=UnaryIROpKind.NOT, arg=arg, span=_):
+            kid = lower_bool_leaf_expr_to_dag(irb, dag, arg)
+            return dag.negate(kid)
+        case Nary(kind=NaryKind.AND, args=args, span=_):
+            kids = [lower_bool_leaf_expr_to_dag(irb, dag, a) for a in args]
+            return dag.min_n(kids)
+        case Nary(kind=NaryKind.OR, args=args, span=_):
+            kids = [lower_bool_leaf_expr_to_dag(irb, dag, a) for a in args]
+            return dag.max_n(kids)
+        case _:
+            raise LoweringError(f"Disallowed node inside leaf boolean: {type(n).__name__}")
+
+
+def lower_ir_to_dag_old(irb: IRBuilder, root: IRId) -> tuple[DagBuilder, DAGId]:
+    """
+    Main entry: produce a backend DAG according to the specified ruless.
+    """
+    dag = DagBuilder()
+
+    # extract terms
+    n = irb.nodes[root]
+    args: list[IRId]
+    if isinstance(n, Nary) and n.kind == NaryKind.AND:
+        args = list(n.args)
+    else:
+        args = [root]
+
+    U_args: list[tuple[IRId, IRId]] = []
+    G_args: list[IRId] = []
+
+    for a in args:
+        node = irb.nodes[a]
+        match node:
+            case TemporalBinary(kind=BinaryIROpKind.UNTIL, left=left, right=right, interval=iv, span=_):
+                if iv is not None:
+                    raise LoweringError("Timed UNTIL not supported")
+                U_args.append((left, right))
+            case TemporalUnary(kind=UnaryIROpKind.GLOBALLY, arg=arg, interval=iv, span=_):
+                if iv is not None:
+                    raise LoweringError("Timed GLOBALLY not supported")
+                G_args.append(arg)
+            case _:
+                raise LoweringError(f"Top-level must contain only UNTIL/GLOBALLY, got {type(node).__name__}")
+
+    # Build r_dag: if multiple G, r := AND(r_i)
+    if len(G_args) == 0:
+        G_dag = dag.const(True)  # if you want to require a G, raise instead
+    elif len(G_args) == 1:
+        G_dag = lower_bool_leaf_expr_to_dag(irb, dag, G_args[0])
+    else:
+        raise LoweringError("IR should have been preprocessed to combine multiple G into one")
+        # r_dag = dag.and_n(lower_bool_leaf_expr_to_dag(irb, dag, r) for r in G_args)
+
+    # Check/convert each left and right into DAG leaves (or allowed boolean combos)
+    U_lefts: list[DAGId] = []
+    U_rights: list[DAGId] = []
+    for ir_left, ir_right in U_args:
+        U_lefts.append(lower_bool_leaf_expr_to_dag(irb, dag, ir_left))
+        U_rights.append(lower_bool_leaf_expr_to_dag(irb, dag, ir_right))
+
+    match (len(U_args), len(G_args)):
+        case (0, 0):
+            raise LoweringError("No UNTIL or GLOBALLY found in formula")
+        case (_, n) if n > 1:
+            raise LoweringError("IR should have been preprocessed to combine multiple G into one")
+        case (0, 1):
+            # Only 1 G, lower to avoid(r)
+            return dag, dag.avoid(G_dag)
+        case (1, 0):
+            # Only 1 U, lower to reachavoid(r)
+            return dag, dag.reachavoid(reach=U_rights[0], stay=U_lefts[0])
+        case (m, 1) if m >= 1:
+            # Lower to reach-avoid
+            # Handled below.
+            pass
+        case _:
+            raise LoweringError("Unhandled case in lowering")
+
+    # Recursive builder for V on k UNTILs
+    def build_V_k(idxs_: list[int]) -> DAGId:
+        len_indices = len(idxs_)
+        if len_indices == 1:
+            # If only one index left, then base case.
+            # \max_a ρ( (q_1 U r) ∧ G q2 )   <=>   reachavoid(r_tilde, q_tilde)
+            #    r_tilde = min( r, avoid(q2) )
+            #    q_tilde = min(q1, q2)
+            ii = idxs_[0]
+            U_stay = U_lefts[ii]
+            U_reach = U_rights[ii]
+            r_tilde = dag.min_n([U_reach, dag.avoid(G_dag)])
+            q_tilde = dag.min_n([U_stay, G_dag])
+            return dag.reachavoid(reach=r_tilde, stay=q_tilde)
+
+        # len(indices_) > 1. Iterate over all indices, popping each and computing the value over the rest.
+        r_tildes_childs = []
+        for ii in idxs_:
+            # \max_a ρ( ⋀_{i ∈ I} (q_i U r_i) ∧ G q )   <=>   reachavoid(r_tilde, q_tilde)
+            #     r_tilde = max_{i ∈ I} min( r_i, V_k(I \ {i}) )
+            #     q_tilde = min( min_i q_i, q )
+
+            U_reach = U_rights[ii]
+
+            # Form indices without ii
+            idxs_rest = [i for i in idxs_ if i != ii]
+
+            r_tilde_child = dag.min_n([U_reach, build_V_k(idxs_rest)])
+            r_tildes_childs.append(r_tilde_child)
+
+        r_tilde = dag.max_n(r_tildes_childs)
+
+        U_stays_in_idxs = [U_lefts[i] for i in idxs_]
+        q_tilde = dag.min_n(U_stays_in_idxs + [G_dag])
+
+        return dag.reachavoid(reach=r_tilde, stay=q_tilde)
+
+    n_reach = len(U_args)
+    indices = list(range(n_reach))
+
+    root_dag = build_V_k(indices)
+    return dag, root_dag
+
+
+def get_and_args_list(node: IRNode, node_id: IRId) -> list[IRId]:
+    args: list[IRId]
+    match node:
+        case Nary(kind=NaryKind.AND, args=args_, span=_):
+            return list(args_)
+        case _:
+            return [node_id]
+
+
+def lower_ir_to_dag_notransform(ir_nodes: list[IRNode], root: IRId, dag: DagBuilder | None = None) -> DAGId:
+    """Just translate the IR structure directly to DAG structure without any transformations."""
+    root_node = ir_nodes[int(root)]
+
+    match root_node:
+        case ConstBool(value=v):
+            return dag.const(v)
+        case Var(name=s):
+            return dag.var(s)
+        case Unary(kind=UnaryIROpKind.NOT, arg=arg, span=_):
+            kid = lower_ir_to_dag_notransform(ir_nodes, arg, dag)
+            return dag.negate(kid)
+        case Nary(kind=NaryKind.AND, args=args, span=_):
+            kids = [lower_ir_to_dag_notransform(ir_nodes, a, dag) for a in args]
+            return dag.min_n(kids)
+        case Nary(kind=NaryKind.OR, args=args, span=_):
+            kids = [lower_ir_to_dag_notransform(ir_nodes, a, dag) for a in args]
+            return dag.max_n(kids)
+        case TemporalBinary(kind=BinaryIROpKind.UNTIL, left=left, right=right, interval=iv, span=_):
+            left = lower_ir_to_dag_notransform(ir_nodes, left, dag)
+            right = lower_ir_to_dag_notransform(ir_nodes, right, dag)
+            return dag.reachavoid(reach=right, stay=left)
+        case TemporalUnary(kind=kind, arg=arg, interval=iv, span=_):
+            arg_dag = lower_ir_to_dag_notransform(ir_nodes, arg, dag)
+            match kind:
+                case UnaryIROpKind.GLOBALLY:
+                    return dag.avoid(arg_dag)
+                case UnaryIROpKind.FINALLY:
+                    return dag.reach(arg_dag)
+                case _:
+                    raise LoweringError(f"Unsupported temporal unary op: {kind}")
+        case _:
+            raise LoweringError(f"Unsupported IR node type in lowering: {type(root_node).__name__}")
+
+
+def oswin_fix(irb: IRBuilder, root: IRId, dag: DagBuilder | None = None) -> tuple[DagBuilder, DAGId]:
+    root_node = irb.nodes[root]
+    match root_node:
+        case Nary(kind=NaryKind.OR, args=args, span=_):
+            dag_args = []
+            for ir_arg in args:
+                _, dag_arg = lower_ir_to_dag(irb, ir_arg, dag=dag, nested=True)
+                dag_args.append(dag_arg)
+            dag_id = dag.max_n(dag_args)
+            return dag, dag_id
+        case _:
+            raise ValueError("Shouldn't have gotten here. This is patch for OR.")
+
+
+def lower_ir_to_dag(
+    irb: IRBuilder, root: IRId, dag: DagBuilder | None = None, nested: bool = False, transform=True
+) -> tuple[DagBuilder, DAGId]:
+    """
+    nontemporal AND AND_i G ( q_i U r_i )  AND  AND_j ( q_j U r_j )  AND  G q_G
+
+    => q_tilde U r_tilde
+        q_tilde = q_j AND q_G AND ( q_i OR r_i )
+        r_tilde = OR_j (r_j AND V_{without j})
+
+    AND is min, OR is max
+    """
+    if dag is None:
+        dag = DagBuilder()
+
+    if not transform:
+        dag_id = lower_ir_to_dag_notransform(irb.nodes, root, dag=dag)
+        return dag, dag_id
+
+    root_node = irb.nodes[root]
+
+    # ---------------------------------------------------------------
+    # Ugly hack to handle U( ... || ... )
+    match root_node:
+        case Nary(kind=NaryKind.OR, args=args, span=_):
+            assert nested, "Top-level must contain only UNTIL/GLOBALLY unless nested, got OR"
+            return oswin_fix(irb, root, dag)
+        case _:
+            pass
+
+    # ---------------------------------------------------------------
+
+    root_arg_ids = get_and_args_list(root_node, root)
+
+    # 1: Extract the top-level AND arguments, separate it into the UG, GU, U and G parts.
+    UG_args: list[TemporalBinary] = []
+    GU_args: list[TemporalBinary] = []
+    U_args: list[TemporalBinary] = []
+    G_args_id: list[IRId] = []
+
+    outside_args = []
+    for node_id in root_arg_ids:
+        node = irb.nodes[node_id]
+        match node:
+            case TemporalBinary(kind=BinaryIROpKind.UNTIL, left=left, right=right, interval=iv, span=_):
+                if iv is not None:
+                    raise LoweringError("Timed UNTIL not supported")
+
+                # If right side is a G, then it's a UG.
+                node_right = irb.nodes[right]
+                if isinstance(node_right, TemporalUnary) and node_right.kind == UnaryIROpKind.GLOBALLY:
+                    UG_args.append(node)
+                else:
+                    U_args.append(node)
+            case TemporalUnary(kind=UnaryIROpKind.GLOBALLY, arg=arg_id, interval=iv, span=_):
+                if iv is not None:
+                    raise LoweringError("Timed GLOBALLY not supported")
+
+                arg_node = irb.nodes[arg_id]
+
+                # We combined all the G into one previously. Get all the args under the AND (if it exists).
+                G_and_arg_ids = get_and_args_list(arg_node, arg_id)
+
+                for g_arg_id in G_and_arg_ids:
+                    # Check if it's a G or GU.
+                    arg_node = irb.nodes[g_arg_id]
+                    match arg_node:
+                        case TemporalBinary(kind=BinaryIROpKind.UNTIL, left=left, right=right, interval=iv2, span=_):
+                            if iv2 is not None:
+                                raise LoweringError("Timed UNTIL not supported")
+                            assert isinstance(arg_node, TemporalBinary)
+                            GU_args.append(arg_node)
+                        case _:
+                            G_args_id.append(g_arg_id)
+            case Var(name=name):
+                if not nested:
+                    raise LoweringError("Top-level must contain only UNTIL/GLOBALLY unless nested, got bare Var")
+                else:
+                    dag_arg = lower_bool_leaf_expr_to_dag(irb, dag, node_id)
+                    outside_args.append(dag_arg)
+            case Nary(kind=NaryKind.OR, args=args, span=_):
+                assert nested, "Top-level must contain only UNTIL/GLOBALLY unless nested, got OR"
+                dag_prop = lower_bool_leaf_expr_to_dag(irb, dag, node_id)
+                outside_args.append(dag_prop)
+            case _:
+                raise LoweringError(f"Top-level must contain only UNTIL/GLOBALLY, got {type(node).__name__}")
+
+    if dag is None:
+        dag = DagBuilder()
+
+    if len(G_args_id) == 0:
+        G_dag_arg = dag.const(True)
+    elif len(G_args_id) == 1:
+        G_dag_arg = lower_bool_leaf_expr_to_dag(irb, dag, G_args_id[0])
+    else:
+        # Lower each of the args, then AND them.
+        G_dag_args = [lower_bool_leaf_expr_to_dag(irb, dag, gid) for gid in G_args_id]
+        G_dag_arg = dag.min_n(G_dag_args)
+
+    if len(UG_args) > 1:
+        raise NotImplementedError("Multiple UG not supported yet.")
+
+    dag_id = lower_ir_to_dag_(irb, dag, U_args, UG_args, GU_args, G_dag_arg)
+
+    if len(outside_args) > 0:
+        # AND with outside args.
+        dag_id = dag.min_n([dag_id, *outside_args])
+
+    return dag, dag_id
+
+
+def lower_ir_to_dag_(
+    irb: IRBuilder,
+    dag: DagBuilder,
+    U_args: list[TemporalBinary],
+    UG_args: list[TemporalBinary],
+    GU_args: list[TemporalBinary],
+    G_arg_dag: DAGId,
+) -> DAGId:
+    """
+    AND_i G ( q_i U r_i )  AND  AND_j ( q_j U r_j )  AND  G q_G
+
+    => q_tilde U r_tilde
+        q_tilde = q_j AND q_G AND ( q_i OR r_i )
+        r_tilde = OR_j (r_j AND V_{without j})
+
+    AND is min, OR is max
+    """
+    if len(UG_args) > 1:
+        raise NotImplementedError("Multiple UG not supported yet.")
+
+    # Base case: U_args is empty.
+    if len(U_args) == 0 and len(UG_args) == 0:
+        return lower_ir_to_dag_GU(irb, dag, GU_args, G_arg_dag)
+
+    # Construct q_tilde.
+    #     AND_i ( q_i OR r_i )
+    q_tilde_ands_GU = []
+    for node in GU_args:
+        left = lower_bool_leaf_expr_to_dag(irb, dag, node.left)
+        right = lower_bool_leaf_expr_to_dag(irb, dag, node.right)
+        or_left_right = dag.max_n([left, right])
+        q_tilde_ands_GU.append(or_left_right)
+
+    #     AND_j q_j
+    q_tilde_ands_U = [lower_bool_leaf_expr_to_dag(irb, dag, node.left) for node in U_args]
+
+    #     AND_j q_j (from UG)
+    q_tilde_ands_UG = [lower_bool_leaf_expr_to_dag(irb, dag, node.left) for node in UG_args]
+
+    #     AND q_G
+    q_tilde_args = q_tilde_ands_GU + q_tilde_ands_U + q_tilde_ands_UG
+    G_arg_node = dag.nodes[G_arg_dag]
+    if not (isinstance(G_arg_node, DAGConst) and G_arg_node.value is True):
+        q_tilde_ands_G = [G_arg_dag]
+        q_tilde_args += q_tilde_ands_G
+
+    if len(U_args) == 0 and len(UG_args) == 1:
+        UG_arg = UG_args[0]
+        left = lower_bool_leaf_expr_to_dag(irb, dag, UG_arg.left)
+        q_tilde = dag.min_n([*q_tilde_args, left])
+
+        if len(GU_args) == 0:
+            _, right = lower_ir_to_dag(irb, UG_arg.right, dag=dag, nested=True)
+
+            return dag.reachavoid(reach=right, stay=q_tilde)
+        else:
+            node_right = irb.nodes[UG_arg.right]
+            assert isinstance(node_right, TemporalUnary) and node_right.kind == UnaryIROpKind.GLOBALLY
+            globally_arg = node_right.arg
+            globally_arg_dag = lower_bool_leaf_expr_to_dag(irb, dag, globally_arg)
+
+            G_arg_dag_new = dag.min_n([globally_arg_dag, G_arg_dag])
+
+            GU_dag = lower_ir_to_dag_GU(irb, dag, GU_args, G_arg_dag_new)
+            return dag.reachavoid(reach=GU_dag, stay=q_tilde)
+
+    q_tilde = dag.min_n(q_tilde_args)
+
+    # Construct r_tilde.
+    r_tilde_maxs = []
+    for jj, node in enumerate(U_args):
+        # r_j AND V_{without j}
+        try:
+            r_j = lower_bool_leaf_expr_to_dag(irb, dag, node.right)
+        except LoweringError as e:
+            _, r_j = lower_ir_to_dag(irb, node.right, dag=dag, nested=True)
+
+        U_args_without_j = [node for ii, node in enumerate(U_args) if ii != jj]
+
+        # if len(U_args) == 1:
+        #     UG_args_ = []
+        # else:
+        #     UG_args_ = UG_args
+
+        V_without_j = lower_ir_to_dag_(irb, dag, U_args_without_j, UG_args, GU_args, G_arg_dag)
+        r_tilde_maxs_list = [r_j, V_without_j]
+
+        # if len(U_args) == 1 and len(UG_args) == 1:
+        #     UG_arg = UG_args[0]
+        #     _, UG_r = lower_ir_to_dag(irb, UG_arg.right, dag=dag, nested=True)
+        #     r_tilde_maxs_list.append(UG_r)
+
+        r_tilde_maxs.append(dag.min_n(r_tilde_maxs_list))
+
+    if len(r_tilde_maxs) == 0:
+        raise ValueError("Why U_args empty")
+    elif len(r_tilde_maxs) == 1:
+        r_tilde = r_tilde_maxs[0]
+    else:
+        r_tilde = dag.max_n(r_tilde_maxs)
+
+    root_id = dag.reachavoid(reach=r_tilde, stay=q_tilde)
+    return root_id
+
+
+def lower_ir_to_dag_GU(irb: IRBuilder, dag: DagBuilder, GU_args: list[TemporalBinary], G_arg_dag: DAGId) -> DAGId:
+    """
+    Lower AND_i G ( q_i U r_i )  AND  G q_G
+
+    # 1: Merge the G q_G inside the GU.
+        (q_i AND q_G) U (r_i AND G q_G)
+    # 2: Solve the G( AND U)
+    arbitrarily (?) order the GU_args.
+    Solve reachavoid( q_tilde_i, r_tilde_i ), where
+        q_tilde_i = q_i AND w_{not i}
+        r_tilde_i = r_i AND w_{not i} AND X V_{i + 1}
+    Have a single DAG node to represent this iteration.
+    """
+    G_node = dag.nodes[G_arg_dag]
+    if isinstance(G_node, DAGConst) and G_node.value is True:
+        # The avoid is a no-op.
+        G_dag = dag.const(True)
+    else:
+        G_dag = dag.avoid(G_arg_dag)
+
+    if len(GU_args) == 0:
+        # Just a normal avoid.
+        return G_dag
+    else:
+        # 1: Merge the G q_G inside the GU.
+        GU_args_dag: list[DAGId] = []
+        for node in GU_args:
+            q_i_dag = lower_bool_leaf_expr_to_dag(irb, dag, node.left)
+            r_i_dag = lower_bool_leaf_expr_to_dag(irb, dag, node.right)
+
+            q_i_new = dag.min_n([q_i_dag, G_arg_dag])
+            r_i_new = dag.min_n([r_i_dag, G_dag])
+            GU_args_dag.append(dag.GU_single(reach=r_i_new, stay=q_i_new))
+
+        GU_dag = dag.GU_min_n(GU_args_dag)
+        return GU_dag
+
+
+SYM_MAX = "max"
+SYM_MIN = "min"
+SYM_RA = "ReachAvoid"
+SYM_A = "Avoid"
+
+
+def dag_to_str(nodes: list[DAGNode], rid: DAGId) -> str:
+    """
+    Convert a DAG node to a Unicode logical expression string.
+    Ensures parentheses so ambiguity is avoided.
+    Memoizes visited DAG nodes to avoid exponential recomputation.
+    """
+    cache: dict[int, str] = {}
+
+    def go(i: int, top_level: bool = False) -> str:
+        if i in cache:
+            return cache[i]
+
+        node = nodes[i]
+        match node:
+
+            case DAGConst(value=v):
+                s = "⊤" if v else "⊥"  # Unicode True / False
+
+            case DAGVar(name=sym):
+                s = sym
+
+            case DAGMinN(args=args):
+                items = [go(a) for a in args]
+                s = SYM_MIN + "(" + ", ".join(items) + ")"
+
+            case DAGMaxN(args=args):
+                items = [go(a) for a in args]
+                s = SYM_MAX + "(" + ", ".join(items) + ")"
+
+            case DAGReachAvoid(reach=l, avoid=r):
+                if top_level:
+                    s = f"ReachAvoid({go(l)}, {go(r)})"
+                else:
+                    s = f"ReachAvoid%{i})"
+
+            case DAGAvoid(avoid=avoid):
+                if top_level:
+                    s = f"Avoid({go(avoid)})"
+                else:
+                    s = f"Avoid%{i})"
+
+            case DAGNegate(arg=a):
+                s = f"-{go(a)}"
+
+            case _:
+                s = f"{type(node).__name__}"
+
+        cache[i] = s
+        return s
+
+    return go(int(rid), top_level=True)
+
+
+class PredicateInfo(NamedTuple):
+    predicates: list[str]
+    predicate_to_idx: dict[str, int]
+    predicate_ids: list[int]
+    predicate_negations: dict[str, set[tuple[bool, int]]]
+    predicate_roles: dict[str, set[tuple[str | None, int]]]
+
+
+def collect_predicate_info(nodes: list[DAGNode], root: DAGId) -> PredicateInfo:
+    """
+    Collect predicates and track whether they appear negated and in which role (reach/avoid).
+
+    Returns:
+        predicates: List of predicate names in order of discovery
+        predicate_to_idx: Mapping from predicate name to index
+        predicate_ids: List of node IDs for each predicate (first occurrence)
+        predicate_negations: Dict mapping predicate name to set of (is_negated, node_id) tuples
+        predicate_roles: Dict mapping predicate name to set of (role, node_id) tuples where role is 'reach', 'avoid', or None
+    """
+    predicates = []
+    predicate_to_idx = {}
+    predicate_ids = []
+    predicate_negations = {}  # predicate_name -> set of (is_negated, node_id)
+    predicate_roles = {}  # predicate_name -> set of (role, node_id) where role is 'reach', 'avoid', or None
+
+    def _collect_recursive(node_id: int, is_negated: bool, role: Optional[str], visited: set):
+        """Recursive helper that updates the outer scope variables."""
+        if node_id in visited:
+            return
+        visited.add(node_id)
+
+        node = nodes[node_id]
+
+        match node:
+            case DAGVar(name=name):
+                # Record this occurrence with its negation status and role
+                if name not in predicate_negations:
+                    predicate_negations[name] = set()
+                predicate_negations[name].add((is_negated, node_id))
+
+                if name not in predicate_roles:
+                    predicate_roles[name] = set()
+                predicate_roles[name].add((role, node_id))
+
+                # Add to predicates list if first occurrence
+                if name not in predicate_to_idx:
+                    predicate_to_idx[name] = len(predicates)
+                    predicates.append(name)
+                    predicate_ids.append(node_id)
+
+            case DAGReachAvoid(reach=reach, avoid=avoid):
+                # Variables in reach are reach targets
+                _collect_recursive(reach, is_negated, "reach", visited.copy())
+                # Variables in avoid are avoid constraints
+                _collect_recursive(avoid, is_negated, "avoid", visited.copy())
+
+            case DAGAvoid(avoid=avoid):
+                # Variables in avoid are avoid constraints
+                _collect_recursive(avoid, is_negated, "avoid", visited.copy())
+
+            case DAGNegate(arg=arg):
+                # Flip negation context and continue
+                _collect_recursive(arg, not is_negated, role, visited)
+
+            case _:
+                # For all other nodes, propagate with same context
+                for child_id in node.children():
+                    _collect_recursive(child_id, is_negated, role, visited.copy())
+
+    _collect_recursive(int(root), is_negated=False, role=None, visited=set())
+    return PredicateInfo(predicates, predicate_to_idx, predicate_ids, predicate_negations, predicate_roles)
+
+
+class TriggerPredicateMapOut(NamedTuple):
+    predicates: list[str]
+    predicate_ids: list[str]
+    predicate_roles: list[set[tuple[str | None, int]]]
+    negated_predicate_mask: list[bool]
+    temporal_nodes: list[int]
+    trigger_map: list[list[int]]  # (N, P) array
+
+
+def extract_trigger_predicate_map(nodes: list[DAGNode], root: DAGId) -> TriggerPredicateMapOut:
+    """
+    Extract trigger predicate map from a DAG.
+
+    Returns:
+        predicates: List of predicate names (DAGVar names)
+        predicate_ids: List of predicate node IDs
+        temporal_nodes: List of temporal node IDs in topological order
+        trigger_predicate_map: (N, P) array where entry [i, j] is the child node index
+                               that we switch to from node i when predicate j is satisfied,
+                               or -1 if no such transition exists.
+        negated_predicate_mask: (P,) array where entry [i] is True if predicate i is negated
+
+    Example:
+        For the task "F reach1 && F reach2 && G !obstacles", yielding a DAG with 4 nodes (RRAA, RAA1, RAA2, A)
+        and 3 predicates (reach1, reach2, obstacles), with
+
+        temporal_nodes = [13, 10, 7, 4] # RRAA, RAA1, RAA2, A
+        predicates = ["reach1", "reach2", "obstacles"]
+        negated_predicate_mask = [False, False, True]
+
+        then the trigger_predicate_map should look like:
+
+        [[ 2,  1, -1],  # RRAA can reach1 (-> RAA2) or reach2 (-> RAA1)
+         [ 3, -1, -1],  # RAA1 can reach1 (-> A)
+         [-1,  3, -1],  # RAA2 can reach2 (-> A)
+         [-1, -1, -1]]  # A is a terminal node
+    """
+
+    # Collect predicate information
+    out: PredicateInfo = collect_predicate_info(nodes, root)
+    predicates, predicate_to_idx, predicate_ids, predicate_negations, predicate_role_sets = out
+
+    # Assert and extract unique negation status for each predicate
+    # After PassDuplicateMixedPolarity, each predicate should have consistent negation
+    negated_predicate_mask = []
+    for pred_name in predicates:
+        negation_statuses = {is_neg for is_neg, _ in predicate_negations[pred_name]}
+        assert len(negation_statuses) == 1, (
+            f"Predicate '{pred_name}' has mixed negation contexts: {negation_statuses}. "
+            f"Apply PassDuplicateMixedPolarity before extracting trigger map."
+        )
+        negated_predicate_mask.append(negation_statuses.pop())
+
+    # Assert and extract unique role for each predicate
+    # After PassDuplicateMixedRole, each predicate should have consistent role
+    predicate_roles = []  # 'reach', 'avoid', or None
+    for pred_name in predicates:
+        roles = {role for role, _ in predicate_role_sets[pred_name] if role is not None}
+        assert len(roles) <= 1, (
+            f"Predicate '{pred_name}' has mixed roles: {roles}. "
+            f"Apply PassDuplicateMixedRole before extracting trigger map."
+        )
+        predicate_roles.append(roles.pop() if roles else None)
+
+    # Collect all ReachAvoid and Avoid nodes in post-order (children before parents)
+    temporal_nodes_postorder = []
+
+    def collect_temporal_nodes(node_id: int, visited: set):
+        if node_id in visited:
+            return
+        visited.add(node_id)
+
+        node = nodes[node_id]
+
+        # Recursively visit children first (post-order traversal)
+        for child_id in node.children():
+            collect_temporal_nodes(child_id, visited)
+
+        # Add temporal nodes
+        if isinstance(node, (DAGReachAvoid, DAGAvoid)):
+            temporal_nodes_postorder.append(node_id)
+
+    collect_temporal_nodes(int(root), set())
+
+    # Reverse to get topological order (root first, leaves last)
+    temporal_nodes = list(reversed(temporal_nodes_postorder))
+
+    # Build position map
+    node_to_pos = {node_id: pos for pos, node_id in enumerate(temporal_nodes)}
+
+    N = len(temporal_nodes)
+    P = len(predicates)
+
+    # Initialize trigger map with -1 (no transition)
+    trigger_map = [[-1] * P for _ in range(N)]
+
+    def find_predicate_triggers(node_id: int, parent_pos: int, visited: set):
+        """
+        Find which predicates trigger transitions from parent_pos to this node.
+        A transition occurs when there's a min(predicate, child_node).
+        """
+        if node_id in visited:
+            return
+        visited.add(node_id)
+
+        node = nodes[node_id]
+
+        # If this is a temporal node, record its position
+        current_pos = node_to_pos.get(node_id, -1)
+
+        match node:
+            case DAGReachAvoid(reach=reach_id, avoid=avoid_id):
+                # Explore reach and avoid branches
+                find_predicate_triggers(reach_id, current_pos, visited.copy())
+                find_predicate_triggers(avoid_id, current_pos, visited.copy())
+
+            case DAGAvoid(avoid=avoid_id):
+                # Explore avoid branch
+                find_predicate_triggers(avoid_id, current_pos, visited.copy())
+
+            case DAGMinN(args=args):
+                # Check if this min contains a predicate and a temporal node
+                pred_ids = []
+                temporal_ids = []
+
+                for arg in args:
+                    arg_node = nodes[arg]
+                    if isinstance(arg_node, DAGVar):
+                        pred_ids.append(arg)
+                    elif isinstance(arg_node, (DAGReachAvoid, DAGAvoid)):
+                        temporal_ids.append(arg)
+                    elif isinstance(arg_node, DAGNegate):
+                        # Check if it's negating a variable
+                        inner = nodes[arg_node.arg]
+                        if isinstance(inner, DAGVar):
+                            pred_ids.append(arg_node.arg)
+
+                # If we have both a predicate and a temporal node in the min,
+                # this represents a trigger
+                if pred_ids and temporal_ids and parent_pos >= 0:
+                    for pred_id in pred_ids:
+                        pred_node = nodes[pred_id]
+                        if isinstance(pred_node, DAGVar):
+                            pred_idx = predicate_to_idx[pred_node.name]
+                            for temporal_id in temporal_ids:
+                                child_pos = node_to_pos.get(temporal_id, -1)
+                                if child_pos >= 0:
+                                    trigger_map[parent_pos][pred_idx] = child_pos
+
+                # Continue exploring
+                for arg in args:
+                    find_predicate_triggers(arg, parent_pos, visited.copy())
+
+            case DAGMaxN(args=args):
+                # For max, explore all branches
+                for arg in args:
+                    find_predicate_triggers(arg, parent_pos, visited.copy())
+
+            case DAGNegate(arg=arg_id):
+                find_predicate_triggers(arg_id, parent_pos, visited.copy())
+
+            case _:
+                pass
+
+    # Start traversal from root
+    find_predicate_triggers(int(root), -1, set())
+
+    return TriggerPredicateMapOut(
+        predicates, predicate_ids, predicate_roles, negated_predicate_mask, temporal_nodes, trigger_map
+    )
+
+
+def temporal_nodes_topological(nodes: list[DAGNode], node_id: DAGId, visited: set | None = None) -> list[DAGId]:
+    if visited is None:
+        visited = set()
+
+    if node_id in visited:
+        return []
+    visited.add(node_id)
+
+    node = nodes[int(node_id)]
+
+    # Recursively visit children.
+    temporal_nodes = []
+    for child_id in node.children():
+        temporal_nodes += temporal_nodes_topological(nodes, child_id, visited)
+
+    # Add self if temporal.
+    if node.is_temporal():
+        temporal_nodes.append(node_id)
+
+    return temporal_nodes
+
+
+def get_node_parent_dict(nodes: list[DAGNode], root_id: DAGId) -> dict[DAGId, DAGId]:
+    """
+    Build a mapping from each node to its parent node.
+    Assumes a single root and a tree structure (no shared sub-nodes).
+    """
+    parent_dict: dict[DAGId, DAGId] = {}
+
+    def visit(node_id: DAGId):
+        node = nodes[int(node_id)]
+        for child_id in node.children():
+            parent_dict[child_id] = node_id
+            visit(child_id)
+
+    visit(root_id)
+    return parent_dict
+
+
+def has_temporal_children(node_id: DAGId, nodes: list[DAGNode], include_self: bool = False) -> bool:
+    """
+    Recursively check if a DAG node has any temporal children
+    """
+    node = nodes[int(node_id)]
+
+    if include_self and node.is_temporal():
+        return True
+
+    for child_id in node.children():
+        child_node = nodes[child_id]
+        if child_node.is_temporal():
+            return True
+        if has_temporal_children(child_id, nodes):
+            return True
+    return False
+
+
+def get_guard_node_id(node_id: DAGId, nodes: list[DAGNode]) -> DAGId | None:
+    """Return the node if it is non-temporal. If it is temporal, it should be min(non-temporal, temporal).
+    Return the non-temporal part as the guard."""
+    node = nodes[int(node_id)]
+    if not has_temporal_children(node_id, nodes):
+        return node_id
+    elif isinstance(node, DAGMinN):
+        non_temporal_parts = [arg for arg in node.args if not has_temporal_children(arg, nodes, include_self=True)]
+        temporal_parts = [arg for arg in node.args if has_temporal_children(arg, nodes, include_self=True)]
+        if len(temporal_parts) > 1:
+            raise ValueError("Expected at most one temporal part in min")
+        if len(non_temporal_parts) > 1:
+            raise ValueError("Expected at most one non-temporal part in min")
+        if len(temporal_parts) == 0:
+            raise ValueError("Expected at least one temporal part in min")
+        if len(non_temporal_parts) == 0:
+            return None
+        return non_temporal_parts[0]
+    else:
+        raise ValueError("Expected temporal node to be a min")

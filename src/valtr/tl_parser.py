@@ -21,6 +21,7 @@ class Node:
 class Interval:
     lo: int | None
     hi: int | None
+    span: Span | None = None
 
 
 @define(slots=True)

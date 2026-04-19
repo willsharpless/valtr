@@ -1,16 +1,82 @@
-"""
-Valtr: A tool for generating value trees from signal temporal logic formulas.
+"""Live valtr package for the rewrite in progress.
 
-This package provides:
-- STL formula parsing
-- Temporal logic tree representation
-- Value tree generation and transformation
-- Utilities for hj_reachability integration
+This package currently keeps only the lexer/parser frontend in the active
+namespace plus the new LTL rewrite IR. Legacy lowering, DAG, and solver code
+lives under ``valtr.old``.
 """
 
-from .parser import STLParser
-from .temporal_tree import TemporalLogicTree
-from .value_tree import ValueTree
+from .lexer import LexError, Lexer, Position, Span, Token
+from .ltl_builder import LTLBuilder
+from .ltl_ir import (
+    And,
+    Const,
+    Expr,
+    ExprId,
+    Finally,
+    Globally,
+    Interval as LTLInterval,
+    Next,
+    Not,
+    Or,
+    Origin,
+    Release,
+    SourceRef,
+    Until,
+    Var,
+)
+from .ltl_ir_graphviz import visualize_ltl_ir
+from .ltl_lowering import ASTToLTLLowerer
+from .ltl_rewriter import LTLRewriter
+from .tl_lexer import TLLexer, TokenType
+from .tl_parser import (
+    BinaryOp,
+    BinaryOpKind,
+    ConstNode,
+    Identifier,
+    Interval,
+    Node,
+    ParseError,
+    TLParser,
+    UnaryOp,
+    UnaryOpKind,
+)
 
 __version__ = "0.1.0"
-__all__ = ["STLParser", "TemporalLogicTree", "ValueTree"]
+__all__ = [
+    "ASTToLTLLowerer",
+    "And",
+    "BinaryOp",
+    "BinaryOpKind",
+    "Const",
+    "ConstNode",
+    "Expr",
+    "ExprId",
+    "Finally",
+    "Globally",
+    "Identifier",
+    "Interval",
+    "LexError",
+    "Lexer",
+    "LTLBuilder",
+    "LTLInterval",
+    "LTLRewriter",
+    "visualize_ltl_ir",
+    "Node",
+    "Next",
+    "Not",
+    "Or",
+    "Origin",
+    "ParseError",
+    "Position",
+    "Release",
+    "SourceRef",
+    "Span",
+    "TLLexer",
+    "TLParser",
+    "Token",
+    "TokenType",
+    "Until",
+    "UnaryOp",
+    "UnaryOpKind",
+    "Var",
+]
