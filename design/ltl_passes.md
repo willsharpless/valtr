@@ -50,6 +50,11 @@ $$
 \bigwedge_i G p_i \equiv G\left( \bigwedge_i p_i \right)
 $$
 
+Operational note:
+this equivalence should not be applied greedily to every `G(...)` term.
+In particular, `G(q U r)` terms should remain exposed long enough for the `GU`-specific interaction rules to fire.
+As a rewrite pass, this should therefore be restricted to plain global guards, or at least given lower priority than the `GU`-specific rules.
+
 ### Conjunction of Until to Nested Until
 
 For two untils:
@@ -80,6 +85,20 @@ $$
 r R q \equiv q U (r \land q) \lor G q
 $$
 
+### Conjunction Distributes Over Disjunction
+
+$$
+(a \lor b) \land c \equiv (a \land c) \lor (b \land c)
+$$
+
+More generally:
+
+$$
+\left(\bigvee_i a_i\right)\land c \equiv \bigvee_i (a_i \land c)
+$$
+
+This rule is needed operationally after `Conjunction of Until to Nested Until`, because that rewrite introduces disjunctions whose branches must continue interacting with global guards and other temporal conjuncts.
+
 ### Until and Globally
 
 $$
@@ -88,6 +107,24 @@ q U r \land G b
 (q \land b) U (r \land G b)
 $$
 
+### Until and Finally Globally
+
+$$
+q U r \land F G b
+\equiv
+q U (r \land F G b)
+$$
+
+If `Finally to Until` has already been applied globally, then this rule should be matched in its lowered form:
+
+$$
+(q U r) \land (\top U G b)
+\equiv
+q U \big(r \land (\top U G b)\big)
+$$
+
+Operationally, after a global `F -> U` lowering pass, `F G b` should therefore be recognized as an `Until` node whose left side is `\top` and whose right side is a `Globally(...)` term.
+
 ### Finally and Finally Globally
 
 $$
@@ -95,6 +132,8 @@ F a \land F G b
 \equiv
 F(a \land F G b)
 $$
+
+This can be viewed as the special case of `Until and Finally Globally` with `q = \top` and `r = a`.
 
 ### Until and Until Globally
 
@@ -112,17 +151,18 @@ q_1 U r \land q_2 U G b
 (q_1 \land q_2) U \left( (r \land q_2 U G b) \lor ((q_1 \land b) U (r \land G b)) \right)
 $$
 
-### Globally Until and Globally
+### Base Case: Globally-Until Terms with a Plain Global Guard
 
-Apply `Globally Commutes with Conjunction` and then `Until and Globally` inside the `G`:
+For a conjunction of globally-until terms together with a plain global guard:
 
 $$
-\begin{aligned}
-G(q U r) \land G b
-&\equiv G((q U r) \land b) \\
-&\equiv G((q \land b) U (r \land G b))
-\end{aligned}
+\bigwedge_{i \in I} G(q_i U r_i) \land G q
+\equiv
+\bigwedge_{i \in I} G\big((q_i \land q) U (r_i \land q)\big)
 $$
+
+This is the intended base-case rewrite for the conjunctive temporal fragment.
+Operationally, it should be applied only when no plain `U` terms remain in the same conjunction.
 
 ### Globally Until and Until
 
@@ -241,17 +281,11 @@ p_{I, \emptyset}
 &=
 \bigwedge_{i \in I} G(q_i U r_i) \land G q \\
 &\equiv
-G\left(
-\bigwedge_{i \in I} (q_i U r_i) \land q
-\right) \\
-&\equiv
-\bigwedge_{i \in I} G\left((q_i U r_i) \land q\right) \\
-&\equiv
-\bigwedge_{i \in I} G\left((q \land q_i) U (r_i \land G q)\right)
+\bigwedge_{i \in I} G\left((q_i \land q) U (r_i \land q)\right)
 \end{aligned}
 $$
 
-Operationally, this means the rewrite bottoms out at a conjunction of globally-until terms.
+Operationally, this means the rewrite bottoms out at a conjunction of globally-until terms together with a plain global guard, after which the `Base Case: Globally-Until Terms with a Plain Global Guard` rule applies.
 
 ## Additional Structural Pass Rules
 
@@ -268,6 +302,18 @@ Before temporal rewriting:
 
 This keeps pattern matching stable.
 
+### Restricted Global-Guard Merge
+
+Although `Globally Commutes with Conjunction` is a valid equivalence in full generality, the operational pass should be weaker.
+
+The pass should:
+
+- eagerly merge plain global guards such as `G q_5 && G q_6 -> G(q_5 && q_6)`
+- avoid greedily merging `G(q U r)` terms together with plain global guards
+- leave `G(q U r)` terms exposed until `GU && U` has had a chance to fire, and until the base-case `GU... && Gq` rewrite can be applied
+
+In other words, the general equivalence remains true semantically, but the pass strategy should not erase useful redexes too early.
+
 ### Recursive Local Matching
 
 The rewrite engine should not explicitly partition a conjunction into `$I$`, `$J$`, and `G q` in order to fire a dedicated master-equation rule.
@@ -277,10 +323,12 @@ In particular, when visiting an `And`, the engine should try to match combinatio
 
 - `U && U`
 - `U && G`
-- `GU && G`
+- `U && FG`
 - `GU && U`
 - `UG && G`
 - `F && FG`
+- `GU... && G`
+- conjunction pushed into disjunction branches
 
 and then rebuild the enclosing formula. Repeated application of these local rewrites should recover the same recursive shape summarized by the master equation.
 
@@ -329,6 +377,7 @@ This matches the role of the old lowering's non-temporal `outside_args`.
 If a recursive rewrite reaches a subformula whose top-level form is `Or(...)`, then:
 
 - recursively rewrite each branch independently
+- if the surrounding context contributes a conjunctive guard, use `Conjunction Distributes Over Disjunction` to push that guard into each branch
 - rebuild the `Or`
 
 This is not a new equivalence rule. It is a structural recursion rule needed because the master equation and local rules often introduce disjunctions.
@@ -341,14 +390,17 @@ A reasonable pass schedule is:
 2. local equivalence passes:
    - `F -> U`
    - `R -> U \/ G`
-   - `G`-conjunction merge
-   - `U && G`
-   - `GU && G`
-   - `UG && G`
+   - `U && FG`
    - `GU && U`
-   - `F && FG`
-3. recurse into newly created subterms and continue applying the same equivalences
-4. boolean normalization again
+   - `UG && G`
+   - `U && G`
+   - `U && U`
+    - `F && FG`
+   - restricted plain-`G` merge
+3. distribute conjunctive guards across `Or` branches when needed
+4. recurse into newly created subterms and continue applying the same equivalences
+5. when only `GU...` terms and a plain global guard remain, apply the base-case `GU... && Gq` rewrite
+6. boolean normalization again
 
 ### Termination and Strategy
 
@@ -358,9 +410,15 @@ In particular:
 - some rules should only apply when they move the formula closer to the target fragment
 - the master equation should decrease $|J|$ in each recursive branch
 - boolean normalization should canonicalize after each major rewrite so equivalent forms are recognized
+- plain `G`-merge should not destroy `GU && U` redexes or the final `GU... && Gq` base-case redex before they are used
+- distribution should be applied when it exposes new temporal/local redexes in `Or` branches
 
 In implementation terms, this suggests:
 
 - local rewrite passes that run to fixed point
 - recursive traversal so newly created subterms are rewritten too
+- a restricted operational version of `G`-conjunction merge
+- explicit use of conjunction-over-disjunction distribution when branchwise temporal rewriting is needed
+- a dedicated base-case rewrite for conjunctions of `G(q_i U r_i)` with a plain global guard
+- matching logic that recognizes lowered `F G b` as `(\top U G b)` after the global `F -> U` pass
 - then normalization
