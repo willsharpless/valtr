@@ -26,6 +26,8 @@ from .ltl_ir import (
 )
 from .ltl_ir_graphviz import visualize_ltl_ir
 from .ltl_lowering import ASTToLTLLowerer
+from .ltl_pass_runner import LTLPassRunner, run_default_ltl_passes
+from .ltl_pretty import pretty_ltl
 from .ltl_rewriter import LTLRewriter
 from .tl_lexer import TLLexer, TokenType
 from .tl_parser import (
@@ -59,6 +61,7 @@ __all__ = [
     "Lexer",
     "LTLBuilder",
     "LTLInterval",
+    "LTLPassRunner",
     "LTLRewriter",
     "visualize_ltl_ir",
     "Node",
@@ -69,6 +72,7 @@ __all__ = [
     "ParseError",
     "Position",
     "Release",
+    "run_default_ltl_passes",
     "SourceRef",
     "Span",
     "TLLexer",
@@ -79,4 +83,5 @@ __all__ = [
     "UnaryOp",
     "UnaryOpKind",
     "Var",
+    "pretty_ltl",
 ]
