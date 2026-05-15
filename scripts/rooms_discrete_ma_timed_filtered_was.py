@@ -125,7 +125,9 @@ if TGT == "r1":
 
 ## agent 1 -> tea
 elif TGT == "r2":
-    TASK_SOURCE_AG1 = "F r2 && ((!site && !w) U (gear && !w)) && G(!w) && (!d U k)"
+    # TASK_SOURCE_AG1 = "F r2 && G(!w) && (!d U k)"
+    TASK_SOURCE_AG1 = "G(!w) && (!d U k)"
+    # TASK_SOURCE_AG1 = "F r2 && ((!site && !w) U (gear && !w)) && G(!w) && (!d U k)"
     TASK_SOURCE_AG2 = "F r2 && ((!site && !w) U (gear && !w)) && (!d U k) && ({})".format(TAIL) # less deadlock if agent 2 wants agent 1 to get tea
 else:
     raise ValueError("Unknown TGT")
