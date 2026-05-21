@@ -4,9 +4,70 @@
 
 The DVG, or "Value tree", represents a coupled set of Bellman equations that may be solved in dependency order to ultimately solve the optimal Value associated with the loigical formula (the root node). See [paper](https://willsharpless.github.io/valdec-site/) for more.
 
+eg. `valtr 'F target_a && F target_b && G (!walls)' --mermaid --horizontal` -->
+```mermaid
+%%{init: {"theme":"base","htmlLabels":true,"flowchart":{"padding":8},"themeVariables":{"background":"#FFFFFF00","fontFamily":"JetBrains Mono, Roboto Mono, Menlo, Consolas, monospace","edgeLabelBackground":"#FFFFFF","lineColor":"#2c3e50","defaultLinkColor":"#2c3e50"},"themeCSS":".edgeLabel rect { fill: #FFFFFF !important; stroke: #2c3e50 !important; stroke-width: 1px !important; rx: 999px; ry: 999px; } .edgeLabel span, .edgeLabel p { background: transparent !important; } .edgeLabel foreignObject { background: transparent !important; } .labelBkg { fill: #FFFFFF !important; } .flowchart-link, .edgePath path, .edge-thickness-normal, .edge-thickness-thick { stroke: #2c3e50 !important; stroke-width: 2.25px !important; fill: none !important; } .arrowheadPath { stroke: #2c3e50 !important; stroke-width: 2.25px !important; fill: #2c3e50 !important; } svg { background-color: transparent; }"}%%
+flowchart LR
+    n0@{ shape: rectangle, label: "'target_a'" }
+    n1@{ shape: rectangle, label: "'target_b'" }
+    n2@{ shape: rectangle, label: "'walls'" }
+    n3@{ shape: rounded, label: "$$-1$$" }
+    n4@{ shape: rounded, label: "$$V_{A}$$ (n.4)" }
+    n5@{ shape: rounded, label: "min" }
+    n6@{ shape: rounded, label: "$$V_{RA}$$ (n.6)" }
+    n7@{ shape: rounded, label: "min" }
+    n8@{ shape: rounded, label: "min" }
+    n9@{ shape: rounded, label: "$$V_{RA}$$ (n.9)" }
+    n10@{ shape: rounded, label: "min" }
+    n11@{ shape: rounded, label: "max" }
+    n12@{ shape: rounded, label: "$$V_{RA}$$ (n.12)" }
+    n3 --> n2
+    n4 --> n3
+    n5 --> n1
+    n5 --> n4
+    n6 -->|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n5
+    n6 -->|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n3
+    n7 --> n0
+    n7 --> n6
+    n8 --> n0
+    n8 --> n4
+    n9 -->|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n8
+    n9 -->|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n3
+    n10 --> n1
+    n10 --> n9
+    n11 --> n7
+    n11 --> n10
+    n12 -->|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n11
+    n12 -->|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n3
+    class n0 var;
+    class n1 var;
+    class n2 var;
+    class n3 negate;
+    class n4 avoid;
+    class n5 min;
+    class n6 reachavoid;
+    class n7 min;
+    class n8 min;
+    class n9 reachavoid;
+    class n10 min;
+    class n11 max;
+    class n12 reachavoid;
+    classDef const fill:#95a5a688,stroke:#95a5a6,color:#111111,stroke-width:5px,font-size:25px;
+    classDef var fill:#FFFFFF88,stroke:#FFFFFF,color:#111111,stroke-width:5px,font-size:20px;
+    classDef min fill:#E9E0C488,stroke:#E9E0C4,color:#FFFFFF,stroke-width:5px,font-size:15px;
+    classDef max fill:#D8CCA388,stroke:#D8CCA3,color:#FFFFFF,stroke-width:5px,font-size:15px;
+    classDef reachavoid fill:#1B5B9388,stroke:#1B5B93,color:#FFFFFF,stroke-width:5px,font-size:25px;
+    classDef avoid fill:#CD3A3A88,stroke:#CD3A3A,color:#FFFFFF,stroke-width:5px,font-size:25px;
+    classDef reach fill:#1B5B9388,stroke:#1B5B93,color:#FFFFFF,stroke-width:5px,font-size:25px;
+    classDef gu fill:#3AA65588,stroke:#3AA655,color:#111111,stroke-width:5px,font-size:25px;
+    classDef gumin fill:#3AA65588,stroke:#3AA655,color:#111111,stroke-width:5px,font-size:25px;
+    classDef negate fill:#B98EC888,stroke:#B98EC8,color:#FFFFFF,stroke-width:5px,font-size:18px;
+    style n12 stroke:#1B5B93,stroke-width:8px;
+```
+
 The main workflow is:
 
-1. **PARSE** a temporal logic formula, eg. `spec = "Fa && Fb && G!w"`
+1. **PARSE** a temporal logic formula
 2. **LOWER** it to an intermediate representation (IR), akin to a temporal logic tree.
 3. **PASS** over the IR to convert it via [decomposition rules](https://willsharpless.github.io/valdec-site/) to the DVG, a directed acyclic graph (DAG)
 4. **SOLVE** the DVG/DAG to get the specification Value and optimal action/policy 
@@ -66,7 +127,17 @@ The package takes formulas in the project temporal-logic syntax and lowers them 
 
 The result is a value function or policy-like object that can be used for rollout, analysis, and safety filtering.
 
-## Minimal Usage
+## CLI Usage
+
+For simple conversion, the cli command `valtr` is provided upon installation. This can be used to convert a spec into the DVG and save or plot it.
+
+```
+valtr 'F target_a && F target_b && G (!walls)' --save
+```
+
+see the Visualization section for more details on rendering the graph.
+
+## Python Usage
 
 The most current high-level entry point on this branch is `to_dag(...)`:
 

@@ -52,9 +52,15 @@ def _mermaid_node_label(i: int, node) -> str:
     style_key = node_style_key(node)
     if style_key == "var":
         return _escape_label(short.replace("Var ", ""))
-    if style_key in {"min", "max", "negate"}:
+    if style_key in {"min", "max"}:
         return _escape_label(short)
-    return _escape_label(f"n.{i}<br/>{short}")
+    if style_key in {"negate"}:
+        return _escape_label(f"{short}")
+    if style_key in {"reachavoid", "reach", "reachavoidloop", "avoid"}:
+        # return _escape_label(f"n.{i}: Value <br/>{short} <br/> </br> hello")
+        # return _escape_label(f"n.{i}: <br/> Value {short}")
+        # return _escape_label(f"n.{i}{short}")
+        return _escape_label(f"{short} (n.{i})")
 
 
 def render_dag_mermaid(

@@ -31,7 +31,7 @@ class DAGVizStyle:
     mermaid_shape: str = "rounded"
     mermaid_text: str = "#111111"
     mermaid_stroke: str = "#2c3e50"
-    mermaid_font_size: str = "18px"
+    mermaid_font_size: str = "25px"
     mermaid_stroke_width: str = "5px"
     mermaid_edge_label_fill: str | None = None
     mermaid_edge_label_text: str | None = None
@@ -70,8 +70,8 @@ STYLE_BY_KEY = {
         187,
         "#E9E0C4",
         mermaid_text="#FFFFFF",
-        mermaid_shape="circle",
-        mermaid_font_size="12px",
+        mermaid_shape="rounded",
+        mermaid_font_size="15px",
         mermaid_stroke_width="5px",
     ),
     "max": DAGVizStyle(
@@ -82,8 +82,8 @@ STYLE_BY_KEY = {
         223,
         "#D8CCA3",
         mermaid_text="#FFFFFF",
-        mermaid_shape="circle",
-        mermaid_font_size="12px",
+        mermaid_shape="rounded",
+        mermaid_font_size="15px",
         mermaid_stroke_width="5px",
     ),
     "reachavoid": DAGVizStyle(
@@ -125,7 +125,7 @@ STYLE_BY_KEY = {
         mermaid_edge_label_text="#1B5B93",
         mermaid_edge_label_border="#86AECB",
     ),
-    "gu": DAGVizStyle("gu", "#3AA655", "octagon", "#3AA655", 71, "#3AA655", mermaid_shape="circle"),
+    "gu": DAGVizStyle("gu", "#3AA655", "octagon", "#3AA655", 71, "#3AA655", mermaid_shape="rounded"),
     "gumin": DAGVizStyle("gumin", "#3AA655", "box", "#3AA655", 71, "#3AA655", mermaid_shape="rounded"),
     "negate": DAGVizStyle(
         "negate",
@@ -135,8 +135,8 @@ STYLE_BY_KEY = {
         140,
         "#B98EC8",
         mermaid_text="#FFFFFF",
-        mermaid_shape="circle",
-        mermaid_font_size="12px",
+        mermaid_shape="rounded",
+        mermaid_font_size="18px",
         mermaid_stroke_width="5px",
     ),
 }
@@ -177,23 +177,23 @@ def node_label_short(node: DAGNode) -> str:
         case DAGConst(value=value):
             return f"Const {value}"
         case DAGVar(name=name):
-            return f"Var {name}"
+            return f"Var '{name}'"
         case DAGNegate():
-            return "neg."
+            return "$$-1$$"
         case DAGMinN() | DAGMinGuard():
             return "min"
         case DAGMaxN():
             return "max"
         case DAGReachAvoid():
-            return "ReachAvoid"
+            return "$$V_{RA}$$"
         case DAGReach():
-            return "Reach"
+            return "$$V_{R}$$"
         case DAGGUSingle():
-            return "ReachAvoidLoop"
+            return "$$V_{{RA}_{\ell}}$$"
         case DAGGUMinN():
-            return "min(ReachAvoidLoop)"
+            return "min($$V_{{RA}_{\ell}}$$)"
         case DAGAvoid():
-            return "Avoid"
+            return "$$V_{A}$$"
         case _:
             return type(node).__name__
 

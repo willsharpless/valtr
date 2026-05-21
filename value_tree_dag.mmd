@@ -1,18 +1,18 @@
-%%{init: {"theme":"base","htmlLabels":true,"flowchart":{"padding":20},"themeVariables":{"background":"#FFFFFF00","fontFamily":"JetBrains Mono, Roboto Mono, Menlo, Consolas, monospace","edgeLabelBackground":"#FFFFFF","lineColor":"#2c3e50","defaultLinkColor":"#2c3e50"},"themeCSS":".edgeLabel rect { fill: #FFFFFF !important; stroke: #2c3e50 !important; stroke-width: 1px !important; rx: 999px; ry: 999px; } .edgeLabel span, .edgeLabel p { background: transparent !important; } .edgeLabel foreignObject { background: transparent !important; } .labelBkg { fill: #FFFFFF !important; } .flowchart-link, .edgePath path, .edge-thickness-normal, .edge-thickness-thick { stroke: #2c3e50 !important; stroke-width: 2.25px !important; fill: none !important; } .arrowheadPath { stroke: #2c3e50 !important; stroke-width: 2.25px !important; fill: #2c3e50 !important; } svg { background-color: transparent; }"}%%
+%%{init: {"theme":"base","htmlLabels":true,"flowchart":{"padding":8},"themeVariables":{"background":"#FFFFFF00","fontFamily":"JetBrains Mono, Roboto Mono, Menlo, Consolas, monospace","edgeLabelBackground":"#FFFFFF","lineColor":"#2c3e50","defaultLinkColor":"#2c3e50"},"themeCSS":".edgeLabel rect { fill: #FFFFFF !important; stroke: #2c3e50 !important; stroke-width: 1px !important; rx: 999px; ry: 999px; } .edgeLabel span, .edgeLabel p { background: transparent !important; } .edgeLabel foreignObject { background: transparent !important; } .labelBkg { fill: #FFFFFF !important; } .flowchart-link, .edgePath path, .edge-thickness-normal, .edge-thickness-thick { stroke: #2c3e50 !important; stroke-width: 2.25px !important; fill: none !important; } .arrowheadPath { stroke: #2c3e50 !important; stroke-width: 2.25px !important; fill: #2c3e50 !important; } svg { background-color: transparent; }"}%%
 flowchart LR
-    n0@{ shape: rectangle, label: "target_a" }
-    n1@{ shape: rectangle, label: "target_b" }
-    n2@{ shape: rectangle, label: "walls" }
-    n3@{ shape: circle, label: "neg." }
-    n4@{ shape: rounded, label: "n.4<br/>Avoid" }
-    n5@{ shape: circle, label: "min" }
-    n6@{ shape: rounded, label: "n.6<br/>ReachAvoid" }
-    n7@{ shape: circle, label: "min" }
-    n8@{ shape: circle, label: "min" }
-    n9@{ shape: rounded, label: "n.9<br/>ReachAvoid" }
-    n10@{ shape: circle, label: "min" }
-    n11@{ shape: circle, label: "max" }
-    n12@{ shape: rounded, label: "n.12<br/>ReachAvoid" }
+    n0@{ shape: rectangle, label: "'target_a'" }
+    n1@{ shape: rectangle, label: "'target_b'" }
+    n2@{ shape: rectangle, label: "'walls'" }
+    n3@{ shape: rounded, label: "$$-1$$" }
+    n4@{ shape: rounded, label: "$$V_{A}$$ (n.4)" }
+    n5@{ shape: rounded, label: "min" }
+    n6@{ shape: rounded, label: "$$V_{RA}$$ (n.6)" }
+    n7@{ shape: rounded, label: "min" }
+    n8@{ shape: rounded, label: "min" }
+    n9@{ shape: rounded, label: "$$V_{RA}$$ (n.9)" }
+    n10@{ shape: rounded, label: "min" }
+    n11@{ shape: rounded, label: "max" }
+    n12@{ shape: rounded, label: "$$V_{RA}$$ (n.12)" }
     n3 --> n2
     n4 --> n3
     n5 --> n1
@@ -44,14 +44,14 @@ flowchart LR
     class n10 min;
     class n11 max;
     class n12 reachavoid;
-    classDef const fill:#95a5a688,stroke:#95a5a6,color:#111111,stroke-width:5px,font-size:18px;
+    classDef const fill:#95a5a688,stroke:#95a5a6,color:#111111,stroke-width:5px,font-size:25px;
     classDef var fill:#FFFFFF88,stroke:#FFFFFF,color:#111111,stroke-width:5px,font-size:20px;
-    classDef min fill:#E9E0C488,stroke:#E9E0C4,color:#FFFFFF,stroke-width:5px,font-size:12px;
-    classDef max fill:#D8CCA388,stroke:#D8CCA3,color:#FFFFFF,stroke-width:5px,font-size:12px;
-    classDef reachavoid fill:#1B5B9388,stroke:#1B5B93,color:#FFFFFF,stroke-width:5px,font-size:18px;
-    classDef avoid fill:#CD3A3A88,stroke:#CD3A3A,color:#FFFFFF,stroke-width:5px,font-size:18px;
-    classDef reach fill:#1B5B9388,stroke:#1B5B93,color:#FFFFFF,stroke-width:5px,font-size:18px;
-    classDef gu fill:#3AA65588,stroke:#3AA655,color:#111111,stroke-width:5px,font-size:18px;
-    classDef gumin fill:#3AA65588,stroke:#3AA655,color:#111111,stroke-width:5px,font-size:18px;
-    classDef negate fill:#B98EC888,stroke:#B98EC8,color:#FFFFFF,stroke-width:5px,font-size:12px;
+    classDef min fill:#E9E0C488,stroke:#E9E0C4,color:#FFFFFF,stroke-width:5px,font-size:15px;
+    classDef max fill:#D8CCA388,stroke:#D8CCA3,color:#FFFFFF,stroke-width:5px,font-size:15px;
+    classDef reachavoid fill:#1B5B9388,stroke:#1B5B93,color:#FFFFFF,stroke-width:5px,font-size:25px;
+    classDef avoid fill:#CD3A3A88,stroke:#CD3A3A,color:#FFFFFF,stroke-width:5px,font-size:25px;
+    classDef reach fill:#1B5B9388,stroke:#1B5B93,color:#FFFFFF,stroke-width:5px,font-size:25px;
+    classDef gu fill:#3AA65588,stroke:#3AA655,color:#111111,stroke-width:5px,font-size:25px;
+    classDef gumin fill:#3AA65588,stroke:#3AA655,color:#111111,stroke-width:5px,font-size:25px;
+    classDef negate fill:#B98EC888,stroke:#B98EC8,color:#FFFFFF,stroke-width:5px,font-size:18px;
     style n12 stroke:#1B5B93,stroke-width:8px;
