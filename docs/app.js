@@ -95,7 +95,7 @@ if "/app" not in sys.path:
 import runner
       `);
 
-      setStatus("ready", "ready");
+      setStatus("render", "ready");
       return pyodide;
     })().catch((error) => {
       pyodideReady = null;
@@ -132,7 +132,7 @@ runner.build_mermaid(${escaped})
     const { svg } = await mermaid.render(renderId, mermaidCode);
     graphRoot.innerHTML = svg;
     markGraphEmpty(false);
-    setStatus("ready", "ready");
+    setStatus("render", "ready");
   } catch (error) {
     graphRoot.innerHTML = "";
     markGraphEmpty(true);
