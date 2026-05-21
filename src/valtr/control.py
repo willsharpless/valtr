@@ -6,7 +6,7 @@ from scipy import integrate as ode
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from valtr.reachability import DAGAvoid, DAGConst, DAGVar, DagBuilder, DAGId, DAGMaxN, DAGMinN, DAGReachAvoid
-import faster_hj_grid_interpolation # patches on faster itp
+import valtr.faster_hj_grid_interpolation  # patches on faster itp
 import copy
 import jax
 import jax.numpy as jnp

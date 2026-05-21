@@ -3,7 +3,7 @@ import numpy as np
 import jax.numpy as jnp
 import jax
 from hj_reachability import sets
-import faster_hj_grid_interpolation  # This automatically adds the methods
+import valtr.faster_hj_grid_interpolation  # This automatically adds the methods
 from hj_reachability.grid import Grid
 
 def create_test_grid(ndim, shape_per_dim=20):

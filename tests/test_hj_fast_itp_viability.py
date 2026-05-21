@@ -6,7 +6,7 @@ from hj_reachability import sets
 from hj_reachability.grid import Grid
 
 # Import our fast interpolation methods (this will monkey-patch them onto Grid)
-import faster_hj_grid_interpolation
+import valtr.faster_hj_grid_interpolation
 
 def create_test_grid(ndim, shape_per_dim=20):
     """Create a test grid with specified dimensions."""
