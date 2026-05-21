@@ -50,6 +50,8 @@ flowchart LR
     n0 ~~~ n15
     n1 ~~~ n15
     n2 ~~~ n18
+    n18 ~~~ n20
+    n20 ~~~ n20
     class n0 var;
     class n1 var;
     class n2 var;
