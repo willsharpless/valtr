@@ -5,6 +5,8 @@ const specInput = document.getElementById("spec-input");
 const renderButton = document.getElementById("render-button");
 const graphRoot = document.getElementById("graph-root");
 const errorOutput = document.getElementById("error-output");
+const themeToggle = document.getElementById("theme-toggle");
+const layoutToggle = document.getElementById("layout-toggle");
 
 const PY_FILES = [
   "ipdb.py",
@@ -27,6 +29,12 @@ const PY_FILES = [
 ];
 
 let pyodideReady = null;
+let appState = {
+  theme: localStorage.getItem("valtr-theme") || "light",
+  layout: localStorage.getItem("valtr-layout") || "horizontal",
+};
+const LIGHT_EDGE_COLOR = "#2c3e50";
+const DARK_EDGE_COLOR = "#eef3fb";
 
 mermaid.initialize({
   startOnLoad: false,
@@ -57,15 +65,36 @@ function markGraphEmpty(isEmpty) {
   graphRoot.classList.toggle("is-empty", isEmpty);
 }
 
+function applyTheme(theme) {
+  appState.theme = theme;
+  document.body.dataset.theme = theme;
+  themeToggle.dataset.active = theme;
+  localStorage.setItem("valtr-theme", theme);
+}
+
+function applyLayout(layout) {
+  appState.layout = layout;
+  document.body.dataset.layout = layout;
+  layoutToggle.dataset.active = layout;
+  localStorage.setItem("valtr-layout", layout);
+}
+
+function themedMermaidCode(code) {
+  const edgeColor = appState.theme === "dark" ? DARK_EDGE_COLOR : LIGHT_EDGE_COLOR;
+  return code.replaceAll(LIGHT_EDGE_COLOR, edgeColor).replaceAll(LIGHT_EDGE_COLOR.toUpperCase(), edgeColor);
+}
+
 async function renderMermaidCode(code) {
   const renderId = `valtr-graph-${crypto.randomUUID()}`;
-  const { svg } = await mermaid.render(renderId, code);
+  const { svg } = await mermaid.render(renderId, themedMermaidCode(code));
   graphRoot.innerHTML = svg;
   markGraphEmpty(false);
 }
 
 async function loadDefaultGraph() {
-  const response = await fetch(new URL("./default-graph.mmd", import.meta.url));
+  const filename =
+    appState.layout === "vertical" ? "./default-graph-vertical.mmd" : "./default-graph.mmd";
+  const response = await fetch(new URL(filename, import.meta.url));
   if (!response.ok) {
     throw new Error("Failed to load default graph");
   }
@@ -139,9 +168,10 @@ async function renderSpec() {
   try {
     const pyodide = await ensurePyodide();
     const escaped = JSON.stringify(spec);
+    const vertical = appState.layout === "vertical" ? "True" : "False";
     const mermaidCode = pyodide.runPython(`
 import runner
-runner.build_mermaid(${escaped})
+runner.build_mermaid(${escaped}, vertical=${vertical})
     `);
 
     await renderMermaidCode(mermaidCode);
@@ -154,6 +184,33 @@ runner.build_mermaid(${escaped})
   }
 }
 
+async function syncLayoutMode() {
+  clearError();
+  if (pyodideReady) {
+    await renderSpec();
+    return;
+  }
+  await loadDefaultGraph();
+}
+
+themeToggle.addEventListener("click", () => {
+  applyTheme(appState.theme === "light" ? "dark" : "light");
+  if (graphRoot.innerHTML) {
+    renderSpec().catch((error) => {
+      showError(error?.message || String(error));
+    });
+  }
+});
+
+layoutToggle.addEventListener("click", async () => {
+  applyLayout(appState.layout === "horizontal" ? "vertical" : "horizontal");
+  try {
+    await syncLayoutMode();
+  } catch (error) {
+    showError(error?.message || String(error));
+  }
+});
+
 renderButton.addEventListener("click", renderSpec);
 specInput.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -162,6 +219,8 @@ specInput.addEventListener("keydown", (event) => {
   }
 });
 
+applyTheme(appState.theme);
+applyLayout(appState.layout);
 markGraphEmpty(true);
 setBusy(true);
 loadDefaultGraph()
