@@ -1,5 +1,6 @@
 %%{init: {"theme":"base","htmlLabels":true,"flowchart":{"padding":8},"themeVariables":{"background":"#FFFFFF00","fontFamily":"JetBrains Mono, Roboto Mono, Menlo, Consolas, monospace","edgeLabelBackground":"#FFFFFF","lineColor":"#2c3e50","defaultLinkColor":"#2c3e50"},"themeCSS":".edgeLabel rect { fill: #FFFFFF !important; stroke: #2c3e50 !important; stroke-width: 1px !important; rx: 999px; ry: 999px; } .edgeLabel span, .edgeLabel p { background: transparent !important; } .edgeLabel foreignObject { background: transparent !important; } .labelBkg { fill: #FFFFFF !important; } .flowchart-link, .edgePath path, .edge-thickness-normal, .edge-thickness-thick { stroke: #2c3e50 !important; stroke-width: 2.25px !important; fill: none !important; } .arrowheadPath { stroke: #2c3e50 !important; stroke-width: 2.25px !important; fill: #2c3e50 !important; } svg { background-color: transparent; }"}%%
 flowchart LR
+    n14@{ shape: braces, label: "root: task Value" }
     n0@{ shape: rectangle, label: "'target_a'" }
     n1@{ shape: rectangle, label: "'target_b'" }
     n2@{ shape: rectangle, label: "'walls'" }
@@ -13,24 +14,27 @@ flowchart LR
     n10@{ shape: rounded, label: "min" }
     n11@{ shape: rounded, label: "max" }
     n12@{ shape: rounded, label: "reach-avoid Value (n.12)" }
-    n3 --> n2
-    n4 --> n3
-    n5 --> n1
-    n5 --> n4
-    n6 -->|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n5
-    n6 -->|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n3
-    n7 --> n0
-    n7 --> n6
-    n8 --> n0
-    n8 --> n4
-    n9 -->|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n8
-    n9 -->|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n3
-    n10 --> n1
-    n10 --> n9
-    n11 --> n7
-    n11 --> n10
-    n12 -->|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n11
-    n12 -->|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n3
+    n15@{ shape: braces, label: "leaf: predicate fn." }
+    n3 ==> n2
+    n4 ==> n3
+    n5 ==> n1
+    n5 ==> n4
+    n6 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n5
+    n6 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n3
+    n7 ==> n0
+    n7 ==> n6
+    n8 ==> n0
+    n8 ==> n4
+    n9 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n8
+    n9 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n3
+    n10 ==> n1
+    n10 ==> n9
+    n11 ==> n7
+    n11 ==> n10
+    n12 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n11
+    n12 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n3
+    n0 ~~~ n15
+    n1 ~~~ n15
     class n0 var;
     class n1 var;
     class n2 var;

@@ -142,9 +142,9 @@ def main(argv: list[str] | None = None):
         help="Write Mermaid graph text to a .mmd file in the current directory.",
     )
     parser.add_argument(
-        "--horizontal",
+        "--vertical",
         action="store_true",
-        help="When used with --mermaid, render the Mermaid graph left-to-right instead of top-down.",
+        help="When used with --mermaid, render the Mermaid graph top-down instead of left-to-right.",
     )
     args = parser.parse_args(argv)
 
@@ -180,7 +180,7 @@ def main(argv: list[str] | None = None):
 
     if args.mermaid:
         out_path = Path.cwd() / "value_tree_dag.mmd"
-        direction = "LR" if args.horizontal else "TD"
+        direction = "TD" if args.vertical else "LR"
         text = render_dag_mermaid(dag, root, direction=direction)
         out_path.write_text(text)
         print(f"Wrote Mermaid DAG to {out_path}")

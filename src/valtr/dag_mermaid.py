@@ -96,7 +96,7 @@ def render_dag_mermaid(
                     border="#86AECB",
                     color="#4698E0",
                 )
-                lines.append(f"    n{i} -->|{reach_label}| n{node.reach}")
+                lines.append(f"    n{i} ==>|{reach_label}| n{node.reach}")
             if not hide_avoid and node.avoid in seen:
                 avoid_label = _edge_label_html(
                     "avoid",
@@ -104,12 +104,12 @@ def render_dag_mermaid(
                     border="#D99898",
                     color="#D95454",
                 )
-                lines.append(f"    n{i} -->|{avoid_label}| n{node.avoid}")
+                lines.append(f"    n{i} ==>|{avoid_label}| n{node.avoid}")
             continue
 
         for child in node.children():
             if child in seen:
-                lines.append(f"    n{i} --> n{child}")
+                lines.append(f"    n{i} ==> n{child}")
 
     for i in sorted(seen):
         style_key = node_style_key(builder.nodes[i])
