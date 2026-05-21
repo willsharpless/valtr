@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>valtr</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar" aria-label="Site header">
+        <div class="brand">valtr</div>
+        <div id="status" class="status-pill" aria-live="polite">booting pyodide</div>
+      </header>
+
+      <main class="workspace">
+        <section class="composer">
+          <label class="sr-only" for="spec-input">Specification</label>
+          <textarea id="spec-input" spellcheck="false">F target_a && F target_b && G !wall</textarea>
+          <div class="composer-actions">
+            <button id="render-button" type="button">render</button>
+          </div>
+        </section>
+
+        <section class="viewer">
+          <div id="graph-root" class="graph-root"></div>
+          <pre id="error-output" class="error-output" hidden></pre>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
