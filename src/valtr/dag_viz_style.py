@@ -18,6 +18,7 @@ from valtr.reachability import (
 MERMAID_EDGE_COLOR = "#2c3e50"
 MERMAID_EDGE_STROKE_WIDTH = "2.25px"
 MERMAID_NODE_PADDING = 8
+MERMAID_DIAGRAM_PADDING = 48
 
 
 @frozen

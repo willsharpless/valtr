@@ -1,6 +1,7 @@
 from typing import Iterable, Set
 
 from valtr.dag_viz_style import (
+    MERMAID_DIAGRAM_PADDING,
     MERMAID_EDGE_COLOR,
     MERMAID_EDGE_STROKE_WIDTH,
     MERMAID_NODE_PADDING,
@@ -76,7 +77,7 @@ def render_dag_mermaid(
     seen = _reachable(builder, root_ids)
 
     lines = [
-        f'%%{{init: {{"theme":"base","htmlLabels":true,"flowchart":{{"padding":{MERMAID_NODE_PADDING}}},"themeVariables":{{"background":"#FFFFFF00","fontFamily":"JetBrains Mono, Roboto Mono, Menlo, Consolas, monospace","edgeLabelBackground":"#FFFFFF","lineColor":"{MERMAID_EDGE_COLOR}","defaultLinkColor":"{MERMAID_EDGE_COLOR}"}},"themeCSS":".edgeLabel rect {{ fill: #FFFFFF !important; stroke: {MERMAID_EDGE_COLOR} !important; stroke-width: 1px !important; rx: 999px; ry: 999px; }} .edgeLabel span, .edgeLabel p {{ background: transparent !important; }} .edgeLabel foreignObject {{ background: transparent !important; }} .labelBkg {{ fill: #FFFFFF !important; }} .flowchart-link, .edgePath path, .edge-thickness-normal, .edge-thickness-thick {{ stroke: {MERMAID_EDGE_COLOR} !important; stroke-width: {MERMAID_EDGE_STROKE_WIDTH} !important; fill: none !important; }} .arrowheadPath {{ stroke: {MERMAID_EDGE_COLOR} !important; stroke-width: {MERMAID_EDGE_STROKE_WIDTH} !important; fill: {MERMAID_EDGE_COLOR} !important; }} svg {{ background-color: transparent; }}"}}%%',
+        f'%%{{init: {{"theme":"base","htmlLabels":true,"flowchart":{{"padding":{MERMAID_NODE_PADDING},"diagramPadding":{MERMAID_DIAGRAM_PADDING}}},"themeVariables":{{"background":"#FFFFFF00","fontFamily":"JetBrains Mono, Roboto Mono, Menlo, Consolas, monospace","edgeLabelBackground":"#FFFFFF","lineColor":"{MERMAID_EDGE_COLOR}","defaultLinkColor":"{MERMAID_EDGE_COLOR}"}},"themeCSS":".edgeLabel rect {{ fill: #FFFFFF !important; stroke: {MERMAID_EDGE_COLOR} !important; stroke-width: 1px !important; rx: 999px; ry: 999px; }} .edgeLabel span, .edgeLabel p {{ background: transparent !important; }} .edgeLabel foreignObject {{ background: transparent !important; }} .labelBkg {{ fill: #FFFFFF !important; }} .flowchart-link, .edgePath path, .edge-thickness-normal, .edge-thickness-thick {{ stroke: {MERMAID_EDGE_COLOR} !important; stroke-width: {MERMAID_EDGE_STROKE_WIDTH} !important; fill: none !important; }} .arrowheadPath {{ stroke: {MERMAID_EDGE_COLOR} !important; stroke-width: {MERMAID_EDGE_STROKE_WIDTH} !important; fill: {MERMAID_EDGE_COLOR} !important; }} svg {{ background-color: transparent; }}"}}%%',
         f"flowchart {direction}",
     ]
 
