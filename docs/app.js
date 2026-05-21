@@ -57,6 +57,22 @@ function markGraphEmpty(isEmpty) {
   graphRoot.classList.toggle("is-empty", isEmpty);
 }
 
+async function renderMermaidCode(code) {
+  const renderId = `valtr-graph-${crypto.randomUUID()}`;
+  const { svg } = await mermaid.render(renderId, code);
+  graphRoot.innerHTML = svg;
+  markGraphEmpty(false);
+}
+
+async function loadDefaultGraph() {
+  const response = await fetch(new URL("./default-graph.mmd", import.meta.url));
+  if (!response.ok) {
+    throw new Error("Failed to load default graph");
+  }
+  const code = await response.text();
+  await renderMermaidCode(code);
+}
+
 async function mountPythonSources(pyodide) {
   pyodide.FS.mkdirTree("/app");
   pyodide.FS.mkdirTree("/app/valtr");
@@ -128,14 +144,9 @@ import runner
 runner.build_mermaid(${escaped})
     `);
 
-    const renderId = `valtr-graph-${crypto.randomUUID()}`;
-    const { svg } = await mermaid.render(renderId, mermaidCode);
-    graphRoot.innerHTML = svg;
-    markGraphEmpty(false);
+    await renderMermaidCode(mermaidCode);
     setStatus("render", "ready");
   } catch (error) {
-    graphRoot.innerHTML = "";
-    markGraphEmpty(true);
     setStatus("error", "danger");
     showError(error?.message || String(error));
   } finally {
@@ -153,7 +164,11 @@ specInput.addEventListener("keydown", (event) => {
 
 markGraphEmpty(true);
 setBusy(true);
-ensurePyodide()
+loadDefaultGraph()
+  .catch(() => {
+    markGraphEmpty(true);
+  })
+  .then(() => ensurePyodide())
   .then(() => renderSpec())
   .catch((error) => {
     setBusy(false);

@@ -23,6 +23,10 @@
       </header>
 
       <main class="workspace">
+        <section class="viewer">
+          <div id="graph-root" class="graph-root"></div>
+        </section>
+
         <section class="composer">
           <label class="sr-only" for="spec-input">Specification</label>
           <textarea id="spec-input" spellcheck="false">F target_a && F target_b && G !wall</textarea>
@@ -30,10 +34,6 @@
             <button id="render-button" type="button" aria-live="polite">booting pyodide</button>
           </div>
           <pre id="error-output" class="error-output" hidden></pre>
-        </section>
-
-        <section class="viewer">
-          <div id="graph-root" class="graph-root"></div>
         </section>
       </main>
     </div>
