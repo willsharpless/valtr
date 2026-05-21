@@ -16,6 +16,10 @@
     <div class="page-shell">
       <header class="topbar" aria-label="Site header">
         <div class="brand">valtr</div>
+        <nav class="topnav" aria-label="External links">
+          <a href="https://github.com/willsharpless/valtr" target="_blank" rel="noreferrer">code</a>
+          <a href="https://willsharpless.github.io/valdec-site/" target="_blank" rel="noreferrer">paper</a>
+        </nav>
       </header>
 
       <main class="workspace">
@@ -25,11 +29,11 @@
           <div class="composer-actions">
             <button id="render-button" type="button" aria-live="polite">booting pyodide</button>
           </div>
+          <pre id="error-output" class="error-output" hidden></pre>
         </section>
 
         <section class="viewer">
           <div id="graph-root" class="graph-root"></div>
-          <pre id="error-output" class="error-output" hidden></pre>
         </section>
       </main>
     </div>
