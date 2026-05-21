@@ -1,6 +1,8 @@
 # valtr
 
-`valtr` is a tool to convert temporal logic task formula into a decomposed Value graph (DVG) or "Value tree", which represents a coupled set of Bellman equations. This object serves as a dependency map to ultimately solve the optimal Value associated with the specification (the root node). See [paper](https://willsharpless.github.io/valdec-site/) for more.
+`valtr` transforms a temporal logic task formula into a decomposed Value graph (DVG) 
+
+The DVG, or "Value tree", represents a coupled set of Bellman equations that may be solved in dependency order to ultimately solve the optimal Value associated with the loigical formula (the root node). See [paper](https://willsharpless.github.io/valdec-site/) for more.
 
 The main workflow is:
 
