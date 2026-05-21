@@ -1,7 +1,5 @@
 from enum import Enum, auto
 from typing import Dict, Iterable, List, NamedTuple, NewType, Optional, Set, Tuple
-
-import graphviz
 import ipdb
 from attrs import define, field, frozen
 

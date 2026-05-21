@@ -1,6 +1,4 @@
 from typing import Dict, Iterable, List, Optional, Set, Tuple
-
-import graphviz
 import ipdb
 from loguru import logger
 

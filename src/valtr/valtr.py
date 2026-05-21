@@ -1,7 +1,5 @@
-from valtr.dag_graphviz import visualize_dag
 from valtr.dag_passes import PassFoldConstBool, PassRAToR, PassToMinGuard, PassAbsorbGU, PassMergePropMin
 from valtr.ir_builder import IRBuilder
-from valtr.ir_graphviz import visualize_ir
 from valtr.ir_pass import PassCombineGloballySegments, PassFinallyToUntil
 from valtr.lowering import Lowerer
 from valtr.reachability import lower_ir_to_dag
@@ -25,6 +23,8 @@ def to_dag(spec: str, ir_filename: str | None = None, dag_filename: str | None =
         ir_root_id, ir = p.run(ir_root_id)
 
     if ir_filename is not None:
+        from valtr.ir_graphviz import visualize_ir
+
         dot_ir = visualize_ir(ir, ir_root_id, filename=ir_filename, view=False)
 
     # IR -> DAG
@@ -45,6 +45,8 @@ def to_dag(spec: str, ir_filename: str | None = None, dag_filename: str | None =
             #     visualize_dag(value_tree_dag, dag_root, filename=f"rooms_discrete_dag{n_changes}", view=view_pdf)
 
     if dag_filename is not None:
+        from valtr.dag_graphviz import visualize_dag
+
         dag_dot = visualize_dag(value_tree_dag, dag_root, filename=dag_filename, view=False)
 
     return value_tree_dag, dag_root
@@ -65,6 +67,8 @@ def to_dag_notransform(spec: str, ir_filename: str | None = None, dag_filename: 
         ir_root_id, ir = p.run(ir_root_id)
 
     if ir_filename is not None:
+        from valtr.ir_graphviz import visualize_ir
+
         dot_ir = visualize_ir(ir, ir_root_id, filename=ir_filename, view=False)
 
     # IR -> DAG
@@ -85,6 +89,8 @@ def to_dag_notransform(spec: str, ir_filename: str | None = None, dag_filename: 
             #     visualize_dag(value_tree_dag, dag_root, filename=f"rooms_discrete_dag{n_changes}", view=view_pdf)
 
     if dag_filename is not None:
+        from valtr.dag_graphviz import visualize_dag
+
         dag_dot = visualize_dag(value_tree_dag, dag_root, filename=dag_filename, view=False)
 
     return value_tree_dag, dag_root
