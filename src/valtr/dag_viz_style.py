@@ -127,7 +127,7 @@ STYLE_BY_KEY = {
         mermaid_edge_label_border="#86AECB",
     ),
     "gu": DAGVizStyle("gu", "#3AA655", "octagon", "#3AA655", 71, "#3AA655", mermaid_shape="rounded"),
-    "gumin": DAGVizStyle("gumin", "#3AA655", "box", "#3AA655", 71, "#3AA655", mermaid_shape="rounded"),
+    "gumin": DAGVizStyle("gumin", "#3AA655", "box", "#3AA655", 71, "#3AA655", mermaid_font_size="15px", mermaid_shape="rounded"),
     "negate": DAGVizStyle(
         "negate",
         "#B98EC8",
@@ -218,7 +218,7 @@ def node_label_short(node: DAGNode) -> str:
         case DAGGUSingle():
             return "reach-avoid-loop Value"
         case DAGGUMinN():
-            return "min(reach-avoid-loop Value)"
+            return "min-loop"
         case DAGAvoid():
             return "avoid Value"
         case _:
