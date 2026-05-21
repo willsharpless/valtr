@@ -2,6 +2,7 @@ from typing import Iterable, List, Optional, Set
 
 import graphviz
 
+from valtr.dag_viz_style import DEFAULT_DAG_STYLE, node_label_short, node_style
 from valtr.reachability import (DAGAvoid, DagBuilder, DAGConst, DAGGUMinN, DAGGUSingle, DAGId, DAGMaxN, DAGMinN,
                                 DAGMinGuard, DAGNegate, DAGNode, DAGReachAvoid, DAGVar)
 
@@ -23,30 +24,7 @@ def _reachable(builder: DagBuilder, roots: Iterable[int] | int) -> Set[int]:
 
 
 def _label_for(i: int, node: DAGNode) -> str:
-    # Multiline labels: ID on top, op/info below
-    match node:
-        case DAGConst(value=value):
-            op = f"Const {value}"
-        case DAGVar(name=name):
-            op = f"Var {name}"
-        case DAGNegate(arg=_):
-            op = f"NEG."
-        case DAGMinN(args=_) | DAGMinGuard(temporal_args=_, nontemporal_args=_):
-            op = f"MIN"
-        case DAGMaxN(args=_):
-            op = f"MAX"
-        case DAGReachAvoid(reach=_, avoid=_):
-            op = "ReachAvoid"
-        case DAGGUSingle(reach=_, avoid=_):
-            op = "GU"
-        case DAGGUMinN(args=_):
-            op = "MIN(GU)"
-        case DAGAvoid(avoid=_):
-            op = "Avoid"
-        case _:
-            op = type(node).__name__
-
-    return f"n.{i}\n{op}"
+    return f"n.{i}\n{node_label_short(node)}"
 
 
 def visualize_dag(
@@ -72,21 +50,6 @@ def visualize_dag(
         root_ids = list(roots)
     seen = _reachable(builder, root_ids)
 
-    color_gu = "#3AA655"
-
-    # Styling
-    color_map = {
-        DAGConst: ("#95a5a6", "ellipse"),
-        DAGVar: ("#FFFFFF", "ellipse"),
-        DAGMinN: ("#61655D", "box"),
-        DAGMinGuard: ("#61655D", "box"),
-        DAGMaxN: ("#E9E0C4", "box"),
-        DAGReachAvoid: ("#1B5B93", "diamond"),
-        DAGAvoid: ("#CD3A3A", "hexagon"),
-        DAGGUMinN: (color_gu, "box"),
-        DAGGUSingle: (color_gu, "octagon"),
-    }
-
     dot = graphviz.Digraph(name=graph_name, graph_attr={"rankdir": rankdir, "splines": "true"})
     dot.attr("node", fontname="Helvetica", fontsize="10")
     dot.attr("edge", fontname="Helvetica", fontsize="9")
@@ -94,11 +57,9 @@ def visualize_dag(
     # Nodes
     for i in sorted(seen):
         node = builder.nodes[i]
-        color, shape = ("#b98ec8", "box")
-        for cls, (c, s) in color_map.items():
-            if isinstance(node, cls):
-                color, shape = c, s
-                break
+        style = node_style(node)
+        color = style.graphviz_fill or DEFAULT_DAG_STYLE.graphviz_fill
+        shape = style.graphviz_shape or DEFAULT_DAG_STYLE.graphviz_shape
         dot.node(
             f"n{i}", label=_label_for(i, node), shape=shape, style="filled,rounded", fillcolor=color, color="#2c3e50"
         )

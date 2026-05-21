@@ -4,18 +4,16 @@ import pickle
 import sys
 from pathlib import Path
 
+from valtr.dag_mermaid import render_dag_mermaid
+from valtr.dag_viz_style import node_style, node_summary
 from valtr.reachability import (
     DAGAvoid,
-    DAGConst,
     DAGGUMinN,
     DAGGUSingle,
-    DAGMaxN,
     DAGMinGuard,
-    DAGMinN,
     DAGNegate,
     DAGReach,
     DAGReachAvoid,
-    DAGVar,
 )
 from valtr.valtr import to_dag
 
@@ -52,80 +50,6 @@ def _style(text: str, *, dim: bool = False) -> str:
     return f"{_DIM}{text}{_RESET}"
 
 
-def _node_color(node) -> str:
-    match node:
-        case DAGConst():
-            return "#95a5a6"
-        case DAGVar():
-            return "#FFFFFF"
-        case DAGMinN() | DAGMinGuard():
-            return "#E9E0C4"
-        case DAGMaxN():
-            return "#D8CCA3"
-        case DAGReachAvoid():
-            return "#1B5B93"
-        case DAGAvoid():
-            return "#CD3A3A"
-        case DAGGUMinN() | DAGGUSingle():
-            return "#3AA655"
-        case DAGReach():
-            return "#1B5B93"
-        case DAGNegate():
-            return "#B98EC8"
-        case _:
-            return "#B98EC8"
-
-
-def _node_color_256(node) -> int:
-    match node:
-        case DAGConst():
-            return 245
-        case DAGVar():
-            return 15
-        case DAGMinN() | DAGMinGuard():
-            return 187
-        case DAGMaxN():
-            return 223
-        case DAGReachAvoid() | DAGReach():
-            return 25
-        case DAGAvoid():
-            return 160
-        case DAGGUMinN() | DAGGUSingle():
-            return 71
-        case DAGNegate():
-            return 140
-        case _:
-            return 140
-
-
-def _node_summary(node) -> str:
-    match node:
-        case DAGConst(value=value):
-            return f"Const({value})"
-        case DAGVar(name=name):
-            return f"Var({name})"
-        case DAGNegate(arg=arg):
-            return f"Negate(%{arg})"
-        case DAGMinN(args=args):
-            return "Min(" + ", ".join(f"%{arg}" for arg in args) + ")"
-        case DAGMinGuard(temporal_arg=temporal_arg, nontemporal_arg=nontemporal_arg):
-            return f"MinGuard(%{temporal_arg}, %{nontemporal_arg})"
-        case DAGMaxN(args=args):
-            return "Max(" + ", ".join(f"%{arg}" for arg in args) + ")"
-        case DAGReachAvoid(reach=reach, avoid=avoid):
-            return f"ReachAvoid(reach=%{reach}, avoid=%{avoid})"
-        case DAGReach(reach=reach):
-            return f"Reach(%{reach})"
-        case DAGAvoid(avoid=avoid):
-            return f"Avoid(%{avoid})"
-        case DAGGUSingle(reach=reach, avoid=avoid):
-            return f"GU(reach=%{reach}, avoid=%{avoid})"
-        case DAGGUMinN(args=args):
-            return "Min(GU " + ", ".join(f"%{arg}" for arg in args) + ")"
-        case _:
-            return type(node).__name__
-
-
 def _ascii_lines(nodes: list, root: int, *, color: bool = False) -> list[str]:
     lines: list[str] = []
     seen: set[int] = set()
@@ -137,13 +61,14 @@ def _ascii_lines(nodes: list, root: int, *, color: bool = False) -> list[str]:
         if prefix or edge_label is not None:
             branch = "└─ " if is_last else "├─ "
         label_prefix = f"{edge_label}: " if edge_label else ""
-        summary = _node_summary(node)
+        summary = node_summary(node)
         node_text = f"%{node_id} {summary}"
         if color:
+            style = node_style(node)
             if use_truecolor:
-                node_text = _fg_truecolor(_node_color(node), node_text)
+                node_text = _fg_truecolor(style.terminal_truecolor, node_text)
             else:
-                node_text = _fg_256(_node_color_256(node), node_text)
+                node_text = _fg_256(style.terminal_256, node_text)
         branch_text = _style(branch, dim=True) if color else branch
         prefix_text = _style(prefix, dim=True) if color else prefix
         edge_text = _style(label_prefix, dim=True) if color else label_prefix
@@ -190,6 +115,11 @@ def _save_dag(path: Path, spec: str, dag, root: int):
         pickle.dump(payload, handle)
 
 
+def _save_mermaid(path: Path, dag, root: int):
+    text = render_dag_mermaid(dag, root)
+    path.write_text(text)
+
+
 def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(
         prog="valtr",
@@ -206,11 +136,21 @@ def main(argv: list[str] | None = None):
         action="store_true",
         help="Serialize the DAG to a pickle file in the current directory.",
     )
+    parser.add_argument(
+        "--mermaid",
+        action="store_true",
+        help="Write Mermaid graph text to a .mmd file in the current directory.",
+    )
+    parser.add_argument(
+        "--horizontal",
+        action="store_true",
+        help="When used with --mermaid, render the Mermaid graph left-to-right instead of top-down.",
+    )
     args = parser.parse_args(argv)
 
     dag, root = to_dag(args.spec)
 
-    if not args.plot and not args.save:
+    if not args.plot and not args.save and not args.mermaid:
         use_color = _supports_color()
         for line in _ascii_lines(dag.nodes, root, color=use_color):
             print(line)
@@ -237,5 +177,12 @@ def main(argv: list[str] | None = None):
         out_path = Path.cwd() / "value_tree_dag.pkl"
         _save_dag(out_path, args.spec, dag, root)
         print(f"Wrote DAG to {out_path}")
+
+    if args.mermaid:
+        out_path = Path.cwd() / "value_tree_dag.mmd"
+        direction = "LR" if args.horizontal else "TD"
+        text = render_dag_mermaid(dag, root, direction=direction)
+        out_path.write_text(text)
+        print(f"Wrote Mermaid DAG to {out_path}")
 
     return

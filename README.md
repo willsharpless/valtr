@@ -116,3 +116,45 @@ Some scripts require extra dependencies or local environment setup beyond what i
 ## Parsing Development
 
 Note, some complex logical formulae are difficult to parse and may yield incorrect temporal logic trees, causing `valtr` to error. In such situations, the public tool spot is useful for reducing [formulae](https://slebok.github.io/proverb/spot.html) to standard form. Note, this package is not massively tested and the authors welcome community contributions.
+
+## Visualization
+
+For the example spec
+
+```text
+F target_a && F target_b && G !wall
+```
+
+you can use the CLI in three ways:
+
+```bash
+valtr 'F target_a && F target_b && G !wall'
+valtr 'F target_a && F target_b && G !wall' --plot
+valtr 'F target_a && F target_b && G !wall' --mermaid
+```
+
+- default output prints a colorized ASCII DAG in the terminal
+- `--plot` writes a Graphviz-rendered PDF such as `value_tree_dag.pdf`
+- `--mermaid` writes Mermaid graph text to `value_tree_dag.mmd`
+
+To use `--plot`, you need both:
+
+```bash
+pip install graphviz
+```
+
+and Graphviz installed on the system.
+
+macOS:
+
+```bash
+brew install graphviz
+```
+
+Windows:
+
+1. Install Graphviz from `https://graphviz.org/download/`
+2. Make sure the Graphviz `bin` directory is added to your `PATH`
+3. Open a new terminal and verify with `dot -V`
+
+The Mermaid export path does not need Graphviz. It simply writes a `.mmd` file that you can view in GitHub, Markdown tooling that supports Mermaid, or the Mermaid Live Editor.
