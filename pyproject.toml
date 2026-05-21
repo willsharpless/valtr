@@ -25,22 +25,31 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
+    "attrs>=23.0.0",
+    "cyclopts>=3.0.0",
+    "loguru>=0.6.0",
     "matplotlib>=3.5.0",
     "numpy>=1.21.0",
+    "tqdm>=4.64.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
     "black>=23.0.0",
     "flake8>=6.0.0",
     "mypy>=1.0.0",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
 ]
-dp = [
+hj = [
     "hj-reachability>=0.1.0",
-    "tqdm>=4.64.0",
-    "loguru>=0.6.0",
+    "jax>=0.4.0",
+    "scipy>=1.10.0",
+]
+dvi = [
+    "dvi @ git+https://github.com/oswinso/discrete_vi.git@355122019ba8f195794793eafcc1bfecf98acc71",
+    "einops>=0.7.0",
+    "jax>=0.4.0",
 ]
 
 [tool.setuptools.packages.find]
