@@ -1,7 +1,6 @@
 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
 import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.mjs";
 
-const statusEl = document.getElementById("status");
 const specInput = document.getElementById("spec-input");
 const renderButton = document.getElementById("render-button");
 const graphRoot = document.getElementById("graph-root");
@@ -36,12 +35,8 @@ mermaid.initialize({
 });
 
 function setStatus(message, tone = "muted") {
-  statusEl.textContent = message;
-  if (tone === "muted") {
-    delete statusEl.dataset.tone;
-    return;
-  }
-  statusEl.dataset.tone = tone;
+  renderButton.textContent = message;
+  renderButton.dataset.tone = tone;
 }
 
 function setBusy(isBusy) {
@@ -157,8 +152,10 @@ specInput.addEventListener("keydown", (event) => {
 });
 
 markGraphEmpty(true);
+setBusy(true);
 ensurePyodide()
   .then(() => renderSpec())
   .catch((error) => {
+    setBusy(false);
     showError(error?.message || String(error));
   });

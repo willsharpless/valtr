@@ -16,7 +16,6 @@
     <div class="page-shell">
       <header class="topbar" aria-label="Site header">
         <div class="brand">valtr</div>
-        <div id="status" class="status-pill" aria-live="polite">booting pyodide</div>
       </header>
 
       <main class="workspace">
@@ -24,7 +23,7 @@
           <label class="sr-only" for="spec-input">Specification</label>
           <textarea id="spec-input" spellcheck="false">F target_a && F target_b && G !wall</textarea>
           <div class="composer-actions">
-            <button id="render-button" type="button">render</button>
+            <button id="render-button" type="button" aria-live="polite">booting pyodide</button>
           </div>
         </section>
 
