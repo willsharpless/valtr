@@ -7,6 +7,9 @@ const graphRoot = document.getElementById("graph-root");
 const errorOutput = document.getElementById("error-output");
 const themeToggle = document.getElementById("theme-toggle");
 const layoutToggle = document.getElementById("layout-toggle");
+const zoomInButton = document.getElementById("zoom-in");
+const zoomOutButton = document.getElementById("zoom-out");
+const zoomResetButton = document.getElementById("zoom-reset");
 
 const PY_FILES = [
   "ipdb.py",
@@ -35,6 +38,19 @@ let appState = {
 };
 const LIGHT_EDGE_COLOR = "#2c3e50";
 const DARK_EDGE_COLOR = "#eef3fb";
+let zoomState = {
+  scale: 1,
+  minScale: 0.45,
+  maxScale: 3,
+  baseViewBox: null,
+  viewBox: null,
+};
+let dragState = {
+  active: false,
+  startX: 0,
+  startY: 0,
+  originViewBox: null,
+};
 
 mermaid.initialize({
   startOnLoad: false,
@@ -84,11 +100,83 @@ function themedMermaidCode(code) {
   return code.replaceAll(LIGHT_EDGE_COLOR, edgeColor).replaceAll(LIGHT_EDGE_COLOR.toUpperCase(), edgeColor);
 }
 
+function currentSvg() {
+  return graphRoot.querySelector("svg");
+}
+
+function setSvgViewBox(viewBox) {
+  const svg = currentSvg();
+  if (!svg || !viewBox) {
+    return;
+  }
+  svg.setAttribute("viewBox", `${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`);
+}
+
+function applyZoom() {
+  if (!zoomState.viewBox) {
+    return;
+  }
+  setSvgViewBox(zoomState.viewBox);
+}
+
+function resetZoom() {
+  zoomState.scale = 1;
+  zoomState.viewBox = zoomState.baseViewBox ? { ...zoomState.baseViewBox } : null;
+  applyZoom();
+}
+
+function nudgeZoom(delta, anchorX = 0.5, anchorY = 0.5) {
+  if (!zoomState.baseViewBox || !zoomState.viewBox) {
+    return;
+  }
+  const nextScale = Math.min(zoomState.maxScale, Math.max(zoomState.minScale, zoomState.scale + delta));
+  if (nextScale === zoomState.scale) {
+    return;
+  }
+
+  const scaleRatio = zoomState.scale / nextScale;
+  const nextWidth = zoomState.baseViewBox.width / nextScale;
+  const nextHeight = zoomState.baseViewBox.height / nextScale;
+  const focusX = zoomState.viewBox.x + zoomState.viewBox.width * anchorX;
+  const focusY = zoomState.viewBox.y + zoomState.viewBox.height * anchorY;
+
+  zoomState.scale = nextScale;
+  zoomState.viewBox = {
+    x: focusX - nextWidth * anchorX,
+    y: focusY - nextHeight * anchorY,
+    width: nextWidth,
+    height: nextHeight,
+  };
+  applyZoom();
+}
+
+function installZoomHandlers() {
+  const svg = currentSvg();
+  if (!svg) {
+    return;
+  }
+  const rawViewBox = svg.getAttribute("viewBox");
+  if (!rawViewBox) {
+    const width = svg.viewBox.baseVal.width || svg.getBoundingClientRect().width;
+    const height = svg.viewBox.baseVal.height || svg.getBoundingClientRect().height;
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  }
+  const [x, y, width, height] = svg
+    .getAttribute("viewBox")
+    .split(/\s+/)
+    .map(Number);
+  zoomState.baseViewBox = { x, y, width, height };
+  zoomState.viewBox = { x, y, width, height };
+  svg.dataset.zoomable = "true";
+  resetZoom();
+}
+
 async function renderMermaidCode(code) {
   const renderId = `valtr-graph-${crypto.randomUUID()}`;
   const { svg } = await mermaid.render(renderId, themedMermaidCode(code));
   graphRoot.innerHTML = svg;
   markGraphEmpty(false);
+  installZoomHandlers();
 }
 
 async function loadDefaultGraph() {
@@ -209,6 +297,59 @@ layoutToggle.addEventListener("click", async () => {
   } catch (error) {
     showError(error?.message || String(error));
   }
+});
+
+zoomInButton.addEventListener("click", () => nudgeZoom(0.18));
+zoomOutButton.addEventListener("click", () => nudgeZoom(-0.18));
+zoomResetButton.addEventListener("click", () => resetZoom());
+
+graphRoot.addEventListener(
+  "wheel",
+  (event) => {
+    const svg = currentSvg();
+    if (!svg) {
+      return;
+    }
+    event.preventDefault();
+    const rect = svg.getBoundingClientRect();
+    const anchorX = rect.width ? (event.clientX - rect.left) / rect.width : 0.5;
+    const anchorY = rect.height ? (event.clientY - rect.top) / rect.height : 0.5;
+    nudgeZoom(event.deltaY < 0 ? 0.12 : -0.12, anchorX, anchorY);
+  },
+  { passive: false },
+);
+
+graphRoot.addEventListener("pointerdown", (event) => {
+  if (!currentSvg() || !zoomState.viewBox) {
+    return;
+  }
+  dragState.active = true;
+  dragState.startX = event.clientX;
+  dragState.startY = event.clientY;
+  dragState.originViewBox = { ...zoomState.viewBox };
+  graphRoot.classList.add("is-dragging");
+});
+
+window.addEventListener("pointermove", (event) => {
+  const svg = currentSvg();
+  if (!dragState.active || !dragState.originViewBox || !svg) {
+    return;
+  }
+  const rect = svg.getBoundingClientRect();
+  const dx = rect.width ? ((event.clientX - dragState.startX) / rect.width) * dragState.originViewBox.width : 0;
+  const dy = rect.height ? ((event.clientY - dragState.startY) / rect.height) * dragState.originViewBox.height : 0;
+  zoomState.viewBox = {
+    ...dragState.originViewBox,
+    x: dragState.originViewBox.x - dx,
+    y: dragState.originViewBox.y - dy,
+  };
+  applyZoom();
+});
+
+window.addEventListener("pointerup", () => {
+  dragState.active = false;
+  dragState.originViewBox = null;
+  graphRoot.classList.remove("is-dragging");
 });
 
 renderButton.addEventListener("click", renderSpec);

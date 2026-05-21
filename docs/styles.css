@@ -263,6 +263,31 @@ body[data-theme="dark"] #render-button[data-tone="danger"] {
   overflow: hidden;
 }
 
+.graph-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.graph-tool {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.52);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  text-transform: lowercase;
+  cursor: pointer;
+}
+
+body[data-theme="dark"] .graph-tool {
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .graph-root {
   display: grid;
   place-items: center;
@@ -276,6 +301,7 @@ body[data-theme="dark"] #render-button[data-tone="danger"] {
   background-size: auto, 28px 28px, 28px 28px;
   border: 1px solid rgba(27, 31, 35, 0.065);
   padding: 24px;
+  cursor: grab;
 }
 
 body[data-theme="dark"] .graph-root {
@@ -289,6 +315,14 @@ body[data-theme="dark"] .graph-root {
 .graph-root svg {
   max-width: 100%;
   height: auto;
+}
+
+.graph-root.is-dragging {
+  cursor: grabbing;
+}
+
+.graph-root svg[data-zoomable="true"] {
+  max-width: 100%;
 }
 
 .graph-root .flowchart-link,
