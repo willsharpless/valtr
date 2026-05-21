@@ -5,6 +5,7 @@
 The DVG, or "Value tree", represents a coupled set of Bellman equations that may be solved in dependency order to ultimately solve the optimal Value associated with the loigical formula (the root node). See [paper](https://willsharpless.github.io/valdec-site/) for more.
 
 eg. 
+
 `valtr 'F target_a && F target_b && G (!walls)' --mermaid` -->
 ```mermaid
 %%{init: {"theme":"base","htmlLabels":true,"flowchart":{"padding":8},"themeVariables":{"background":"#FFFFFF00","fontFamily":"JetBrains Mono, Roboto Mono, Menlo, Consolas, monospace","edgeLabelBackground":"#FFFFFF","lineColor":"#2c3e50","defaultLinkColor":"#2c3e50"},"themeCSS":".edgeLabel rect { fill: #FFFFFF !important; stroke: #2c3e50 !important; stroke-width: 1px !important; rx: 999px; ry: 999px; } .edgeLabel span, .edgeLabel p { background: transparent !important; } .edgeLabel foreignObject { background: transparent !important; } .labelBkg { fill: #FFFFFF !important; } .flowchart-link, .edgePath path, .edge-thickness-normal, .edge-thickness-thick { stroke: #2c3e50 !important; stroke-width: 2.25px !important; fill: none !important; } .arrowheadPath { stroke: #2c3e50 !important; stroke-width: 2.25px !important; fill: #2c3e50 !important; } svg { background-color: transparent; }"}%%
@@ -24,6 +25,9 @@ flowchart LR
     n11@{ shape: rounded, label: "max" }
     n12@{ shape: rounded, label: "reach-avoid Value (n.12)" }
     n15@{ shape: braces, label: "leaf: predicate fn." }
+    n16@{ shape: braces, label: "" }
+    n17@{ shape: braces, label: "" }
+    n17@{ shape: braces, label: "" }
     n3 ==> n2
     n4 ==> n3
     n5 ==> n1
@@ -57,6 +61,8 @@ flowchart LR
     class n10 min;
     class n11 max;
     class n12 reachavoid;
+    class n17 hidden
+    class n16 hidden
     classDef const fill:#95a5a688,stroke:#95a5a6,color:#111111,stroke-width:5px,font-size:25px;
     classDef var fill:#FFFFFF88,stroke:#FFFFFF,color:#111111,stroke-width:5px,font-size:20px;
     classDef min fill:#E9E0C488,stroke:#E9E0C4,color:#FFFFFF,stroke-width:5px,font-size:15px;
@@ -67,6 +73,7 @@ flowchart LR
     classDef gu fill:#3AA65588,stroke:#3AA655,color:#111111,stroke-width:5px,font-size:25px;
     classDef gumin fill:#3AA65588,stroke:#3AA655,color:#111111,stroke-width:5px,font-size:25px;
     classDef negate fill:#B98EC888,stroke:#B98EC8,color:#FFFFFF,stroke-width:5px,font-size:15px;
+    classDef hidden display: none;
     style n12 stroke:#1B5B93,stroke-width:8px;
 ```
 
@@ -206,7 +213,7 @@ you can use the CLI in three ways:
 ```bash
 valtr 'F target_a && F target_b && G !wall'
 valtr 'F target_a && F target_b && G !wall' --plot
-valtr 'F target_a && F target_b && G !wall' --mermaid
+valtr 'F target_a && F target_b && G !wall' --mermaid --vertical
 ```
 
 - default output prints a colorized ASCII DAG in the terminal
