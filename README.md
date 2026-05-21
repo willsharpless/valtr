@@ -4,10 +4,10 @@
 
 The main workflow is:
 
-1. **Parse** a temporal logic formula, eg. `spec = "Fa && Fb && G!w"`
-2. **Lower** it to an intermediate representation (IR), akin to a temporal logic tree.
-3. **Pass** over the IR to convert it to a directed acyclic graph (DAG) via [Value decomposition rules](https://willsharpless.github.io/valdec-site/), ie. the DVG
-4. **Solve** the DVG/DAG to get the specification Value and optimal action/policy 
+1. **PARSE** a temporal logic formula, eg. `spec = "Fa && Fb && G!w"`
+2. **LOWER** it to an intermediate representation (IR), akin to a temporal logic tree.
+3. **PASS** over the IR to convert it via [decomposition rules](https://willsharpless.github.io/valdec-site/) to the DVG, a directed acyclic graph (DAG)
+4. **SOLVE** the DVG/DAG to get the specification Value and optimal action/policy 
 
 The final step can be done in multiple ways depending on the problem and desired accuracy:
 
