@@ -136,7 +136,7 @@ STYLE_BY_KEY = {
         "#B98EC8",
         mermaid_text="#FFFFFF",
         mermaid_shape="rounded",
-        mermaid_font_size="18px",
+        mermaid_font_size="15px",
         mermaid_stroke_width="5px",
     ),
 }
@@ -172,6 +172,32 @@ def node_style(node: DAGNode) -> DAGVizStyle:
     return STYLE_BY_KEY.get(node_style_key(node), DEFAULT_DAG_STYLE)
 
 
+# mermaid katex rendering is weak generally (fails in github)
+# def node_label_short(node: DAGNode) -> str:
+#     match node:
+#         case DAGConst(value=value):
+#             return f"Const {value}"
+#         case DAGVar(name=name):
+#             return f"Var '{name}'"
+#         case DAGNegate():
+#             return "$$-1$$"
+#         case DAGMinN() | DAGMinGuard():
+#             return "min"
+#         case DAGMaxN():
+#             return "max"
+#         case DAGReachAvoid():
+#             return "$$V_{RA}$$"
+#         case DAGReach():
+#             return "$$V_{R}$$"
+#         case DAGGUSingle():
+#             return "$$V_{{RA}_{\ell}}$$"
+#         case DAGGUMinN():
+#             return "min($$V_{{RA}_{\ell}}$$)"
+#         case DAGAvoid():
+#             return "$$V_{A}$$"
+#         case _:
+#             return type(node).__name__
+
 def node_label_short(node: DAGNode) -> str:
     match node:
         case DAGConst(value=value):
@@ -179,21 +205,21 @@ def node_label_short(node: DAGNode) -> str:
         case DAGVar(name=name):
             return f"Var '{name}'"
         case DAGNegate():
-            return "$$-1$$"
+            return "neg."
         case DAGMinN() | DAGMinGuard():
             return "min"
         case DAGMaxN():
             return "max"
         case DAGReachAvoid():
-            return "$$V_{RA}$$"
+            return "reach-avoid Value"
         case DAGReach():
-            return "$$V_{R}$$"
+            return "reach Value"
         case DAGGUSingle():
-            return "$$V_{{RA}_{\ell}}$$"
+            return "reach-avoid-loop Value"
         case DAGGUMinN():
-            return "min($$V_{{RA}_{\ell}}$$)"
+            return "min(reach-avoid-loop Value)"
         case DAGAvoid():
-            return "$$V_{A}$$"
+            return "avoid Value"
         case _:
             return type(node).__name__
 

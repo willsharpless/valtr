@@ -3,16 +3,16 @@ flowchart LR
     n0@{ shape: rectangle, label: "'target_a'" }
     n1@{ shape: rectangle, label: "'target_b'" }
     n2@{ shape: rectangle, label: "'walls'" }
-    n3@{ shape: rounded, label: "$$-1$$" }
-    n4@{ shape: rounded, label: "$$V_{A}$$ (n.4)" }
+    n3@{ shape: rounded, label: "neg." }
+    n4@{ shape: rounded, label: "avoid Value (n.4)" }
     n5@{ shape: rounded, label: "min" }
-    n6@{ shape: rounded, label: "$$V_{RA}$$ (n.6)" }
+    n6@{ shape: rounded, label: "reach-avoid Value (n.6)" }
     n7@{ shape: rounded, label: "min" }
     n8@{ shape: rounded, label: "min" }
-    n9@{ shape: rounded, label: "$$V_{RA}$$ (n.9)" }
+    n9@{ shape: rounded, label: "reach-avoid Value (n.9)" }
     n10@{ shape: rounded, label: "min" }
     n11@{ shape: rounded, label: "max" }
-    n12@{ shape: rounded, label: "$$V_{RA}$$ (n.12)" }
+    n12@{ shape: rounded, label: "reach-avoid Value (n.12)" }
     n3 --> n2
     n4 --> n3
     n5 --> n1
@@ -53,5 +53,5 @@ flowchart LR
     classDef reach fill:#1B5B9388,stroke:#1B5B93,color:#FFFFFF,stroke-width:5px,font-size:25px;
     classDef gu fill:#3AA65588,stroke:#3AA655,color:#111111,stroke-width:5px,font-size:25px;
     classDef gumin fill:#3AA65588,stroke:#3AA655,color:#111111,stroke-width:5px,font-size:25px;
-    classDef negate fill:#B98EC888,stroke:#B98EC8,color:#FFFFFF,stroke-width:5px,font-size:18px;
+    classDef negate fill:#B98EC888,stroke:#B98EC8,color:#FFFFFF,stroke-width:5px,font-size:15px;
     style n12 stroke:#1B5B93,stroke-width:8px;
