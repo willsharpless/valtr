@@ -2,6 +2,12 @@
 
 This folder is a static GitHub Pages app.
 
+When `src/valtr/` changes, rebuild the browser bundle before publishing:
+
+```bash
+python scripts/build_web_bundle.py
+```
+
 To publish it:
 
 1. Push this repo to GitHub.

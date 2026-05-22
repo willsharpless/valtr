@@ -285,11 +285,13 @@ body[data-theme="dark"] .examples-button {
 
 .help-row + .help-row {
   margin-top: 8px;
+  /* margin-bottom: 16px; */
 }
 
 .help-row code {
   font: inherit;
-  font-weight: 700;
+  font-weight: 1000;
+  font-size: 16px;
   color: var(--accent);
 }
 

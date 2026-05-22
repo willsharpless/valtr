@@ -17,26 +17,6 @@ const helpClose = document.getElementById("help-close");
 const examplesButton = document.getElementById("examples-button");
 const examplesDropdown = document.getElementById("examples-dropdown");
 
-const PY_FILES = [
-  "ipdb.py",
-  "loguru.py",
-  "runner.py",
-  "valtr/__init__.py",
-  "valtr/dag_mermaid.py",
-  "valtr/dag_passes.py",
-  "valtr/dag_viz_style.py",
-  "valtr/ir.py",
-  "valtr/ir_builder.py",
-  "valtr/ir_pass.py",
-  "valtr/ir_rewriter.py",
-  "valtr/lexer.py",
-  "valtr/lowering.py",
-  "valtr/reachability.py",
-  "valtr/tl_lexer.py",
-  "valtr/tl_parser.py",
-  "valtr/valtr.py",
-];
-
 let pyodideReady = null;
 let appState = {
   theme: localStorage.getItem("valtr-theme") || "light",
@@ -244,17 +224,14 @@ async function mountPythonSources(pyodide) {
   pyodide.FS.mkdirTree("/app");
   pyodide.FS.mkdirTree("/app/valtr");
 
-  const baseUrl = new URL("./py/", import.meta.url);
-  await Promise.all(
-    PY_FILES.map(async (relativePath) => {
-      const response = await fetch(new URL(relativePath, baseUrl));
-      if (!response.ok) {
-        throw new Error(`Failed to load ${relativePath}`);
-      }
-      const source = await response.text();
-      pyodide.FS.writeFile(`/app/${relativePath}`, source);
-    }),
-  );
+  const response = await fetch(new URL("./py/bundle.json", import.meta.url));
+  if (!response.ok) {
+    throw new Error("Failed to load Python bundle");
+  }
+  const bundle = await response.json();
+  for (const [relativePath, source] of Object.entries(bundle)) {
+    pyodide.FS.writeFile(`/app/${relativePath}`, source);
+  }
 }
 
 async function ensurePyodide() {
@@ -262,11 +239,6 @@ async function ensurePyodide() {
     pyodideReady = (async () => {
       setStatus("loading pyodide...");
       const pyodide = await loadPyodide();
-
-      setStatus("installing attrs...");
-      await pyodide.loadPackage("micropip");
-      const micropip = pyodide.pyimport("micropip");
-      await micropip.install("attrs");
 
       setStatus("mounting valtr...");
       await mountPythonSources(pyodide);
