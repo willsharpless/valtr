@@ -433,6 +433,16 @@ body[data-theme="dark"] .help-note {
   color: #dbc7e3;
 }
 
+.help-note-sharing {
+  background: rgba(27, 91, 147, 0.08);
+  color: #2d5f8d;
+}
+
+body[data-theme="dark"] .help-note-sharing {
+  background: rgba(184, 198, 216, 0.12);
+  color: #d8e2ee;
+}
+
 @media (max-width: 720px) {
   .help-columns {
     grid-template-columns: 1fr;
