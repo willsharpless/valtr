@@ -1,5 +1,6 @@
 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
 import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.mjs";
+import { Canvg } from "https://cdn.jsdelivr.net/npm/canvg@4/lib/esm/index.js";
 
 const specInput = document.getElementById("spec-input");
 const renderButton = document.getElementById("render-button");
@@ -262,36 +263,30 @@ async function svgToPngBlob(svg) {
   if (!source.includes('xmlns="http://www.w3.org/2000/svg"')) {
     source = source.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"');
   }
-  const blob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  try {
-    const image = new Image();
-    const rect = svg.getBoundingClientRect();
-    const width = Math.max(1, Math.ceil(rect.width));
-    const height = Math.max(1, Math.ceil(rect.height));
-    await new Promise((resolve, reject) => {
-      image.onload = resolve;
-      image.onerror = reject;
-      image.src = url;
-    });
-    const canvas = document.createElement("canvas");
-    canvas.width = width * 2;
-    canvas.height = height * 2;
-    const ctx = canvas.getContext("2d");
-    ctx.scale(2, 2);
-    ctx.drawImage(image, 0, 0, width, height);
-    return await new Promise((resolve, reject) =>
-      canvas.toBlob((pngBlob) => {
-        if (pngBlob) {
-          resolve(pngBlob);
-          return;
-        }
-        reject(new Error("PNG export failed."));
-      }, "image/png"),
-    );
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  const viewBox = svg.getAttribute("viewBox")?.split(/\s+/).map(Number);
+  const rect = svg.getBoundingClientRect();
+  const width = Math.max(1, Math.ceil(viewBox?.[2] || rect.width));
+  const height = Math.max(1, Math.ceil(viewBox?.[3] || rect.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = width * 2;
+  canvas.height = height * 2;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(2, 2);
+  const v = await Canvg.fromString(ctx, source, {
+    ignoreAnimation: true,
+    ignoreMouse: true,
+    enableRedraw: false,
+  });
+  await v.render();
+  return await new Promise((resolve, reject) =>
+    canvas.toBlob((pngBlob) => {
+      if (pngBlob) {
+        resolve(pngBlob);
+        return;
+      }
+      reject(new Error("PNG export failed."));
+    }, "image/png"),
+  );
 }
 
 async function copyPng() {
