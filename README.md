@@ -1,6 +1,6 @@
 # valtr
 
-`valtr` transforms a temporal logic task formula into a decomposed Value graph (DVG). 
+`valtr` transforms a temporal logic task formula into a decomposed Value graph (DVG). [Try it.](https://willsharpless.github.io/valtr/)
 
 The DVG, or "Value tree", represents a coupled set of Bellman equations that may be solved in dependency order to ultimately solve the optimal Value associated with the loigical formula (the root node). See [paper](https://willsharpless.github.io/valdec-site/) for more.
 
@@ -83,7 +83,6 @@ flowchart LR
     classDef hidden display: none;
     style n12 stroke:#1B5B93,stroke-width:8px;
 ```
-[Try it here](https://willsharpless.github.io/valtr/).
 
 The main workflow is:
 
@@ -97,17 +96,6 @@ The final step can be done in multiple ways depending on the problem and desired
 - *Exactly for small discrete systems* such as gridworlds, via Value iteration using [`dvi`](https://github.com/oswinso/discrete_vi/tree/master)
 - *Almost exactly for low-d continuous systems*, via HJ-PDE methods using [`hj_reachability`](https://github.com/StanfordASL/hj_reachability)
 - *Approximately for general systems*, via RL using [`vdppo`](https://github.com/willsharpless/vdppo) 
-
-## What Is Here
-
-- `src/valtr/valtr.py`: main logic-to-DAG entry points such as `to_dag(...)`
-- `src/valtr/solve_discrete.py`: discrete DAG solver built on top of `dvi`
-- `src/valtr/safety_filter.py`: safety filtering over solved discrete tasks
-- `src/valtr/control.py`, `src/valtr/solver_utils.py`: HJ-based continuous utilities
-- `scripts/dvi/`: discrete gridworld and safety-filter demos
-- `scripts/hj_reachability/`: HJ-based examples kept for the continuous workflow
-
-RL examples using `valtr` can be found in [`vdppo`](https://github.com/willsharpless/vdppo).
 
 ## Installation
 
@@ -133,19 +121,6 @@ Notes:
 - `.[hj]` installs the HJ stack used by the continuous examples.
 - `.[dvi]` installs the pinned `dvi` dependency from the `discrete_vi` repository together with the extra packages used by the discrete scripts.
 - Base installation now includes shared runtime dependencies such as `attrs`, `cyclopts`, `loguru`, and `tqdm`.
-
-## Core Idea
-
-The package takes formulas in the project temporal-logic syntax and lowers them through several stages:
-
-- lex / parse source text into an AST
-- lower the AST into a normalized IR
-- apply rewrite passes such as `Finally -> Until` and globally-segment combination
-- lower the IR into a DAG whose nodes represent operations like:
-  `DAGVar`, `DAGNegate`, `DAGMinN`, `DAGMaxN`, `DAGReach`, `DAGAvoid`, and `DAGReachAvoid`
-- solve those nodes in dependency order
-
-The result is a value function or policy-like object that can be used for rollout, analysis, and safety filtering.
 
 ## CLI Usage
 
@@ -204,7 +179,7 @@ python scripts/hj_reachability/rooms_dubins.py
 
 Some scripts require extra dependencies or local environment setup beyond what is declared in `pyproject.toml`.
 
-## Parsing Development
+## Parser Development
 
 Note, some complex logical formulae are difficult to parse and may yield incorrect temporal logic trees, causing `valtr` to error. In such situations, the public tool spot is useful for reducing [formulae](https://slebok.github.io/proverb/spot.html) to standard form. Note, this package is not massively tested and the authors welcome community contributions.
 
@@ -249,3 +224,16 @@ Windows:
 3. Open a new terminal and verify with `dot -V`
 
 The Mermaid export path does not need Graphviz. It simply writes a `.mmd` file that you can view in GitHub, Markdown tooling that supports Mermaid, or the Mermaid Live Editor.
+
+## Core Idea
+
+The package takes formulas in the project temporal-logic syntax and lowers them through several stages:
+
+- lex / parse source text into an AST
+- lower the AST into a normalized IR
+- apply rewrite passes such as `Finally -> Until` and globally-segment combination
+- lower the IR into a DAG whose nodes represent operations like:
+  `DAGVar`, `DAGNegate`, `DAGMinN`, `DAGMaxN`, `DAGReach`, `DAGAvoid`, and `DAGReachAvoid`
+- solve those nodes in dependency order
+
+The result is a value function or policy-like object that can be used for rollout, analysis, and safety filtering.
