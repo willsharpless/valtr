@@ -158,6 +158,13 @@ function themedMermaidCode(code) {
   return code.replaceAll(LIGHT_EDGE_COLOR, edgeColor).replaceAll(LIGHT_EDGE_COLOR.toUpperCase(), edgeColor);
 }
 
+function exportFriendlyMermaidCode(code) {
+  return themedMermaidCode(code)
+    .replace('"htmlLabels":true', '"htmlLabels":false')
+    .replace("Roboto Mono", "monospace")
+    .replace("JetBrains Mono", "monospace");
+}
+
 function currentSvg() {
   return graphRoot.querySelector("svg");
 }
@@ -288,11 +295,21 @@ async function svgToPngBlob(svg) {
 }
 
 async function copyPng() {
-  const svg = currentSvg();
-  if (!svg || !window.ClipboardItem) {
+  if (!currentMermaidSource || !window.ClipboardItem) {
     throw new Error("PNG clipboard copy is not supported in this browser.");
   }
-  const blob = await svgToPngBlob(svg);
+  const exportId = `valtr-export-${crypto.randomUUID()}`;
+  const { svg: exportSvgMarkup } = await mermaid.render(
+    exportId,
+    exportFriendlyMermaidCode(currentMermaidSource),
+  );
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = exportSvgMarkup;
+  const exportSvg = wrapper.querySelector("svg");
+  if (!exportSvg) {
+    throw new Error("PNG export failed.");
+  }
+  const blob = await svgToPngBlob(exportSvg);
   await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
   flashButton(copyPngButton, "copied");
 }
