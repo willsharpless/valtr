@@ -164,12 +164,6 @@ body[data-theme="dark"] {
   width: 100%;
 }
 
-body[data-layout="vertical"] .workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
-  align-items: start;
-}
-
 .composer,
 .viewer {
   display: block;
@@ -185,6 +179,31 @@ body[data-layout="vertical"] .workspace {
 
 .composer {
   padding: 18px;
+}
+
+.composer-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.composer-root {
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(247, 245, 242, 0.88), rgba(236, 232, 226, 0.78)),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(var(--grid-line) 1px, transparent 1px);
+  background-size: auto, 28px 28px, 28px 28px;
+  border: 1px solid rgba(27, 31, 35, 0.065);
+  padding: 24px;
+}
+
+body[data-theme="dark"] .composer-root {
+  background:
+    linear-gradient(180deg, rgba(31, 34, 39, 0.9), rgba(27, 30, 35, 0.82)),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(var(--grid-line) 1px, transparent 1px);
+  border-color: rgba(255, 255, 255, 0.34);
 }
 
 #spec-input {
@@ -207,9 +226,26 @@ body[data-layout="vertical"] .workspace {
 .composer-actions {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  margin-bottom: 14px;
+}
+
+.action-group {
+  display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 12px;
+  margin-left: auto;
+}
+
+.section-title {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  margin-left: 4px;
+  /* text-transform: lowercase; */
 }
 
 .examples-menu {
@@ -517,8 +553,9 @@ body[data-theme="dark"] #render-button[data-tone="danger"] {
 
 .graph-toolbar {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
   margin-bottom: 12px;
 }
 
@@ -581,7 +618,7 @@ body[data-theme="dark"] .graph-root {
 .graph-copybar {
   position: absolute;
   right: 42px;
-  top: 96px;
+  top: 90px;
   display: flex;
   gap: 8px;
 }
@@ -594,7 +631,7 @@ body[data-theme="dark"] .graph-root {
   background: rgba(255, 255, 255, 0.68);
   color: var(--muted);
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   line-height: 1;
   text-transform: lowercase;
@@ -684,11 +721,6 @@ body[data-theme="dark"] .graph-root .arrowMarkerPath {
   .page-shell {
     width: min(100vw - 20px, 100%);
     padding-top: 12px;
-  }
-
-  body[data-layout="vertical"] .workspace {
-    display: flex;
-    flex-direction: column;
   }
 
   .viewer,

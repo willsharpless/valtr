@@ -33,37 +33,47 @@
       </header>
 
       <main class="workspace">
+        <section class="composer">
+          <div class="composer-actions">
+            <div class="section-title">temporal logic</div>
+            <div class="action-group">
+              <div class="help-menu">
+                <button id="help-button" class="help-button" type="button" aria-haspopup="true" aria-expanded="false">
+                  help
+                </button>
+              </div>
+              <div class="examples-menu">
+                <button id="examples-button" class="examples-button" type="button" aria-haspopup="true" aria-expanded="false">
+                  examples
+                </button>
+                <div id="examples-dropdown" class="examples-dropdown" hidden></div>
+              </div>
+              <button id="render-button" type="button" aria-live="polite">booting pyodide</button>
+            </div>
+          </div>
+          <div class="composer-inner">
+            <label class="sr-only" for="spec-input">Specification</label>
+            <div class="composer-root">
+              <textarea id="spec-input" spellcheck="false">F target_a && F target_b && G !wall</textarea>
+            </div>
+          </div>
+          <pre id="error-output" class="error-output" hidden></pre>
+        </section>
+
         <section class="viewer">
           <div class="graph-toolbar" aria-label="Graph controls">
-            <button id="zoom-out" class="graph-tool" type="button" aria-label="Zoom out">-</button>
-            <button id="zoom-reset" class="graph-tool" type="button" aria-label="Reset zoom">reset</button>
-            <button id="zoom-in" class="graph-tool" type="button" aria-label="Zoom in">+</button>
+            <div class="section-title">decomposed Value graph</div>
+            <div class="action-group">
+              <button id="zoom-out" class="graph-tool" type="button" aria-label="Zoom out">-</button>
+              <button id="zoom-reset" class="graph-tool" type="button" aria-label="Reset zoom">reset</button>
+              <button id="zoom-in" class="graph-tool" type="button" aria-label="Zoom in">+</button>
+            </div>
           </div>
           <div id="graph-root" class="graph-root"></div>
           <div class="graph-copybar" aria-label="Copy graph">
             <button id="copy-markdown" class="graph-copy" type="button">⧉ md</button>
             <button id="copy-png" class="graph-copy" type="button">⧉ png</button>
           </div>
-        </section>
-
-        <section class="composer">
-          <label class="sr-only" for="spec-input">Specification</label>
-          <textarea id="spec-input" spellcheck="false">F target_a && F target_b && G !wall</textarea>
-          <div class="composer-actions">
-            <div class="help-menu">
-              <button id="help-button" class="help-button" type="button" aria-haspopup="true" aria-expanded="false">
-                help
-              </button>
-            </div>
-            <div class="examples-menu">
-              <button id="examples-button" class="examples-button" type="button" aria-haspopup="true" aria-expanded="false">
-                examples
-              </button>
-              <div id="examples-dropdown" class="examples-dropdown" hidden></div>
-            </div>
-            <button id="render-button" type="button" aria-live="polite">booting pyodide</button>
-          </div>
-          <pre id="error-output" class="error-output" hidden></pre>
         </section>
       </main>
     </div>

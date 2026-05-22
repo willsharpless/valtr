@@ -268,9 +268,10 @@ async function svgToPngBlob(svg) {
   const viewBox = svg.getAttribute("viewBox")?.split(/\s+/).map(Number);
   const width = Math.max(1, Math.ceil(viewBox?.[2] || Number(svg.getAttribute("width")) || 1200));
   const height = Math.max(1, Math.ceil(viewBox?.[3] || Number(svg.getAttribute("height")) || 800));
+  const exportScale = 3;
   const canvas = document.createElement("canvas");
-  canvas.width = width * 2;
-  canvas.height = height * 2;
+  canvas.width = width * exportScale;
+  canvas.height = height * exportScale;
   const ctx = canvas.getContext("2d");
   const image = new Image();
   image.decoding = "async";
@@ -279,7 +280,7 @@ async function svgToPngBlob(svg) {
     image.onload = resolve;
     image.onerror = reject;
   });
-  ctx.scale(2, 2);
+  ctx.scale(exportScale, exportScale);
   ctx.drawImage(image, 0, 0, width, height);
   return await new Promise((resolve, reject) =>
     canvas.toBlob((pngBlob) => {
