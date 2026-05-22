@@ -45,6 +45,7 @@ let dragState = {
   startY: 0,
   originViewBox: null,
 };
+const DEFAULT_SPEC = "F target_a && F target_b && G !wall";
 
 mermaid.initialize({
   startOnLoad: false,
@@ -59,6 +60,22 @@ function setStatus(message, tone = "muted") {
 
 function setBusy(isBusy) {
   renderButton.disabled = isBusy;
+}
+
+function specFromUrl() {
+  const url = new URL(window.location.href);
+  const spec = url.searchParams.get("spec");
+  return spec ? spec.replaceAll("-", " ").trim() : "";
+}
+
+function syncSpecToUrl(spec) {
+  const url = new URL(window.location.href);
+  if (!spec || spec === DEFAULT_SPEC) {
+    url.searchParams.delete("spec");
+  } else {
+    url.searchParams.set("spec", spec.replaceAll(" ", "-"));
+  }
+  window.history.replaceState({}, "", url);
 }
 
 function closeExamples() {
@@ -269,6 +286,7 @@ async function renderSpec() {
   if (!spec) {
     graphRoot.innerHTML = "";
     markGraphEmpty(true);
+    syncSpecToUrl("");
     return;
   }
 
@@ -285,6 +303,7 @@ runner.build_mermaid(${escaped}, vertical=${vertical})
     `);
 
     await renderMermaidCode(mermaidCode);
+    syncSpecToUrl(spec);
     setStatus("render", "ready");
   } catch (error) {
     setStatus("error", "danger");
@@ -410,6 +429,7 @@ specInput.addEventListener("keydown", (event) => {
 applyTheme(appState.theme);
 applyLayout(appState.layout);
 populateExamples();
+specInput.value = specFromUrl() || DEFAULT_SPEC;
 markGraphEmpty(true);
 setBusy(true);
 loadDefaultGraph()
