@@ -2,72 +2,48 @@
 flowchart LR
     n0@{ shape: rectangle, label: "'target_a'" }
     n1@{ shape: rectangle, label: "'target_b'" }
-    n2@{ shape: rectangle, label: "'recur_c'" }
-    n3@{ shape: rectangle, label: "'walls'" }
-    n4@{ shape: rounded, label: "neg." }
-    n5@{ shape: rounded, label: "avoid Value (n.5)" }
-    n6@{ shape: rounded, label: "min" }
-    n7@{ shape: rounded, label: "reach-avoid-loop Value (n.7)" }
-    n8@{ shape: rectangle, label: "'recur_d'" }
-    n9@{ shape: rounded, label: "min" }
-    n10@{ shape: rounded, label: "reach-avoid-loop Value (n.10)" }
-    n11@{ shape: rounded, label: "min-loop" }
-    n12@{ shape: rounded, label: "min" }
-    n13@{ shape: rounded, label: "reach-avoid Value (n.13)" }
-    n14@{ shape: rounded, label: "min" }
-    n15@{ shape: rounded, label: "min" }
-    n16@{ shape: rounded, label: "reach-avoid Value (n.16)" }
-    n17@{ shape: rounded, label: "min" }
-    n18@{ shape: rounded, label: "max" }
-    n19@{ shape: rounded, label: "reach-avoid Value (n.19)" }
+    n2@{ shape: rectangle, label: "'wall'" }
+    n3@{ shape: rounded, label: "neg." }
+    n4@{ shape: rounded, label: "avoid Value (n.4)" }
+    n5@{ shape: rounded, label: "min" }
+    n6@{ shape: rounded, label: "reach-avoid Value (n.6)" }
+    n7@{ shape: rounded, label: "min" }
+    n8@{ shape: rounded, label: "min" }
+    n9@{ shape: rounded, label: "reach-avoid Value (n.9)" }
+    n10@{ shape: rounded, label: "min" }
+    n11@{ shape: rounded, label: "max" }
+    n12@{ shape: rounded, label: "reach-avoid Value (n.12)" }
+    n3 ==> n2
     n4 ==> n3
+    n5 ==> n1
     n5 ==> n4
-    n6 ==> n2
-    n6 ==> n5
-    n7 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n6
-    n7 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n4
-    n9 ==> n5
-    n9 ==> n8
-    n10 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n9
-    n10 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n4
+    n6 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n5
+    n6 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n3
+    n7 ==> n0
+    n7 ==> n6
+    n8 ==> n0
+    n8 ==> n4
+    n9 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n8
+    n9 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n3
+    n10 ==> n1
+    n10 ==> n9
     n11 ==> n7
     n11 ==> n10
-    n12 ==> n1
-    n12 ==> n11
-    n13 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n12
-    n13 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n4
-    n14 ==> n0
-    n14 ==> n13
-    n15 ==> n0
-    n15 ==> n11
-    n16 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n15
-    n16 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n4
-    n17 ==> n1
-    n17 ==> n16
-    n18 ==> n14
-    n18 ==> n17
-    n19 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n18
-    n19 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n4
+    n12 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#FFFFFFF5;border:1px solid #86AECBF5;color:#4698E0 !important;opacity:1;">reach</span>| n11
+    n12 ==>|<span style="display:inline-block;padding:2px 6px;border-radius:999px;background:#F7DDDDF5;border:1px solid #D99898F5;color:#D95454 !important;opacity:1;">avoid</span>| n3
     class n0 var;
     class n1 var;
     class n2 var;
-    class n3 var;
-    class n4 negate;
-    class n5 avoid;
-    class n6 min;
-    class n7 gu;
-    class n8 var;
-    class n9 min;
-    class n10 gu;
-    class n11 gumin;
-    class n12 min;
-    class n13 reachavoid;
-    class n14 min;
-    class n15 min;
-    class n16 reachavoid;
-    class n17 min;
-    class n18 max;
-    class n19 reachavoid;
+    class n3 negate;
+    class n4 avoid;
+    class n5 min;
+    class n6 reachavoid;
+    class n7 min;
+    class n8 min;
+    class n9 reachavoid;
+    class n10 min;
+    class n11 max;
+    class n12 reachavoid;
     classDef const fill:#95a5a688,stroke:#95a5a6,color:#111111,stroke-width:5px,font-size:25px;
     classDef var fill:#FFFFFF88,stroke:#FFFFFF,color:#111111,stroke-width:5px,font-size:20px;
     classDef min fill:#E9E0C488,stroke:#E9E0C4,color:#FFFFFF,stroke-width:5px,font-size:15px;
@@ -78,4 +54,4 @@ flowchart LR
     classDef gu fill:#3AA65588,stroke:#3AA655,color:#111111,stroke-width:5px,font-size:25px;
     classDef gumin fill:#3AA65588,stroke:#3AA655,color:#111111,stroke-width:5px,font-size:15px;
     classDef negate fill:#B98EC888,stroke:#B98EC8,color:#FFFFFF,stroke-width:5px,font-size:15px;
-    style n19 stroke:#1B5B93,stroke-width:8px;
+    style n12 stroke:#1B5B93,stroke-width:8px;
