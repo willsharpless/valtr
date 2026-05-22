@@ -296,8 +296,8 @@ body[data-theme="dark"] .examples-button {
 
 .examples-dropdown {
   position: absolute;
-  right: calc(100% + 10px);
-  bottom: 0;
+  right: 0;
+  top: calc(100% + 10px);
   width: min(460px, 76vw);
   max-height: 320px;
   overflow: auto;
