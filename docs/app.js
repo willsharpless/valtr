@@ -260,15 +260,15 @@ async function mountPythonSources(pyodide) {
 async function ensurePyodide() {
   if (!pyodideReady) {
     pyodideReady = (async () => {
-      setStatus("loading pyodide");
+      setStatus("loading pyodide...");
       const pyodide = await loadPyodide();
 
-      setStatus("installing attrs");
+      setStatus("installing attrs...");
       await pyodide.loadPackage("micropip");
       const micropip = pyodide.pyimport("micropip");
       await micropip.install("attrs");
 
-      setStatus("mounting valtr");
+      setStatus("mounting valtr...");
       await mountPythonSources(pyodide);
 
       pyodide.runPython(`
