@@ -15,7 +15,7 @@
   <body>
     <div class="page-shell">
       <header class="topbar" aria-label="Site header">
-        <div class="brand">valtr</div>
+        <div class="brand">valtr <span class="brand-sub">sandbox</span></div>
         <nav class="topnav" aria-label="External links">
           <div class="mode-controls" aria-label="Display controls">
             <button id="theme-toggle" class="mode-toggle" type="button" aria-label="Toggle light or dark theme">
@@ -46,6 +46,12 @@
           <label class="sr-only" for="spec-input">Specification</label>
           <textarea id="spec-input" spellcheck="false">F target_a && F target_b && G !wall</textarea>
           <div class="composer-actions">
+            <div class="examples-menu">
+              <button id="examples-button" class="examples-button" type="button" aria-haspopup="true" aria-expanded="false">
+                examples
+              </button>
+              <div id="examples-dropdown" class="examples-dropdown" hidden></div>
+            </div>
             <button id="render-button" type="button" aria-live="polite">booting pyodide</button>
           </div>
           <pre id="error-output" class="error-output" hidden></pre>

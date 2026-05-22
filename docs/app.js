@@ -10,6 +10,8 @@ const layoutToggle = document.getElementById("layout-toggle");
 const zoomInButton = document.getElementById("zoom-in");
 const zoomOutButton = document.getElementById("zoom-out");
 const zoomResetButton = document.getElementById("zoom-reset");
+const examplesButton = document.getElementById("examples-button");
+const examplesDropdown = document.getElementById("examples-dropdown");
 
 const PY_FILES = [
   "ipdb.py",
@@ -38,6 +40,14 @@ let appState = {
 };
 const LIGHT_EDGE_COLOR = "#2c3e50";
 const DARK_EDGE_COLOR = "#eef3fb";
+const EXAMPLES = [
+  { tag: "RRAA", spec: "F target_a && F target_b && G !wall" },
+  { tag: "N-RA-A", spec: "F target_a && F target_b && (!door U key) && G !wall" },
+  { tag: "N-RA-L", spec: "G (F site_a && F battery) && F G worksite && (!worksite U gear)" },
+  { tag: "herding", spec: "G !collide && F (r0 && F r1) && F G herded" },
+  { tag: "delivery", spec: "G( F reach1 && F reach2 && F resupply1 && F resupply2) && G !aerial_collision && G !obstacle && G !no_fly_zone" },
+  { tag: "general", spec: "F target_a && F target_b && G (F site_a && F site_b) && F G base && G !obstacle" },
+];
 let zoomState = {
   scale: 1,
   minScale: 0.45,
@@ -67,6 +77,16 @@ function setBusy(isBusy) {
   renderButton.disabled = isBusy;
 }
 
+function closeExamples() {
+  examplesDropdown.hidden = true;
+  examplesButton.setAttribute("aria-expanded", "false");
+}
+
+function openExamples() {
+  examplesDropdown.hidden = false;
+  examplesButton.setAttribute("aria-expanded", "true");
+}
+
 function showError(message) {
   errorOutput.hidden = false;
   errorOutput.textContent = message;
@@ -79,6 +99,22 @@ function clearError() {
 
 function markGraphEmpty(isEmpty) {
   graphRoot.classList.toggle("is-empty", isEmpty);
+}
+
+function populateExamples() {
+  examplesDropdown.innerHTML = "";
+  for (const example of EXAMPLES) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "example-option";
+    button.textContent = example.tag;
+    button.addEventListener("click", async () => {
+      specInput.value = example.spec;
+      closeExamples();
+      await renderSpec();
+    });
+    examplesDropdown.appendChild(button);
+  }
 }
 
 function applyTheme(theme) {
@@ -302,6 +338,13 @@ layoutToggle.addEventListener("click", async () => {
 zoomInButton.addEventListener("click", () => nudgeZoom(0.18));
 zoomOutButton.addEventListener("click", () => nudgeZoom(-0.18));
 zoomResetButton.addEventListener("click", () => resetZoom());
+examplesButton.addEventListener("click", () => {
+  if (examplesDropdown.hidden) {
+    openExamples();
+  } else {
+    closeExamples();
+  }
+});
 
 graphRoot.addEventListener(
   "wheel",
@@ -352,6 +395,12 @@ window.addEventListener("pointerup", () => {
   graphRoot.classList.remove("is-dragging");
 });
 
+document.addEventListener("click", (event) => {
+  if (!examplesDropdown.contains(event.target) && !examplesButton.contains(event.target)) {
+    closeExamples();
+  }
+});
+
 renderButton.addEventListener("click", renderSpec);
 specInput.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -362,6 +411,7 @@ specInput.addEventListener("keydown", (event) => {
 
 applyTheme(appState.theme);
 applyLayout(appState.layout);
+populateExamples();
 markGraphEmpty(true);
 setBusy(true);
 loadDefaultGraph()

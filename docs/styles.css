@@ -76,6 +76,14 @@ body[data-theme="dark"] {
   text-transform: lowercase;
 }
 
+.brand-sub {
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  vertical-align: bottom;
+  opacity: 0.1;
+}
+
 .topnav {
   display: flex;
   align-items: center;
@@ -198,8 +206,69 @@ body[data-layout="vertical"] .workspace {
 
 .composer-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 10px;
   margin-top: 12px;
+}
+
+.examples-menu {
+  position: relative;
+}
+
+.examples-button {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  text-transform: lowercase;
+  cursor: pointer;
+}
+
+body[data-theme="dark"] .examples-button {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+}
+
+.examples-dropdown {
+  position: absolute;
+  right: calc(100% + 10px);
+  bottom: 0;
+  width: min(460px, 76vw);
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--shadow);
+  z-index: 20;
+}
+
+.example-option {
+  width: 100%;
+  display: block;
+  appearance: none;
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.example-option:hover {
+  background: rgba(27, 91, 147, 0.08);
 }
 
 #render-button {
