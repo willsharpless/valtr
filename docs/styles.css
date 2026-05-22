@@ -178,6 +178,8 @@ body[data-theme="dark"] {
 }
 
 .composer {
+  position: relative;
+  z-index: 2;
   padding: 18px;
 }
 
@@ -307,7 +309,7 @@ body[data-theme="dark"] .examples-button {
   background: var(--panel);
   backdrop-filter: blur(18px);
   box-shadow: var(--shadow);
-  z-index: 20;
+  z-index: 40;
 }
 
 .help-row {
