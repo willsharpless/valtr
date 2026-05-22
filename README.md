@@ -1,6 +1,6 @@
 # valtr
 
-`valtr` transforms a temporal logic task formula into a decomposed Value graph (DVG). 
+`valtr` transforms a temporal logic task formula into a decomposed Value graph (DVG). [Try it here.](https://willsharpless.github.io/valtr/)
 
 The DVG, or "Value tree", represents a coupled set of Bellman equations that may be solved in dependency order to ultimately solve the optimal Value associated with the loigical formula (the root node). See [paper](https://willsharpless.github.io/valdec-site/) for more.
 
@@ -83,7 +83,6 @@ flowchart LR
     classDef hidden display: none;
     style n12 stroke:#1B5B93,stroke-width:8px;
 ```
-[Try it here](https://willsharpless.github.io/valtr/).
 
 The main workflow is:
 
