@@ -16,6 +16,8 @@ const helpScrim = document.getElementById("help-scrim");
 const helpClose = document.getElementById("help-close");
 const examplesButton = document.getElementById("examples-button");
 const examplesDropdown = document.getElementById("examples-dropdown");
+const copyMarkdownButton = document.getElementById("copy-markdown");
+const copyPngButton = document.getElementById("copy-png");
 
 let pyodideReady = null;
 let appState = {
@@ -46,6 +48,7 @@ let dragState = {
   originViewBox: null,
 };
 const DEFAULT_SPEC = "F target_a && F target_b && G !wall";
+let currentMermaidSource = "";
 
 mermaid.initialize({
   startOnLoad: false,
@@ -60,6 +63,14 @@ function setStatus(message, tone = "muted") {
 
 function setBusy(isBusy) {
   renderButton.disabled = isBusy;
+}
+
+function flashButton(button, text) {
+  const original = button.textContent;
+  button.textContent = text;
+  window.setTimeout(() => {
+    button.textContent = original;
+  }, 900);
 }
 
 function specFromUrl() {
@@ -219,11 +230,57 @@ function installZoomHandlers() {
 }
 
 async function renderMermaidCode(code) {
+  currentMermaidSource = code;
   const renderId = `valtr-graph-${crypto.randomUUID()}`;
   const { svg } = await mermaid.render(renderId, themedMermaidCode(code));
   graphRoot.innerHTML = svg;
   markGraphEmpty(false);
   installZoomHandlers();
+}
+
+async function copyMarkdown() {
+  if (!currentMermaidSource) {
+    return;
+  }
+  const markdown = ["```mermaid", currentMermaidSource.trim(), "```"].join("\n");
+  await navigator.clipboard.writeText(markdown);
+  flashButton(copyMarkdownButton, "copied");
+}
+
+async function svgToPngBlob(svg) {
+  const source = new XMLSerializer().serializeToString(svg);
+  const blob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  try {
+    const image = new Image();
+    const rect = svg.getBoundingClientRect();
+    const width = Math.max(1, Math.ceil(rect.width));
+    const height = Math.max(1, Math.ceil(rect.height));
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = reject;
+      image.src = url;
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = width * 2;
+    canvas.height = height * 2;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(2, 2);
+    ctx.drawImage(image, 0, 0, width, height);
+    return await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function copyPng() {
+  const svg = currentSvg();
+  if (!svg || !window.ClipboardItem) {
+    throw new Error("PNG clipboard copy is not supported in this browser.");
+  }
+  const blob = await svgToPngBlob(svg);
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+  flashButton(copyPngButton, "copied");
 }
 
 async function loadDefaultGraph() {
@@ -362,6 +419,16 @@ helpButton.addEventListener("click", () => {
 });
 helpClose.addEventListener("click", closeHelp);
 helpScrim.addEventListener("click", closeHelp);
+copyMarkdownButton.addEventListener("click", () => {
+  copyMarkdown().catch((error) => {
+    showError(error?.message || String(error));
+  });
+});
+copyPngButton.addEventListener("click", () => {
+  copyPng().catch((error) => {
+    showError(error?.message || String(error));
+  });
+});
 
 graphRoot.addEventListener(
   "wheel",

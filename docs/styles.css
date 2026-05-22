@@ -510,6 +510,7 @@ body[data-theme="dark"] #render-button[data-tone="danger"] {
 .viewer {
   width: 100%;
   min-height: 68vh;
+  position: relative;
   padding: 24px;
   overflow: hidden;
 }
@@ -574,6 +575,33 @@ body[data-theme="dark"] .graph-root {
 
 .graph-root svg[data-zoomable="true"] {
   max-width: 100%;
+}
+
+.graph-copybar {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  gap: 8px;
+}
+
+.graph-copy {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.68);
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+  text-transform: lowercase;
+  cursor: pointer;
+}
+
+body[data-theme="dark"] .graph-copy {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
 }
 
 .graph-root .flowchart-link,
