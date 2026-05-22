@@ -345,22 +345,60 @@ body[data-theme="dark"] .help-scrim {
 }
 
 .help-title {
-  margin: 0 0 16px;
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: lowercase;
+  margin: 0 0 10px;
+  font-size: 24px;
+  font-weight: 2000;
+  letter-spacing: 0.1em;
+  color: rgb(4, 27, 48);
 }
 
 .help-content {
   display: grid;
-  gap: 10px;
+  gap: 18px;
+}
+
+.help-section {
+  display: grid;
+  gap: 12px;
 }
 
 .help-intro {
-  margin: 0 0 4px;
+  margin: 0;
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.62;
+}
+
+.help-heading {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 2000;
+  letter-spacing: 0.1em;
+  text-transform: lowercase;
+  color: rgb(4, 27, 48);
+}
+
+.help-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 20px;
+}
+
+.help-column {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.help-card {
+  padding: 14px 16px;
+  border: 1px solid rgba(27, 91, 147, 0.12);
+  border-radius: 18px;
+  background: rgba(27, 91, 147, 0.08);
+}
+
+body[data-theme="dark"] .help-card {
+  border-color: rgba(184, 198, 216, 0.18);
+  background: rgba(184, 198, 216, 0.08);
 }
 
 .example-option {
@@ -378,6 +416,27 @@ body[data-theme="dark"] .help-scrim {
   font-weight: 700;
   line-height: 1.5;
   cursor: pointer;
+}
+
+.help-note {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(185, 142, 200, 0.08);
+  color: #7a5a86;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+body[data-theme="dark"] .help-note {
+  background: rgba(185, 142, 200, 0.12);
+  color: #dbc7e3;
+}
+
+@media (max-width: 720px) {
+  .help-columns {
+    grid-template-columns: 1fr;
+  }
 }
 
 .example-option:hover {
