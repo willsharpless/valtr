@@ -734,4 +734,12 @@ body[data-theme="dark"] .graph-root .arrowMarkerPath {
     align-items: flex-start;
     flex-wrap: wrap;
   }
+
+  .help-button,
+  .examples-button,
+  #render-button {
+    padding: 6px 7px;
+    font-size: 6px;
+    border-radius: 7px;
+  }
 }
