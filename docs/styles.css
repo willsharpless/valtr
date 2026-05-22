@@ -580,8 +580,8 @@ body[data-theme="dark"] .graph-root {
 
 .graph-copybar {
   position: absolute;
-  right: 44px;
-  bottom: 44px;
+  right: 72px;
+  bottom: 72px;
   display: flex;
   gap: 8px;
 }
@@ -590,11 +590,11 @@ body[data-theme="dark"] .graph-root {
   appearance: none;
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 22px 32px;
+  padding: 11px 16px;
   background: rgba(255, 255, 255, 0.68);
   color: var(--muted);
   font: inherit;
-  font-size: 24px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
   text-transform: lowercase;
