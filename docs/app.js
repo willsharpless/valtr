@@ -248,7 +248,14 @@ async function copyMarkdown() {
 }
 
 async function svgToPngBlob(svg) {
-  const source = new XMLSerializer().serializeToString(svg);
+  let source = new XMLSerializer().serializeToString(svg);
+  source = source
+    .replaceAll("Roboto Mono", "monospace")
+    .replaceAll("JetBrains Mono", "monospace")
+    .replaceAll("foreignObject", "g");
+  if (!source.includes('xmlns="http://www.w3.org/2000/svg"')) {
+    source = source.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"');
+  }
   const blob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   try {
@@ -267,7 +274,15 @@ async function svgToPngBlob(svg) {
     const ctx = canvas.getContext("2d");
     ctx.scale(2, 2);
     ctx.drawImage(image, 0, 0, width, height);
-    return await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    return await new Promise((resolve, reject) =>
+      canvas.toBlob((pngBlob) => {
+        if (pngBlob) {
+          resolve(pngBlob);
+          return;
+        }
+        reject(new Error("PNG export failed."));
+      }, "image/png"),
+    );
   } finally {
     URL.revokeObjectURL(url);
   }
