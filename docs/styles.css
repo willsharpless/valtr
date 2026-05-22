@@ -216,6 +216,30 @@ body[data-layout="vertical"] .workspace {
   position: relative;
 }
 
+.help-menu {
+  position: relative;
+}
+
+.help-button {
+  appearance: none;
+  border: 1px solid rgba(27, 91, 147, 0.22);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: rgba(27, 91, 147, 0.12);
+  color: rgba(27, 91, 147, 0.96);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: lowercase;
+  cursor: pointer;
+}
+
+body[data-theme="dark"] .help-button {
+  border-color: rgba(184, 198, 216, 0.28);
+  background: rgba(184, 198, 216, 0.08);
+  color: var(--accent);
+}
+
 .examples-button {
   appearance: none;
   border: 1px solid var(--line);
@@ -248,6 +272,93 @@ body[data-theme="dark"] .examples-button {
   backdrop-filter: blur(18px);
   box-shadow: var(--shadow);
   z-index: 20;
+}
+
+.help-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.help-row + .help-row {
+  margin-top: 8px;
+}
+
+.help-row code {
+  font: inherit;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.help-modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 100;
+}
+
+.help-modal[hidden] {
+  display: none !important;
+}
+
+.help-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+body[data-theme="dark"] .help-scrim {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.help-dialog {
+  position: relative;
+  width: min(720px, calc(100vw - 40px));
+  max-height: calc(100vh - 60px);
+  overflow: auto;
+  padding: 28px 28px 24px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background: var(--panel);
+  backdrop-filter: blur(22px);
+  box-shadow: var(--shadow);
+}
+
+.help-close {
+  appearance: none;
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.help-title {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: lowercase;
+}
+
+.help-content {
+  display: grid;
+  gap: 10px;
+}
+
+.help-intro {
+  margin: 0 0 4px;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .example-option {

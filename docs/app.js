@@ -10,6 +10,10 @@ const layoutToggle = document.getElementById("layout-toggle");
 const zoomInButton = document.getElementById("zoom-in");
 const zoomOutButton = document.getElementById("zoom-out");
 const zoomResetButton = document.getElementById("zoom-reset");
+const helpButton = document.getElementById("help-button");
+const helpModal = document.getElementById("help-modal");
+const helpScrim = document.getElementById("help-scrim");
+const helpClose = document.getElementById("help-close");
 const examplesButton = document.getElementById("examples-button");
 const examplesDropdown = document.getElementById("examples-dropdown");
 
@@ -82,9 +86,19 @@ function closeExamples() {
   examplesButton.setAttribute("aria-expanded", "false");
 }
 
+function closeHelp() {
+  helpModal.hidden = true;
+  helpButton.setAttribute("aria-expanded", "false");
+}
+
 function openExamples() {
   examplesDropdown.hidden = false;
   examplesButton.setAttribute("aria-expanded", "true");
+}
+
+function openHelp() {
+  helpModal.hidden = false;
+  helpButton.setAttribute("aria-expanded", "true");
 }
 
 function showError(message) {
@@ -339,12 +353,24 @@ zoomInButton.addEventListener("click", () => nudgeZoom(0.18));
 zoomOutButton.addEventListener("click", () => nudgeZoom(-0.18));
 zoomResetButton.addEventListener("click", () => resetZoom());
 examplesButton.addEventListener("click", () => {
+  closeHelp();
   if (examplesDropdown.hidden) {
     openExamples();
   } else {
     closeExamples();
   }
 });
+
+helpButton.addEventListener("click", () => {
+  closeExamples();
+  if (helpModal.hidden) {
+    openHelp();
+  } else {
+    closeHelp();
+  }
+});
+helpClose.addEventListener("click", closeHelp);
+helpScrim.addEventListener("click", closeHelp);
 
 graphRoot.addEventListener(
   "wheel",
