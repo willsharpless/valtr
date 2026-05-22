@@ -251,8 +251,7 @@ async function svgToPngBlob(svg) {
   let source = new XMLSerializer().serializeToString(svg);
   source = source
     .replaceAll("Roboto Mono", "monospace")
-    .replaceAll("JetBrains Mono", "monospace")
-    .replaceAll("foreignObject", "g");
+    .replaceAll("JetBrains Mono", "monospace");
   if (!source.includes('xmlns="http://www.w3.org/2000/svg"')) {
     source = source.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"');
   }

@@ -580,8 +580,8 @@ body[data-theme="dark"] .graph-root {
 
 .graph-copybar {
   position: absolute;
-  right: 58px;
-  top: 58px;
+  right: 42px;
+  top: 72px;
   display: flex;
   gap: 8px;
 }
