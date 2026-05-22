@@ -17,7 +17,7 @@ const helpClose = document.getElementById("help-close");
 const examplesButton = document.getElementById("examples-button");
 const examplesDropdown = document.getElementById("examples-dropdown");
 const copyMarkdownButton = document.getElementById("copy-markdown");
-const downloadSvgButton = document.getElementById("download-svg");
+const copyPngButton = document.getElementById("copy-png");
 
 let pyodideReady = null;
 let appState = {
@@ -263,21 +263,50 @@ function serializedSvg(svg) {
   return source;
 }
 
-function downloadSvg() {
-  const svg = currentSvg();
-  if (!svg) {
-    return;
+async function svgToPngBlob(svg) {
+  const source = serializedSvg(svg);
+  const viewBox = svg.getAttribute("viewBox")?.split(/\s+/).map(Number);
+  const width = Math.max(1, Math.ceil(viewBox?.[2] || Number(svg.getAttribute("width")) || 1200));
+  const height = Math.max(1, Math.ceil(viewBox?.[3] || Number(svg.getAttribute("height")) || 800));
+  const canvas = document.createElement("canvas");
+  canvas.width = width * 2;
+  canvas.height = height * 2;
+  const ctx = canvas.getContext("2d");
+  const image = new Image();
+  image.decoding = "async";
+  image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(source)}`;
+  await new Promise((resolve, reject) => {
+    image.onload = resolve;
+    image.onerror = reject;
+  });
+  ctx.scale(2, 2);
+  ctx.drawImage(image, 0, 0, width, height);
+  return await new Promise((resolve, reject) =>
+    canvas.toBlob((pngBlob) => {
+      if (pngBlob) {
+        resolve(pngBlob);
+        return;
+      }
+      reject(new Error("PNG export failed."));
+    }, "image/png"),
+  );
+}
+
+async function copyPng() {
+  if (!currentMermaidSource || !window.ClipboardItem) {
+    throw new Error("PNG clipboard copy is not supported in this browser.");
   }
-  const blob = new Blob([serializedSvg(svg)], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = "valtr-graph.svg";
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-  flashButton(downloadSvgButton, "saved");
+  const exportId = `valtr-export-${crypto.randomUUID()}`;
+  const { svg: exportSvgMarkup } = await mermaid.render(exportId, exportFriendlyMermaidCode(currentMermaidSource));
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = exportSvgMarkup;
+  const exportSvg = wrapper.querySelector("svg");
+  if (!exportSvg) {
+    throw new Error("PNG export failed.");
+  }
+  const blob = await svgToPngBlob(exportSvg);
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+  flashButton(copyPngButton, "copied");
 }
 
 async function loadDefaultGraph() {
@@ -421,7 +450,11 @@ copyMarkdownButton.addEventListener("click", () => {
     showError(error?.message || String(error));
   });
 });
-downloadSvgButton.addEventListener("click", downloadSvg);
+copyPngButton.addEventListener("click", () => {
+  copyPng().catch((error) => {
+    showError(error?.message || String(error));
+  });
+});
 
 graphRoot.addEventListener(
   "wheel",
